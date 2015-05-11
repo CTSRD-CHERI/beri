@@ -1,0 +1,6 @@
+*.hex
+*.dump
+mem.bin
+simboot.mem
+simboot.elf
+*kernel

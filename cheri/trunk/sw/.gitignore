@@ -1,0 +1,5 @@
+*.elf
+*.hex
+*.dump
+*.bin
+test.s

@@ -1,0 +1,5 @@
+The FPU has gone through a number of main changes in its life.
+
+The most important of these is the switch from using verilog megafunctions to
+Bluespec floating point units. The last revision with verilog megafunctions is
+7558.

@@ -1,0 +1,65 @@
+/*-
+ * Copyright (c) 2013 Colin Rothwell
+ * All rights reserved.
+ *
+ * This software was developed by Colin Rothwell as part of his final year
+ * undergraduate project.
+ *
+ * @BERI_LICENSE_HEADER_START@
+ *
+ * Licensed to BERI Open Systems C.I.C. (BERI) under one or more contributor
+ * license agreements.  See the NOTICE file distributed with this work for
+ * additional information regarding copyright ownership.  BERI licenses this
+ * file to you under the BERI Hardware-Software License, Version 1.0 (the
+ * "License"); you may not use this file except in compliance with the
+ * License.  You may obtain a copy of the License at:
+ *
+ *   http://www.beri-open-systems.org/legal/license-1-0.txt
+ *
+ * Unless required by applicable law or agreed to in writing, Work distributed
+ * under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * @BERI_LICENSE_HEADER_END@
+ */
+
+#ifndef MIPSMATH_H
+#define MIPSMATH_H
+
+extern const float PI;
+
+#ifdef MIPS
+
+#define MONADIC_OP(NAME, OP) \
+    static inline float NAME(float input) { \
+        float result; \
+        asm(#OP " %0, %1" : "=f"(result) : "f"(input)); \
+        return result; \
+    }
+
+MONADIC_OP(absf, abs.s)
+MONADIC_OP(sqrtf, sqrt.s)
+//MONADIC_OP(rsqrtf, rsqrt.s)
+//MONADIC_OP(recipf, recip.s)
+
+static inline float recipf(float x) { return 1.f / x; }
+static inline float rsqrtf(float x) { return recipf(sqrtf(x)); }
+
+#else
+
+#include <math.h>
+
+static inline float absf(float x) { return fabs(x); }
+static inline float recipf(float x) { return 1.f / x; }
+static inline float rsqrtf(float x) { return recipf(sqrtf(x)); }
+
+#endif
+
+void testforloop();
+void testmipsmath();
+
+float cheriSinf(float x);
+float cheriCosf(float x);
+
+#endif

@@ -1,0 +1,101 @@
+#-
+# Copyright (c) 2012 Philip Paeps
+# Copyright (c) 2012 Robert N. M. Watson
+# Copyright (c) 2014 Colin Rothwell
+# Copyright (c) 2014 Alexandre Joannou
+# All rights reserved.
+#
+# This software was developed by SRI International and the University of
+# Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+# ("CTSRD"), as part of the DARPA CRASH research programme.
+#
+# @BERI_LICENSE_HEADER_START@
+#
+# Licensed to BERI Open Systems C.I.C. (BERI) under one or more contributor
+# license agreements.  See the NOTICE file distributed with this work for
+# additional information regarding copyright ownership.  BERI licenses this
+# file to you under the BERI Hardware-Software License, Version 1.0 (the
+# "License"); you may not use this file except in compliance with the
+# License.  You may obtain a copy of the License at:
+#
+#   http://www.beri-open-systems.org/legal/license-1-0.txt
+#
+# Unless required by applicable law or agreed to in writing, Work distributed
+# under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+# CONDITIONS OF ANY KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations under the License.
+#
+# @BERI_LICENSE_HEADER_END@
+#
+
+# Default cheri configuration.
+
+module ../../cherilibs/trunk/peripherals/dram.so
+module ../../cherilibs/trunk/peripherals/ethercap.so
+module ../../cherilibs/trunk/peripherals/uart.so
+module ../../cherilibs/trunk/peripherals/fb.so
+
+device "dram0" {
+	class dram;
+	addr 0x0;
+	length 0x40000000;
+};
+
+ifdef "CHERI_KERNEL" device "kernel" {
+	class dram;
+	addr 0x100000;
+	length 0xff00000;
+	option path getenv "CHERI_KERNEL";
+	option type "mmap";
+	option cow "yes";
+};
+
+ifdef "TPAD_FRAMEBUFFER" device "framebuffer0" {
+	class framebuffer;
+	addr 0x04000000;
+	length 0x01000020;
+	option lazy "yes";
+}
+
+ifdef "CHERI_SDCARD" device "sdcard0" {
+	class sdcard;
+	addr 0x7f008000;
+	length 0x400;
+	option path getenv "CHERI_SDCARD";
+	option readonly "yes";
+};
+
+#
+# If CHERI_CONSOLE_SOCKET is defined, use a local domain socket as specified
+# by the environmental variable.  Otherwise, use stdio.
+#
+ifndef "CHERI_CONSOLE_SOCKET" device "uart0" {
+	class uart;
+	addr 0x7f000000;
+	length 0x20;
+	irq 0;
+	option type "stdio";
+}
+
+ifdef "CHERI_CONSOLE_SOCKET" device "uart0" {
+	class uart;
+	addr 0x7f000000;
+	length 0x20;
+	irq 0;
+	option type "socket";
+	option path getenv "CHERI_CONSOLE_SOCKET";
+}
+
+device "uart1" {
+	class uart;
+	addr 0x7f001000;
+	length 0x20;
+	option type "null";
+};
+
+device "uart2" {
+	class uart;
+	addr 0x7f002000;
+	length 0x20;
+	option type "null";
+}

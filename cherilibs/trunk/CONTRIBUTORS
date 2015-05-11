@@ -1,0 +1,37 @@
+We gratefully acknowledge the following individuals for their contributions to
+the CHERI library and peripheral implementation (in rough order of earliest
+contribution):
+
+  Gregory A. Chadwick
+  Jonathan Woodruff
+  Nirav Dave
+  Philip Paeps
+  Robert N. M. Watson
+  Robert M. Norton
+  Simon W. Moore
+  Brooks Davis
+  Asif Khan
+  Ben Thorner
+  David T. Chisnall
+  Michael Roe
+  Nirav Dave
+  Wojciech A. Koszek
+  Alan A. Mujumdar
+  Bjoern A. Zeeb
+  Philip Withnall
+  Colin Rothwell
+  Theo Markettos
+  Jonathan Anderson
+  Alex Horsman
+  Jong Hun Han
+  Alexandre Joannou
+  David Brazdil
+  Matthew Naylor
+  Joe Stoy
+
+We gratefully acknowledge the following institutional contributors:
+
+  University of Cambridge
+  SRI International
+  BERI Open Systems C.I.C.
+  Bluespec, Inc.

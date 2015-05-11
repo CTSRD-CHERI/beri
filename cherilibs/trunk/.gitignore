@@ -1,0 +1,8 @@
+*.o
+*.bo
+*.cxx
+*.h
+mkTestBRAMLCircularBufferF
+schedule.*
+mkTestBRAMCircularBuffer
+*.sched

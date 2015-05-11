@@ -1,0 +1,3 @@
+#09fb:6001 
+SUBSYSTEM=="usb", ATTR{idVendor}=="09fb", ATTR{idProduct}=="6001", MODE="0777", SYMLINK="altera", RUN=="/usr/share/altera/altera.sh"
+

@@ -1,0 +1,16 @@
+VERILOGDEST=../qsys_ip/TERASIC_ISP1761
+SRC=ISP1761_IF
+
+all: $(VERILOGDEST)/$(SRC).v $(VERILOGDEST)/$(SRC)_hw.tcl
+
+$(VERILOGDEST)/$(SRC).v: $(SRC).v $(VERILOGDEST)
+	cp $(SRC).v $(VERILOGDEST)
+
+$(VERILOGDEST)/$(SRC)_hw.tcl: $(SRC)_hw.tcl $(VERILOGDEST)
+	cp $(SRC)_hw.tcl $(VERILOGDEST)
+
+$(VERILOGDEST):
+	mkdir $(VERILOGDEST)
+
+clean:
+	rm -rf $(VERILOGDEST)

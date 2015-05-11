@@ -1,0 +1,377 @@
+.\"-
+.\" Copyright (c) 2013-2014 SRI International
+.\" All rights reserved.
+.\"
+.\" This software was developed by SRI International and the University of
+.\" Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+.\" ("CTSRD"), as part of the DARPA CRASH research programme.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.Dd December 4, 2013
+.Dt BERICTL 1
+.Os
+.Sh NAME
+.Nm berictl
+.Nd Control BERI (and CHERI) CPU debug units and manipulate hardware
+.Sh SYNOPSIS
+.Nm
+.Op Fl 2dNnq
+.Op Fl c Ar cable-number
+.Op Fl s Ar socket-path-or-port
+.Ar command
+.Op Ar options
+.Op Ar args
+.Sh DESCRIPTION
+The
+.Nm
+command communicates with the debug units of BERI, CHERI, and derivative
+CPUs to provide low level debugging support.
+It also wraps vendor supplied tools to provide a consistent interface to
+common functions including console access and FPGA reprogramming.
+.Pp
+The command line interface of
+.Nm
+is a set of commands that control BERI processors in simulation and
+on Altera and Xilinx FPGAs.
+By default
+.Nm
+connects to a single Altera FPGA that speaks the BERI1 debug protocol.
+Options may be used to change this configuration.
+.Sh OPTIONS
+A number of options appear before the
+.Ar command
+and specify things that apply to most commands.
+.Bl -tag -width indent
+.It Fl 2
+Enable the BERI2 debug protocol.
+.It Fl c Ar cable-number
+Specify which JTAG unit to attach to on a system with multiple FPGAs attached.
+.It Fl d
+Increase debugging output.
+May be specified multiple times.
+.It Fl N
+Do not resume execution after running a command.
+.Em Note :
+ This may become the default in the future.
+.It Fl n
+Connect to a NetFPGA board with a Xilinx FPGA.
+.It Fl q
+Enable quiet mode.
+.It Fl s Ar socket-path-or-port
+.El
+.Sh COMMANDS
+.Ss Hardware/Simulator access and control
+.Bl -tag -width 1
+.It Nm boot
+Cause a BERI CPU that is paused waiting for a kernel to loaded to
+begin booting.
+.Pp
+Currently this sets register
+.Ad 13
+to
+.Li 0 .
+.It Nm cleanup
+Clean up external processes and files.
+.Pp
+Currently only useful for Altera FPGAs and only if
+.Nm loaddram
+has been run.
+.It Nm console
+Connect to the FPGA or simulator console.
+.Pp
+When connecting to the simulator a console socket must be specified via
+the global
+.Fl p
+option.
+.It Nm drain
+Attempt to drain the debug unit's buffer to recover from a prematurely
+terminated debug client.
+.Em Note :
+Does not generally work.
+.It Nm loadbin Oo Fl z Oc Ar file Ar address
+Load the contents of
+.Ar file
+at the address specified by the hexadecimal string
+.Ar address
+via the CPU.
+The
+.Nm loadbin
+command is generally used to load kernels into DRAM.
+If the
+.Fl z
+flag is specified then the file is assumed to be a
+.Xr bzip2 1
+compressed file and is extracted before loading.
+.It Nm loaddram Oo Fl z Oc Ar file Ar address
+Identical to
+.Nm loadbin
+except that it is much faster when it is available.
+.Pp
+This command is currently implemented for Altera FPGAs only.
+.Em Note :
+This command requires Quartus 12 or 13.
+.Pp
+.Bf Em
+This command is often broken by updates to the Altera tools and
+currently does not work.
+.Ef
+.It Nm loadsof Oo Fl z Oc Ar file
+Program FPGA with the SOF format
+.Ar file .
+If the
+.Fl z
+flag is specified then the file is assumed to be a 
+.Xr bzip2 1
+compressed file and is extracted before loading.
+.Em Note :
+Unless the
+.Ar file
+is compressed it must be end in
+.Dq .sof .
+.Pp
+This command is implemented for Altera FPGAs only.
+.El
+.Ss Status
+.Bl -tag -width 1
+.It Nm pc
+Print the program counter.
+.It Nm regs
+List the contents of the BERI general-purpose register.
+.It Nm c0regs
+List the contents of CP0 registers.
+.Pp
+This command is not supported by the BERI2 debug protocol.
+.It Nm c2regs
+List the contents of CP2 (capability) registers.
+.Em Note :
+This command only makes sense when using a CHERI CPU.
+.El
+.Ss Execution control
+.Bl -tag -width 1
+.It Nm breakpoint Ar address
+Set a breakpoint at the address specified by the hexadecimal string
+.Ar address .
+If the
+.Fl w
+option is passed, wait until the breakpoint fires.
+.It Nm pause
+Pause the processor.
+.Em Note :
+ behavior for multi-core systems is currently undefined.
+.It Nm reset           reset processor
+Reset the processor.
+.Em Note :
+ this is not currently useful.
+.It Nm resume
+Resume previously paused execution with pipelining enabled.
+If the 
+.Fl u
+option is passed resume un-pipelined.
+.It Nm step
+Single step execution.
+.It Nm setpc Ar address
+Set the program counter to
+.Ar address .
+.It Nm setreg Ar register Ar value
+Set
+.Ar register
+to the value specified by the hexadecimal string
+.Ar value .
+.El
+.Ss Memory access
+.Bl -tag -width 1
+.It Nm lbu Ar address
+Load the unsigned byte at the address specified by the hexadecimal
+string
+.Ar address
+and print it.
+.It Nm lhu Ar address
+Load the unsigned halfword at the address specified by the hexadecimal
+string
+.Ar address
+and print it.
+.It Nm lwu Ar address
+Load the unsigned word at the address specified by the hexadecimal
+string
+.Ar address
+and print it.
+.It Nm ld Ar address
+Load the doubleword at the address specified by the hexadecimal string
+.Ar address
+and print it.
+.It Nm sb Ar value Ar address
+Store the byte value specified by the hexadecimal string
+.Ar value
+at the address specified by the hexadecimal string
+.Ar address .
+.It Nm sh Ar value Ar address
+Store the halfword value specified by the hexadecimal string
+.Ar value
+at the address specified by the hexadecimal string
+.Ar address .
+.It Nm sw Ar value Ar address
+Store the word value specified by the hexadecimal string
+.Ar value
+at the address specified by the hexadecimal string
+.Ar address .
+.It Nm sd Ar value Ar address
+Store the doubleword value specified by the hexadecimal string
+.Ar value
+at the address specified by the hexadecimal string
+.Ar address .
+.El
+.Ss Tracing
+.Bl -tag -width 1
+.It Nm settracefilter
+Set a trace filter using the
+.Pa stream_trace_filter.config
+file in the current directory.
+If no such file exists one is created with default entries.
+.Pp
+The
+.Nm settracefilter
+command is implemented for FPGAs and is not supported by the BERI2 debug
+protocol.
+.Pp
+.Em Note :
+The syntax of this command is likely to change in future versions.
+.It Nm streamtrace Oo Fl b Oc Oo Ar batches Oc
+Receive and print a number of batches of approximately 4070 instructions.
+If the
+Fl b
+option is passed the output is in a binary format suitable for reading
+by the
+.Nm printtrace
+command or
+.Nm CheriVis .
+The CPU is left paused after tracing ends.
+If not value of
+.Ar batches
+is passed 4 batches are received.
+No bounds checking is performed on 
+.Ar batches
+so come caution is advised.
+At the time of writing, values as high as 1000 are known to work with,
+but 10000 is known to hang the debug unit.
+.Pp
+The
+.Nm streamtrace
+command is implemented for FPGAs and is not supported by the BERI2 debug
+protocol.
+.It Nm printtrace Ar file
+Print a binary trace
+.Ar file
+produced by
+.Nm streamtrace
+in the format it would have produced except that dead instructions are
+not indicated.
+.El
+.Ss Device debugging
+.Bl -tag -width 1
+.It Nm dumpatse Ar address
+Dump the MAC control registers of the Altera Triple Speed Ethernet
+Pq Xr atse 4
+for the device at address specified by the hexadecimal string
+.Ar address .
+.It Nm dumpfifo
+Dump the status and metadata of the fifo at the address specified by the
+hexadecimal string
+.Ar address .
+.It Nm dumppic
+Dump the status of the BERI programmable interrupt controller.
+.El
+.Ss Help
+.Bl -tag -width 1
+.It Nm help Op Ar command
+Display help for the
+.Ar command
+or
+.Nm
+if none is provided.
+.El
+.Sh ENVIRONMENT
+The following environment variables affect the execution of
+.Nm :
+.Bl -tag -width ".Ev BERICLT_DIR"
+.It Ev BERICTL_NIOS2_TERMINAL
+Path to the
+.Pa nios2-terminal
+command to use.
+.It Ev BERICTL_QUARTUS_PGM
+Path to the
+.Pa quartus_pgm
+command to use.
+.It Ev BERICTL_SYSTEM_CONSOLE
+Path to the Quartus
+.Pa system-console
+command to use.
+.It Ev BERICLT_DIR
+Directory to store persistent user state in.
+Defaults to
+.Pa ${HOME}/.berictl
+.It Ev HOME
+Used as part of the default location for some persistent state storage.
+.It Ev TMPDIR
+Used to control the location where compressed files are extracted before
+loading or parsing.
+Defaults to
+.Pa /tmp .
+.El
+.Sh FILES
+.Bl -tag -width "stream_trace_filter.config" -compact
+.It Pa stream_trace_filter.config
+Stream trace filter configuration.
+.El
+.Sh SEE ALSO
+.Xr bzip2 1 ,
+.Xr atse 4
+.Sh HISTORY
+A
+.Nm cherictl
+command was included with either BERI and CHERI releases.
+It command line parsing was rewritten by Brooks Davis in 2013 for improved
+maintainability and discoverability and it was renamed to
+.Nm .
+.Sh AUTHORS
+This software and this manual page were
+developed by SRI International and the University of Cambridge Computer
+Laboratory under DARPA/AFRL contract
+.Pq FA8750-10-C-0237
+.Pq Do CTSRD Dc ,
+as part of the DARPA CRASH research programme.
+.Sh BUGS
+The
+.Nm lbu, 
+.Nm lhu ,
+.Nm lwu ,
+and
+.Nm ld
+instructions have unnecessarily unscriptable output.
+.Pp
+The format of the file used by the
+.Nm settracefilter
+command should be documented.
+.Pp
+The
+.Nm dumppic
+command should take an address.

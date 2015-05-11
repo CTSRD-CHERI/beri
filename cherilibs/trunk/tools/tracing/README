@@ -1,0 +1,19 @@
+This directory contains some scripts for manipulating trace files
+produced by the cheri and cheri2 simulators. They are very basic,
+undocumented and rely on the ill-defined output of the bluespec code,
+but they might be useful. 
+
+The *_justpc.pl scripts are perl scripts for extracting just the
+address of every commited instruction from a trace. This can be useful
+for producing diffs of traces between cheri and cheri2. They are
+simple perl scripts which take input from stdin and output to stdout
+so can be run like this: 
+./cheri2_justpc.pl < my.trace > my.justpc
+
+trace_names.py is a python script for annotating a cheri2 trace with
+symbol names corresponding to the executed instructions. It takes as
+input the trace file and the output of nm when run on the ELF flie. It
+is run like so:
+
+nm my.elf > my.nm
+./trace_names.py -t my.trace -N my.nm

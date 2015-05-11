@@ -1,0 +1,19 @@
+We gratefully acknowledge the following individuals for their contributions to
+the CheriBSD boot loader implementation (in rough order of earliest
+contribution):
+
+  Robert N. M. Watson
+  Jonathan Woodruff
+  Simon W. Moore
+  Steven J. Murdoch
+  Brooks Davis
+  Philip Paeps
+  Bjoern A. Zeeb
+  Colin Rothwell
+  Alexandre Joannou
+
+We gratefully acknowledge the following institutional contributors:
+
+  University of Cambridge
+  SRI International
+  BERI Open Systems C.I.C.

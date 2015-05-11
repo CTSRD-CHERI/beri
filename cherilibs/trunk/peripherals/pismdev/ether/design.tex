@@ -1,0 +1,112 @@
+Copyright (c) 2011 Wojciech A. Koszek
+All rights reserved.
+
+This software was developed by SRI International and the University of
+Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+("CTSRD"), as part of the DARPA CRASH research programme.
+
+@BERI_LICENSE_HEADER_START@
+
+Licensed to BERI Open Systems C.I.C. (BERI) under one or more contributor
+license agreements.  See the NOTICE file distributed with this work for
+additional information regarding copyright ownership.  BERI licenses this
+file to you under the BERI Hardware-Software License, Version 1.0 (the
+"License"); you may not use this file except in compliance with the
+License.  You may obtain a copy of the License at:
+
+  http://www.beri-open-systems.org/legal/license-1-0.txt
+
+Unless required by applicable law or agreed to in writing, Work distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations under the License.
+
+@BERI_LICENSE_HEADER_END@
+
+Simulational Model for CHERI MAC (SMSC9115)
+===========================================
+
+SMSC9115 chip is supported by U-boot and was simple enough to get emulated
+in software. This was the major reason of choosing this MAC chip.
+
+Implementation of code is present in following files:
+
+* EtherCAP.bsv
+
+  Bluespec-based testbench
+
+* ethercap.c
+  ethercap.h
+
+  Software implementation of simulational model.
+
+
+Additional notes
+================
+
+
+CPU bus architecture in CHERI
+-----------------------------
+
+CPU is present on the left side.
+It is the main MIPSTop module.
+Module uses internal busses to fetch instruction and data.
+INST and DATA busses are 64-bit each.
+These data buses are not related to FPGA manufacturer chip interconnect bus.
+
+
+      _INST---[Avalon2ClientServer64]--->+--------------+   +-+   
+    /64 bits                             |              |   | |  
+CPU                                      |Avalon256Merge+-->| | -->BUS SWITCH
+    \64 bits                             |              | ^ | |
+     --DATA---[Avalon2CLientServer64]--->+--------------+ | +-+   
+                                                          |
+                                                      256 bits       
+                                             [Avalon2ClientServer256]
+                                                                     
+ <------------------------ SIMULATION ------------------------->
+ <-----------------------  SYNTHESIS  -------------------------------------->
+
+Avalon2ClientServer64 converts internal busses to requests understandable by Avalon bus.
+Avalon256Merge merges two 64-bit busses together.
+The reason for merging is directly related to the system performace.
+Later in the system, DRAM memory controller is able to fetch 256-bit chunk of memory at once.
+In order not to loose speed, we fetch the whole chunk from DRAM to the CPU cache.
+In other words, instead of bringing 1 32-bit value, we bring 8x32bit data.
+
+In the current architecture CHERI Project supports two modes of operation:
+simulation and synthesis
+
+In the Bluesim CHERI simulation we only emulate CHERI CPU itself.
+The reason for this is that we don't have chip interconnect switch modelled in Bluespec.
+This means we're not able to simulate the whole CHERI SoC nowadays, as there
+are elements like synthesizable UART or synthesizable bus switch, which aren't
+written in Bluespec, and are provided by the FPGA manufacturer.
+In the simulation, only CHERI chip is simulated, and the whole environment is mimicked within
+CPU's code itself to provide convenient debugging facilities.
+This means that in the current implementation, UART is present in the CHERI chip itself.
+
+For synthesis Bluespec code gets translated to Verilog.
+Resulting group of files consists code for the MIPSTop - the top-level module of the CPU.
+CPU can't exist alone.
+It must have peripherials visible for its data and instruction busses.
+Most notably CPU needs to store startup instructions and data somewhere (BRAM).
+For bigger data capacities DRAM is required, thus DDRAM controller is necesssary.
+In order to communicate with the outside world, UART can be used as a form of User Interface.
+These elements are synthesizable and are manufacturer specific.
+Due to the fact that CHERI's code must be synthesized in commercial IDE specific to FPGA chip
+maker, CHERI code must be instantiated in the FPGA environment.
+
+Most notable files necessary for synthesizing CHERI for the Altera environment include:
+
+../../boards/terasic_de4_sopcbuilder/DE4_DDR2.cdf
+	Configuration for the quartus_pgm - command line backed for the Altera FPGA programming utility.
+
+../../boards/terasic_de4_sopcbuilder/DE4_DDR2.qsf
+	Pin assignment specification.
+
+../../boards/terasic_de4_sopcbuilder/DE4_DDR2.sdc
+	Timing constraints configuration.
+
+../../boards/terasic_de4_sopcbuilder/DE4_DDR2.tcl
+	Automation script for the synthesis process.
