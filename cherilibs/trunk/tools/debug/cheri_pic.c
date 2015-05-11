@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2013 Bjoern A. Zeeb
+ * Copyright (c) 2015 A. Theodore Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -29,6 +30,8 @@
 
 #ifdef __FreeBSD__
 #include <sys/endian.h>
+#elif __APPLE__
+#include "macosx.h"
 #else
 #include <endian.h>
 #endif
@@ -53,6 +56,7 @@
 #define	PIC_INTR_ENABLE_MASK		0x80000000
 #define	PIC_IP_READ_BASE	(PIC_CONFIG_BASE + \
 				PIC_INTR_NUM * PIC_CONFIG_WIDTH)
+#define PIC_MULTI_SPACING		0x4000
 
 /* 
  * Given we currently do not do pipelined reads this is rather slow and
@@ -80,20 +84,20 @@ print_pic_entry(int i, uint64_t addr, uint64_t v)
 	fired = (intr_fired[i / (sizeof(uint64_t) * 8)] >>
 	    (i % (sizeof(uint64_t) * 8))) & 0x1;
 
-	printf("%04d 0x%016jx 0x%016jx mapped to IRQ %u, thread ID 0x%08x, %s"
+	printf("%04d 0x%016" PRIx64 " 0x%016" PRIx64 " mapped to IRQ %u, thread ID 0x%08x, %s"
 	    "%s\n", i, addr, v, irq, threadid, enabled ? "enabled" : "disabled",
 	    fired ? ", fired" : "");
 }
 
 int
-berictl_dumppic(struct beri_debug *bdp)
+berictl_dumppic(struct beri_debug *bdp, int pic_id)
 {
 	uint64_t v;
 	int i, ret;
 	uint8_t excode;
 
 	if (!quietflag)
-		printf("PIC status:\n");
+		printf("PIC %d status:\n", pic_id);
 
 	/* Pause CPU */
 	ret = berictl_pause(bdp);
@@ -106,13 +110,16 @@ berictl_dumppic(struct beri_debug *bdp)
 	for (i = 0; ret == BERI_DEBUG_SUCCESS &&
 	    i < (PIC_INTR_NUM / (sizeof(uint64_t) * 8)); i++) {
 		ret = beri_debug_client_ld(bdp,
-		    htobe64(PIC_IP_READ_BASE + i * sizeof(uint64_t)),
+		    htobe64(PIC_IP_READ_BASE + pic_id * PIC_MULTI_SPACING +
+			i * sizeof(uint64_t)),
 		    &intr_fired[i], &excode);
 		switch (ret) {
 		case BERI_DEBUG_ERROR_EXCEPTION:
 			fprintf(stderr, "0x%04d 0x%016jx lwu Exception!  "
 			    "Code = 0x%x\n", i,
-			    PIC_CONFIG_BASE + i * sizeof(uint64_t), excode);
+			    /* XXX: should this be PIC_IP_READ_BASE ? */
+			    PIC_CONFIG_BASE + pic_id * PIC_MULTI_SPACING +
+				i * sizeof(uint64_t), excode);
 			break;
 		case BERI_DEBUG_SUCCESS:
 			intr_fired[i] = be64toh(intr_fired[i]);
@@ -125,17 +132,20 @@ berictl_dumppic(struct beri_debug *bdp)
 		printf("IRQ mappings and status.\n");
 	for (i = 0; ret == BERI_DEBUG_SUCCESS && i < PIC_DUMP_MAX; i++) {
 		ret = beri_debug_client_ld(bdp,
-		    htobe64(PIC_CONFIG_BASE + i * 8), &v, &excode);
+		    htobe64(PIC_CONFIG_BASE + pic_id * PIC_MULTI_SPACING +
+			i * 8), &v, &excode);
 		switch (ret) {
 		case BERI_DEBUG_ERROR_EXCEPTION:
 			fprintf(stderr, "0x%04d 0x%016jx lwu Exception!  "
-			    "Code = 0x%x\n", i, PIC_CONFIG_BASE + i*8, excode);
+			    "Code = 0x%x\n", i, PIC_CONFIG_BASE + 
+				pic_id * PIC_MULTI_SPACING + i*8, excode);
 			break;
 		case BERI_DEBUG_SUCCESS:
 			v = be64toh(v);
 			break;
 		}
-		print_pic_entry(i, PIC_CONFIG_BASE + i * 8, v);
+		print_pic_entry(i, PIC_CONFIG_BASE + pic_id * PIC_MULTI_SPACING
+		    + i * 8, v);
 	}
 
 	/* Resume CPU */

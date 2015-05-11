@@ -45,10 +45,14 @@ import Clocks::*;
 import Connectable::*;
 import Vector::*;
 import GetPut::*;
+import MasterSlave::*;
+import MemTypes::*;
+import DefaultValue :: *;
 
 import Debug::*;
 import Library::*;
 import FIFO::*;
+import FIFOF::*;
 
 `ifdef MULTI
   import FIFOF::*;
@@ -69,7 +73,7 @@ typedef Bit#(64) PerifResp;
 
 // numIrqs is the number of IRQ lines this peripheral exports (which may be 0)
 interface Peripheral#(numeric type numIrqs);
-  interface Server#(PerifReq, PerifResp) regs;
+  interface Slave#(CheriMemRequest64, CheriMemResponse64) slave;
   (* always_ready, always_enabled *)
   method Bit#(numIrqs) getIrqs();
 endinterface
@@ -80,19 +84,58 @@ endinterface
 // for getting a unique ID in a multiprocessor context.
 (*synthesize*)
 module mkCountPerif(Peripheral#(0));
-  Reg#(Bit#(16)) count <- mkReg(0);
-  interface Server regs;
-    interface Put request;
-      method Action put(req);
-        noAction;
-      endmethod
-    endinterface
-    interface Get response;
-      method ActionValue#(PerifResp) get();
-        count <= count + 1;
-        return zeroExtend(count);
-      endmethod
-    endinterface
+  FIFOF#(CheriMemRequest64)   req_fifo <- mkFIFOF1;
+  FIFOF#(CheriMemResponse64) resp_fifo <- mkFIFOF1;
+  Reg#(Bit#(16))               count <- mkReg(0);
+  
+  rule handle_request;
+    CheriMemRequest64 req <- toGet(req_fifo).get;
+    CheriMemResponse64 resp = defaultValue;
+    resp.masterID = req.masterID;
+    resp.transactionID = req.transactionID;
+    if (req.operation matches tagged Read .unused) begin
+      count <= count + 1;
+      Data#(64) data = unpack(0);
+      data.data = zeroExtend(count);
+      resp.operation = tagged Read{data: data, last: True};
+    end else
+      resp.operation = tagged Write;
+    resp_fifo.enq(resp);
+  endrule
+  
+  interface Slave slave;
+    interface request  = toCheckedPut(req_fifo);
+    interface response = toCheckedGet(resp_fifo);
+  endinterface
+
+  method Bit#(numIrqs) getIrqs();
+    return 0;
+  endmethod: getIrqs
+endmodule
+
+// A catch-all peripheral for unmapped space.
+(*synthesize*)
+module mkNullPerif(Peripheral#(0));
+  FIFOF#(CheriMemRequest64)   req_fifo <- mkFIFOF1;
+  FIFOF#(CheriMemResponse64) resp_fifo <- mkFIFOF1;
+  Reg#(Bit#(16))               count <- mkReg(0);
+  
+  rule handle_request;
+    CheriMemRequest64 req <- toGet(req_fifo).get;
+    CheriMemResponse64 resp = defaultValue;
+    resp.masterID = req.masterID;
+    resp.transactionID = req.transactionID;
+    if (req.operation matches tagged Read .unused) begin
+      resp.operation = tagged Read{data: unpack(0), last: True};
+    end else
+      resp.operation = tagged Write;
+    resp.error = BusError;
+    resp_fifo.enq(resp);
+  endrule
+  
+  interface Slave slave;
+    interface request  = toCheckedPut(req_fifo);
+    interface response = toCheckedGet(resp_fifo);
   endinterface
 
   method Bit#(numIrqs) getIrqs();

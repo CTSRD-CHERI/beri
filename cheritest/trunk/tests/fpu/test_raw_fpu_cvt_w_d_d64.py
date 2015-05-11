@@ -37,7 +37,7 @@ class test_raw_fpu_cvt_w_d_d64(BaseBERITestCase):
     @attr('float64')
     def test_raw_fpu_cvt_w_d_d64_1(self):
         '''Test double precision round of -0.75'''
-	self.assertRegisterEqual(self.MIPS.a0 & 0xffffffff, 0xffffffff, "-0.75 did not round down to -1")
+	self.assertRegisterMaskEqual(self.MIPS.a0, 0xffffffff, 0xffffffff, "-0.75 did not round down to -1")
 
     @attr('float64')
     def test_raw_fpu_cvt_w_d_d64_2(self):

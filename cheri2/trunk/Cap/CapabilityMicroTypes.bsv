@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2011 Jonathan Woodruff    
+ * Copyright (c) 2011 Jonathan Woodruff
  * Copyright (c) 2013 SRI International
  * Copyright (c) 2013-2014 Robert M. Norton
  * All rights reserved.
@@ -49,9 +49,9 @@ import FShow::*;
 
 typedef enum {
   CapOp_MFC       = 5'h0, // Move From Capability Register Field
-  CapOp_SealCode  = 5'h1, 
-  CapOp_SealData  = 5'h2, 
-  CapOp_Unseal    = 5'h3, 
+  CapOp_None      = 5'h1, // used to be seal code
+  CapOp_Seal      = 5'h2,
+  CapOp_Unseal    = 5'h3,
   CapOp_MTC       = 5'h4, // Move to Capability Register Field
   CapOp_CCall     = 5'h5,  // Protected Procedure Call to cross a protection boundry. 
   CapOp_CReturn   = 5'h6,  // Return to previous protection domain.
@@ -64,7 +64,14 @@ typedef enum {
   CapOp_Id        = 5'hD,
   CapOp_Check     = 5'hE,
   CapOp_SetCause  = 5'hF,
-  CapOp_CToPtr    = 5'h10
+  CapOp_CToPtr    = 5'h10,
+  CapOp_CFromPtr  = 5'h11,
+  CapOp_CIncBase  = 5'h12,
+  CapOp_CIncBase2 = 5'h13,
+  CapOp_CIncOffset = 5'h14,
+  CapOp_CSetOffset = 5'h15,
+  CapOp_CGetOffset = 5'h16,
+  CapOp_CCompare   = 5'h17
 } CapOp deriving (Bits, Eq, FShow);
 
 // instance FShow#(CapOp);

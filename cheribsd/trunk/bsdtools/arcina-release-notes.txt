@@ -1,0 +1,52 @@
+Release notes for CHERI Arcina release
+December 19, 2014
+
+Software changes:
+ - Updated CheriBSD to support the latest ISAv3 as documented in "Capability
+   Hardware Enhanced RISC Instructions: CHERI Instruction-Set Architecture"
+   Version 1.11.
+ - Added cheri_tcpdump, the January 2014 PI meeting demo and and a
+   simple configuration tool cheri_tcpdump_control.
+ - Support the MIPS UserLocal register to store TLS (Thread Local
+   Storage) information.  This signficantly speeds up malloc-heavy
+   workloads.
+ - Added support for the FreeBSD loader.  The jtagloader may now be
+   installed in flash in place of the kernel and the FreeBSD loader and
+   kernel loaded from SD Card easing kenrel development.
+ - Corrected support for static binaries.
+ - Merged changes to upstream FreeBSD as of April 30th, 2014.  Fixes
+   security issues including Heartbleed TLS bug.
+ - NetFPGA10g network driver added.
+ - The default configuration now restricts sshd to generating RSA, ECDSA, and
+   ED25519 host keys to speed up initial boot.  Some very old ssh
+   clients may be unable to connect.
+
+Hardware changes:
+ - Updated CHERI CPI to support the latest ISA as documented in "Capability
+   Hardware Enhanced RISC Instructions: CHERI Instruction-Set Architecture"
+   Version 1.11.  This includes:
+    - GetPCC now returns PC as the offset field of EPCC.  EPC and EPCC
+      behaviors are better specified.
+    - Added offsets to capabilities and the CSetOffset and CIncOffset
+      instructions.
+    - Added CFromPtr and CToPtr allowing capabilities to be converted to
+      and from pointers preserving semantics for NULL.
+    - A CPtrCmp instruction provides C-friendly comparsion of pointers.
+    - The capability permissions mask was extended to add user-defined
+      permissions.
+    - A software-defined capability-cause register range has been made
+      available, with a new CSetCause instruction letting software set the
+      cause for testing or control-flow reasons.
+    - New CCheckPerm and CCheckType instructions have been added, letting
+      software object methods explicitly test for permissions and the
+      types of arguments.
+    - TLB permission bits have been added to authorize use of loading and
+      storing tagged values from pages.
+    - New CGetDefault and CSetDefault pseudo-ops have become the
+      preferred way to control MIPS ISA memory access.
+    - CCall/CReturn calling conventions were clarified; CCall now pushes
+      the incremented version of the program counter, as well as stack
+      pointer, to the trusted stack.
+ - Significant improvements in the quality of the FPU.
+ - Implemented support for the UserLocal register.
+ - A new PixelStream device allows HDMI out put at configurable resolutions.

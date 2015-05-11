@@ -29,13 +29,13 @@ from beritest_tools import BaseBERITestCase
 from nose.plugins.attrib import attr
 
 #
-# Test cunseal on an ephemeral capability
+# Test cunseal on a local capability
 #
 
 class test_cp2_cunseal_ephemeral(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_cunseal_ephemeral_1(self):
-        '''Test that cunseal clears the Non_Ephemeral bit'''
-        self.assertRegisterEqual(self.MIPS.a0, 0x186,
-            "cunseal did not clear the Non_Ephemeral bit")
+        '''Test that cunseal clears the global bit'''
+        self.assertRegisterEqual(self.MIPS.a0, 0x0c,
+            "cunseal did not clear the global bit")
 

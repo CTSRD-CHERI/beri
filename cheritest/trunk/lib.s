@@ -1,5 +1,6 @@
 #-
 # Copyright (c) 2011 Robert N. M. Watson
+# Copyright (c) 2014 Robert M. Norton
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -25,12 +26,18 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
-.include "macros.s"
-        
+# Library of assembly functions for:
+# Interrupt handlers
+# memcpy and cmemcpy
+# thread handling: ids / thread barrier functions
+#
+
 .set mips64
 .set noreorder
 .set nobopt
 .set noat
+
+.include "macros.s"
 
 # Contants used by lib.s to refer to exception vectors 
 EXCV_TLB=0
@@ -81,15 +88,16 @@ memcpy_done:
 		nop			# branch-delay slot
 		.end memcpy
 
-#
-# Functions to install exception handlers for general-purpose exceptions when
-# BEV=0 and BEV=1.  The handler to install is at address a0, and will be
-# jumped to unconditionally.
-#
-# This function invokes memcpy(), which will stomp on a2, t0, and v0.
-#
+################################################################################
+# Exception handling infrastructure
+# Exceptions are handled by stubs which branch to a configurable handler.
+# Pointers to the handler functions are stored in an array which is consulted
+# by the stub. Stubs are first loaded into the boot bram then copied into the
+# exception vectors because dram is not directly loadable.
+################################################################################
 
-		.data
+# Arrays of pointers to handlers which the stubs will jump to on exception
+.data
 bev0_handler_targets:
 	.rept EXCV_NUM
 		.dword	unhandled_exception
@@ -98,88 +106,78 @@ bev1_handler_targets:
 	.rept EXCV_NUM
 		.dword	unhandled_exception
 	.endr
-		.text
-.global set_bev0_tlb_handler
-.ent set_bev0_tlb_handler
-# Set handler for TLB Refill exception when BEV=0
-set_bev0_tlb_handler:	
-#		dla     $t0, bev0_handler_targets
-		sd      $a0, EXCV_TLB($t0)
-		jr	$ra
-		nop # branch-delay slot
-.end set_bev0_tlb_handler
+.text
 
-.global set_bev1_tlb_handler
-.ent set_bev1_tlb_handler
-# Set handler for TLB Refill exception when BEV=1
-set_bev1_tlb_handler:	
-		dla     $t0, bev1_handler_targets
-		sd      $a0, EXCV_TLB($t0)
-		jr	$ra
-		nop # branch-delay slot
-.end set_bev1_tlb_handler
+#
+# set_bev{0,1}_xxx_handler :
+# Functions for setting exception handlers. The pointer to the handler is
+# passed in a0. Just store it into the relevant entry in the above arrays.
+# We use a macro to generate set functions for each exception vector.
+#
+.macro create_set_handler_func name vector_id
+.globl set_bev0_\name
+.ent set_bev0_\name
+set_bev0_\name :
+	dla     $t0, bev0_handler_targets
+	jr	$ra
+	sd      $a0, \vector_id ($t0)
+.end set_bev0_\name
+.globl set_bev1_\name
+.ent set_bev1_\name
+set_bev1_\name:
+	dla     $t0, bev1_handler_targets
+	jr	$ra
+	sd      $a0, \vector_id ($t0)
+.end set_bev1_\name
+.endm
 
-.global set_bev0_xtlb_handler
-.ent set_bev0_xtlb_handler
-# Set handler for XTLB Refill exception when BEV=0
-set_bev0_xtlb_handler:	
-		dla     $t0, bev0_handler_targets
-		sd      $a0, EXCV_XTLB($t0)
-		jr	$ra
-		nop # branch-delay slot
-.end set_bev0_xtlb_handler
+create_set_handler_func tlb_handler    EXCV_TLB
+create_set_handler_func xtlb_handler   EXCV_XTLB
+create_set_handler_func cache_handler  EXCV_CACHE
+create_set_handler_func common_handler EXCV_COMMON
 
-.global set_bev1_xtlb_handler
-.ent set_bev1_xtlb_handler
-# Set handler for XTLB Refill exception when BEV=1
-set_bev1_xtlb_handler:	
-		dla     $t0, bev1_handler_targets
-		sd      $a0, EXCV_XTLB($t0)
-		jr	$ra
-		nop # branch-delay slot
-.end set_bev1_xtlb_handler
+#
+# Position-independent exception handlers that jump to an address specified
+# via {bev0, bev1}_handler_targets[n].  Steps on $k0, which is set to one
+# of EXCV_XYZ so that tests can check which vector was used.
+# We use a macro to create the stub for each exception vector.
+.macro create_handler_stub name vector_id
+bev0_\name :
+		.ent bev0_\name
+		dla     $k0, bev0_handler_targets
+		ld	$k0, \vector_id ($k0)
+		jr	$k0
+		add     $k0, $0, \vector_id
+		.end bev0_\name
+size_bev0_\name = . - bev0_\name
+bev1_\name :
+		.ent bev1_\name
+		dla     $k0, bev1_handler_targets
+		ld	$k0, \vector_id ($k0)
+		jr	$k0
+		add     $k0, $0, \vector_id
+		.end bev1_\name
+size_bev1_\name = . - bev1_\name
+.endm
+	create_handler_stub tlb_handler_stub EXCV_TLB
+	create_handler_stub xtlb_handler_stub EXCV_XTLB
+	create_handler_stub cache_handler_stub EXCV_CACHE
+	create_handler_stub common_handler_stub EXCV_COMMON
 
-.global set_bev0_cache_handler
-.ent set_bev0_cache_handler
-# Set handler for cache error exception when BEV=0
-set_bev0_cache_handler:	
-		dla     $t0, bev0_handler_targets
-		sd      $a0, EXCV_CACHE($t0)
-		jr	$ra
-		nop # branch-delay slot
-.end set_bev0_cache_handler
+# macro to generate code to install a handler stub at the exception vector
+# Arguments:
+# name:    name of stub function to install
+# address: exception vector address to copy to
+.macro	install_stub name address
+	dli	$a0, \address
+	dla	$a1, \name
+	dli	$a2, size_\name
+	jal memcpy
+	nop
+.endm
 
-.global set_bev1_cache_handler
-.ent set_bev1_cache_handler
-# Set handler for cache error exception when BEV=1
-set_bev1_cache_handler:	
-		dla     $t0, bev1_handler_targets
-		sd      $a0, EXCV_CACHE($t0)
-		jr	$ra
-		nop # branch-delay slot
-.end set_bev1_cache_handler
-
-.global set_bev0_common_handler
-.ent set_bev0_common_handler
-# Set handler for common exception vector when BEV=0
-set_bev0_common_handler:	
-		dla     $t0, bev0_handler_targets
-		sd      $a0, EXCV_COMMON($t0)
-		jr	$ra
-		nop # branch-delay slot
-.end set_bev0_common_handler
-
-.global set_bev1_common_handler
-.ent set_bev1_common_handler
-# Set handler for common exception vector when BEV=1
-set_bev1_common_handler:	
-		dla     $t0, bev1_handler_targets
-		sd      $a0, EXCV_COMMON($t0)
-		jr	$ra
-		nop # branch-delay slot
-.end set_bev1_common_handler
-
-	
+# Function to install the bev0 handler stubs at the relevant exception vectors.
+# Arguments: none
 .global install_bev0_stubs
 .ent install_bev0_stubs
 install_bev0_stubs:
@@ -188,43 +186,21 @@ install_bev0_stubs:
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
-		# Install our bev0_handler_stub at the MIPS-specified
-		# exception vector address.
-		dli	$a0, 0xffffffff80000000
-		dla	$a1, bev0_tlb_handler_stub
-		dli	$a2, 9 		# 32-bit instruction count
-		dsll	$a2, $a2, 2	# Convert to byte count
-		jal memcpy
-		nop
-
-		dli	$a0, 0xffffffff80000080
-		dla	$a1, bev0_xtlb_handler_stub
-		dli	$a2, 9 		# 32-bit instruction count
-		dsll	$a2, $a2, 2	# Convert to byte count
-		jal memcpy
-		nop
-
-		dli	$a0, 0xffffffffa0000100 # NB same same, but different!
-		dla	$a1, bev0_cache_handler_stub
-		dli	$a2, 9 		# 32-bit instruction count
-		dsll	$a2, $a2, 2	# Convert to byte count
-		jal memcpy
-		nop
-	
-		dli	$a0, 0xffffffff80000180
-		dla	$a1, bev0_common_handler_stub
-		dli	$a2, 9 		# 32-bit instruction count
-		dsll	$a2, $a2, 2	# Convert to byte count
-		jal memcpy
-		nop			# branch-delay slot
+		# Install our bev0 handler stubs at the MIPS-specified
+		# exception vector addresses.
+		install_stub bev0_tlb_handler_stub    0xffffffff80000000
+		install_stub bev0_xtlb_handler_stub   0xffffffff80000080
+		install_stub bev0_cache_handler_stub  0xffffffffa0000100 # NB same same, but different!
+		install_stub bev0_common_handler_stub 0xffffffff80000180
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
-		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot		
+		daddu	$sp, $sp, 32
 .end install_bev0_stubs
 
+# As above but for bev1 stubs
+# Arguments: None
 .global install_bev1_stubs
 .ent install_bev1_stubs
 install_bev1_stubs:
@@ -232,44 +208,22 @@ install_bev1_stubs:
 		sd	$ra, 24($sp)
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
-
-		# Install our bev1_handler_stub at the MIPS-specified
-		# exception vector address.
-		dli	$a0, 0xffffffffbfc00200
-		dla	$a1, bev1_tlb_handler_stub
-		dli	$a2, 9 		# 32-bit instruction count
-		dsll	$a2, $a2, 2	# Convert to byte count
-		jal memcpy
-		nop
-
-		dli	$a0, 0xffffffffbfc00280
-		dla	$a1, bev1_xtlb_handler_stub
-		dli	$a2, 9 		# 32-bit instruction count
-		dsll	$a2, $a2, 2		# Convert to byte count
-		jal memcpy
-		nop
-
-		dli	$a0, 0xffffffffbfc00300
-		dla	$a1, bev1_cache_handler_stub
-		dli	$a2, 9 		# 32-bit instruction count
-		dsll	$a2, $a2, 2		# Convert to byte count
-		jal memcpy
-		nop
-	
-		dli	$a0, 0xffffffffbfc00380
-		dla	$a1, bev1_common_handler_stub
-		dli	$a2, 9 		# 32-bit instruction count
-		dsll	$a2, $a2, 2	# Convert to byte count
-		jal memcpy
-		nop			# branch-delay slot
+		install_stub bev1_tlb_handler_stub    0xffffffffbfc00200
+		install_stub bev1_xtlb_handler_stub   0xffffffffbfc00280
+		install_stub bev1_cache_handler_stub  0xffffffffbfc00300
+		install_stub bev1_common_handler_stub 0xffffffffbfc00380
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot		
+		nop
 .end install_bev1_stubs
-	
+
+# Install a handler for the bev0 common exception vector and also install stubs
+# for all bev0 vectors.
+# Arguments:
+# a0 = pointer to handler function for bev0 common exception vector
 		.global bev0_handler_install
 		.ent bev0_handler_install
 bev0_handler_install:
@@ -278,8 +232,7 @@ bev0_handler_install:
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
-		# Store the caller's handler in bev0_handler_target to be
-		# found later by bev0_handler_stub.
+		# Store the caller's handler function
 		jal     set_bev0_common_handler
 		nop
 
@@ -293,6 +246,7 @@ bev0_handler_install:
 		nop			# branch-delay slot
 		.end bev0_handler_install
 
+# As above but for bev1
 		.global bev1_handler_install
 		.ent bev1_handler_install
 bev1_handler_install:
@@ -301,8 +255,7 @@ bev1_handler_install:
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 	
-		# Store the caller's handler in bev1_handler_target to be
-		# found later by bev1_handler_stub.
+		# Store the caller's handler function
 		jal     set_bev1_common_handler
 		nop
 
@@ -316,69 +269,6 @@ bev1_handler_install:
 		nop			# branch-delay slot
 		.end bev1_handler_install
 
-#
-# Position-independent exception handlers that jump to an address specified
-# via {bev0, bev1}_handler_targets[n].  Steps on $k0, which is set to one
-# of EXCV_XYZ so that tests can check which vector was used.
-
-		.ent bev0_tlb_handler_stub
-bev0_tlb_handler_stub:
-		dla     $k0, bev0_handler_targets
-		ld	$k0, EXCV_TLB($k0)
-		jr	$k0
-		add     $k0, $0, EXCV_TLB
-		.end bev0_tlb_handler_stub
-		.ent bev1_tlb_handler_stub
-bev1_tlb_handler_stub:
-		dla     $k0, bev1_handler_targets
-		ld	$k0, EXCV_TLB($k0)
-		jr	$k0
-		add     $k0, $0, EXCV_TLB
-		.end bev1_tlb_handler_stub
-		.ent bev0_xtlb_handler_stub
-bev0_xtlb_handler_stub:	
-		dla     $k0, bev0_handler_targets
-		ld	$k0, EXCV_XTLB($k0)
-		jr	$k0
-		add     $k0, $0, EXCV_XTLB
-		.end bev0_xtlb_handler_stub
-		.ent bev1_xtlb_handler_stub
-bev1_xtlb_handler_stub:
-		dla     $k0, bev1_handler_targets
-		ld	$k0, EXCV_XTLB($k0)
-		jr	$k0
-		add     $k0, $0, EXCV_XTLB
-		.end bev1_xtlb_handler_stub
-		.ent bev0_cache_handler_stub
-bev0_cache_handler_stub:
-		dla     $k0, bev0_handler_targets
-		ld	$k0, EXCV_CACHE($k0)
-		jr	$k0
-		add     $k0, $0, EXCV_CACHE
-		.end bev0_cache_handler_stub
-		.ent bev1_cache_handler_stub
-bev1_cache_handler_stub:
-		dla     $k0, bev1_handler_targets
-		ld	$k0, EXCV_CACHE($k0)
-		jr	$k0
-		add     $k0, $0, EXCV_CACHE
-		.end bev1_cache_handler_stub
-		.ent bev0_common_handler_stub
-bev0_common_handler_stub:
-		dla     $k0, bev0_handler_targets
-		ld	$k0, EXCV_COMMON($k0)
-		jr	$k0
-		add     $k0, $0, EXCV_COMMON
-		.end bev0_common_handler_stub
-		.ent bev1_common_handler_stub
-bev1_common_handler_stub:
-		dla     $k0, bev1_handler_targets
-		ld	$k0, EXCV_COMMON($k0)
-		jr	$k0
-		add     $k0, $0, EXCV_COMMON
-		.end bev1_common_handler_stub
-
-	
 #
 # Configure post-boot exception vectors by clearing the BEV bit in the CP0
 # status register.  Stomps on t0 and t1.
@@ -488,7 +378,11 @@ cmemcpy:
 	# return that value in v0, allowing cmemcpy() to be tail-called from
 	# memcpy().  This is in the delay slot, so it happens even if len == 0.
 	CGetBase $v0, $c3            # v0 = linear address of dst
+	CGetOffset $at, $c3
+	dadd     $v0, $v0, $at
 	CGetBase $v1, $c4            # v1 = linear address of src
+	CGetOffset $at, $c4
+	dadd     $v1, $v1, $at
 	andi     $12, $v0, 0x1f      # t4 = dst % 32
 	andi     $13, $v1, 0x1f      # t5 = src % 32
 	daddi    $a1, $zero, 0       # Store 0 in $a1 - we'll use that for the
@@ -647,12 +541,18 @@ slow_memcpy_loop:                # byte-by-byte copy
 #  Returns: The value of the counter (i.e. the number of times the barrier has been called so far)
 #  Clobbers: t0,t1,t2,t3,v0,v1        
 #
+#  Multicore BERI1 and multithreaded BERI2 have sequentially consistent
+#  memory, so don't need "sync" memory barrier instruction. We include the
+#  sync in case the test library is run against formal models with a more
+#  relaxed memory model.
+
         .ent thread_barrier
         .global thread_barrier
 thread_barrier:
         prelude
         bal      get_corethread_id
         nop                          # delay
+	sync			     # memory barrier
         dadd     $t1, $a0, $v0       # address of flag for this thread
         lbu      $v0, 0($t1)         # load flag value
         add      $v0, 1              # increment
@@ -667,6 +567,7 @@ thread_loop:
         subu     $t0, 1              # decrement thread counter (delay slot)
         bgez     $t0, thread_loop    # next thread
         dadd     $t1, $a0, $t0       # address of next counter  (delay slot)
+	sync			     # memory barrier
         # Barrier complete
         epilogue
         jr       $ra                 # return

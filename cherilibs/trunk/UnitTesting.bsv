@@ -48,8 +48,11 @@ function Stmt testAssert(Bool cond) = seq
     if (!cond) abort();
 endseq;
 
-function Stmt testAssertEqual(a x1, a x2) provisos(Eq#(a)) = seq
-    if (x1 != x2) abort();
+function Stmt testAssertEqual(a expected, a actual) provisos(Eq#(a), FShow#(a)) = seq
+    if (expected != actual) seq
+        $displayh("Expected: ", fshow(expected), ". Got: ", fshow(actual));
+        abort();
+    endseq
 endseq;
 
 function Stmt seqStmts(Stmt first, Stmt second) = seq
@@ -112,18 +115,26 @@ interface TestFSM;
 endinterface
 
 module runTests#(List#(Test) tests)(Empty);
+    runTestsWithBookeeping(noAction, noAction, tests);
+endmodule
+
+module runTestsWithBookeeping
+        #(Action setup, Action teardown, List#(Test) tests)(Empty);
 
     List#(TestFSM) resultGetters <- mapM(mkTestFSM,tests);
 
     function Stmt printResult(TestFSM test) = seq
+        setup();
+        $write("%s - ", test.name);
         test.start();
         action
             if (test.result) begin
-                $display("%s - Passed", test.name);
+                $display("Passed");
             end else begin
-                $display("%s - FAILED", test.name);
+                $display("FAILED");
             end
         endaction
+        teardown();
     endseq;
 
     Stmt testSequence = concatStmts(map(printResult,resultGetters));

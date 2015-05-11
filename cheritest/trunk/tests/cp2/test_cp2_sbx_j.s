@@ -38,9 +38,9 @@ sandbox:
 		dli     $a0, 1
 		j	20
 		nop
-		cjr     $ra($c24)
+		cjr     $c24
 		nop			# Branch delay slot
-		cjr     $ra($c24)
+		cjr     $c24
 		li	$a2, 1		# Branch delay slot
 
 		.global test
@@ -68,7 +68,7 @@ test:		.ent test
 
 		dla     $t0, sandbox
 		cincbase	$c1, $c0, $t0
-		cjalr   $0($c1)
+		cjalr   $c24, $c1
 		nop			# Branch delay slot
 
 finally:
@@ -76,7 +76,7 @@ finally:
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		nop			# Branch delay slot
 		.end	test
 
 

@@ -50,6 +50,6 @@ class test_cp2_mem_mod_pipeline(BaseBERITestCase):
         self.assertRegisterEqual(self.MIPS.a2, 0xffff & 0x100, "cgetperm returns incorrect value")
 
     @attr('capabilities')
-    def test_cp2_mem_csettype(self):
-        '''Test that csettype uses ld results in pipeline'''
-        self.assertRegisterEqual(self.MIPS.a3, 0x100, "cgettype returns incorrect value")
+    def test_cp2_mem_csetoffset(self):
+        '''Test that csetoffset uses ld results in pipeline'''
+        self.assertRegisterEqual(self.MIPS.a3, 0x100, "cgetoffset returns incorrect value")

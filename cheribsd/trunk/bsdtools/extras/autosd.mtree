@@ -1,0 +1,3 @@
+./etc/devd.conf type=file uname=root gname=wheel mode=644
+./etc/devd/altera_sdcard.conf type=file uname=root gname=wheel mode=644
+./sdcard type=dir uname=root gname=wheel mode=755

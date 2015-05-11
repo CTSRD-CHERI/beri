@@ -27,13 +27,16 @@
 #
 
 from beritest_tools import BaseBERITestCase
+from nose.plugins.attrib import attr
+
 
 class test_raw_coherence_setup(BaseBERITestCase):
-    def test_coreid_register(self):
-        self.assertRegisterEqual(self.MIPS.a0, 1, "Initial read of coreID register failed")
+#    def test_coreid_register(self):
+#        self.assertRegisterEqual(self.MIPS.a0, 1, "Initial read of coreID register failed")
 
-    def test_cache_coherent_memory(self):
-        self.assertRegisterEqual(self.MIPS.a1, 0, "Core has failed a write to memory")
+    @attr('multicore')
+    def test_coreid_max(self):
+        self.assertRegisterInRange(self.MIPS.a1, 2, 0x10000, "Read of number of cores did not give the expected result")
 
     def test_cache_coherent_write(self):
         self.assertRegisterEqual(self.MIPS.a2, 0, "Core produced incoherent data")

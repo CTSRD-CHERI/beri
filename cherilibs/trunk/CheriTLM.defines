@@ -1,5 +1,6 @@
 /*-
 * Copyright (c) 2014 Colin Rothwell
+* Copyright (c) 2015 Alexandre Joannou
 * All rights reserved.
 *
 * This software was developed by SRI International and the University of
@@ -31,7 +32,7 @@
 */
 
 // TLM Parameters:
-// Transaction id size: 8, 4 bits of master, 4 of transaction.
+// Transaction id size: 12, 4 bits of master, 8 of transaction.
 // Address size: 40 bits => 1 Terabyte of address space
 // Data size: 256 bits.
 // Burst Length Size: 4, from Axi.
@@ -39,7 +40,13 @@
 
 `define TLM_RR_PRM TLMRequest#(`TLM_PRM), TLMResponse#(`TLM_PRM)
 
-`define TLM_PRM_CHERI 8, 40, 256, 4, 0
+`ifdef MEM128
+  `define TLM_PRM_CHERI 8, 40, 128, 4, 0
+`elsif MEM64
+  `define TLM_PRM_CHERI 8, 40, 64, 4, 0
+`else
+  `define TLM_PRM_CHERI 8, 40, 256, 4, 0
+`endif
 `define TLM_RR_CHERI TLMRequest#(`TLM_PRM_CHERI), TLMResponse#(`TLM_PRM_CHERI)
 `define TLM_XTR_CHERI `TLM_RR_CHERI, `TLM_PRM_CHERI
 `define TLM_BRIDGE_CHERI `TLM_RR_CHERI, `TLM_RR_CHERI

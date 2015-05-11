@@ -258,6 +258,12 @@ function ActionValue#(Tuple3#(MemRespData,Exception,VirtualMemRequest))  calcMEM
     // Create a 256-bit mask for the cache line from the word mask. Note that loads of non-power-of-two masks are not
     // supported by AXI so for unaligned loads we just load the whole word containing the bytes of interest.
     Bit#(32) bigMask = (memcmd == Read && isUnaligned ? zeroExtend(sizeMask) : zeroExtend(theByteMask)) << {word, 3'b0};
+    Bit#(64) addrMask = ~zeroExtend(
+       (memcmd == Read && isUnaligned) ? 
+       (accessSize == SZ_8Byte) ? 3'b111 : 
+       (accessSize == SZ_4Byte) ? 3'b011 : 
+       3'b0 :
+       3'b0);
     
     let isAddrEx = case (accessSize)
                      SZ_1Byte: return !isUnaligned && (addr[2:0] & 3'b000) != 0; // False
@@ -277,7 +283,7 @@ function ActionValue#(Tuple3#(MemRespData,Exception,VirtualMemRequest))  calcMEM
     endfunction
 
     VirtualMemRequest memReq = defaultValue;
-    memReq.addr = unpack(pack(addr));
+    memReq.addr = unpack(pack(addr) & addrMask);
     memReq.masterID = ?;
     memReq.transactionID = ?;
     case (memcmd) matches

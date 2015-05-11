@@ -7,6 +7,7 @@
  * Copyright (c) 2012-2014 Bjoern A. Zeeb
  * Copyright (c) 2013 Colin Rothwell
  * Copyright (c) 2013 Jonathan Anderson
+ * Copyright (c) 2015 A. Theodore Markettos
  * 
  * All rights reserved.
  *
@@ -70,6 +71,10 @@
 #include <limits.h>
 #endif
 
+#ifdef __APPLE__
+#include "macosx.h"
+#endif
+
 #include <assert.h>
 #include <err.h>
 #include <errno.h>
@@ -83,14 +88,23 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <stdio.h>
 #include <string.h>
 
 #include "../../include/cheri_debug.h"
 #include "altera_systemconsole.h"
+#include "circular_buffer.h"
 #include "cherictl.h"
 #include "berictl_netfpga.h"
+#include "sockit_stream.h"
+#ifdef ENABLE_PCIEXPRESS
+#include "pcie_stream.h"
+#endif
+#ifdef JTAG_ATLANTIC
+#include "jtagatlantic.h"
+#endif
 
 #define	BREAKRING_SIZE	4
 struct beri_debug {
@@ -111,11 +125,29 @@ struct beri_debug {
 	 */
 	u_int		bd_pipeline_state;
 
+#ifdef ENABLE_STREAM_BUFFERING
+	/*
+	 * Stream buffers.
+	 */
+	circular_buffer	*in;
+	circular_buffer	*out;
+#endif
+#ifdef	JTAG_ATLANTIC
+	/*
+	 * JTAG Atlantic link descriptor
+	 */
+	JTAGATLANTIC	*bd_atlantic_link;
+#endif
+
 #define	BERI_NETFPGA_IOCTL	0x00000001
 #define	BERI_BERI2		0x00000002
 #define	BERI_NO_PAUSE_RESUME	0x00000004
+#define	BERI_PCIEXPRESS		0x00000008
+#define BERI_JTAG_ATLANTIC	0x00000010
 	uint32_t	bd_flags;
 };
+
+static pid_t nios2_terminal_debug_pid = 0;
 
 #define	BERI_DEBUG_PAYLOAD_MAX	(1 << (((sizeof(uint8_t) * 8) - 1) - 1))
 
@@ -128,6 +160,11 @@ beri_debug_new(void)
 	bdp->bd_fd = -1;
 	bdp->bd_pid = 0;
 	bdp->bd_pipeline_state = BERI2_DEBUG_STATE_UNKNOWN;
+
+#ifdef ENABLE_STREAM_BUFFERING
+	bdp->in = circular_buffer_new();
+	bdp->out = circular_buffer_new();
+#endif
 	return (bdp);
 }
 
@@ -136,12 +173,27 @@ beri_debug_close_internal(struct beri_debug *bdp)
 {
 	int status;
 
+#ifdef ENABLE_STREAM_BUFFERING
+	circular_buffer_destroy(bdp->in);
+	circular_buffer_destroy(bdp->out);
+#endif
+
+#ifdef JTAG_ATLANTIC
+	if (bdp->bd_atlantic_link > 0) {
+		jtagatlantic_close(bdp->bd_atlantic_link);
+		return;
+	}
+#endif
+
 	bdp->bd_flags = 0;
 	bdp->bd_pipeline_state = BERI2_DEBUG_STATE_UNKNOWN;
 
 	if (bdp->bd_pid > 0) {
 		if (wait4(bdp->bd_pid, &status, WNOHANG, NULL) != bdp->bd_pid)
+		{
 			kill(bdp->bd_pid, SIGKILL);
+			nios2_terminal_debug_pid = 0;
+		}
 		else if (WIFEXITED(status))
 			warnx("process exited with status %d", WEXITSTATUS(status));
 		else if (WIFSIGNALED(status))
@@ -152,6 +204,7 @@ beri_debug_close_internal(struct beri_debug *bdp)
 		 * kill them.
 		 */
 		kill(bdp->bd_pid, SIGKILL);
+		nios2_terminal_debug_pid = 0;
 	}
 	bdp->bd_pid = 0;
 
@@ -207,6 +260,20 @@ beri_debug_is_netfpga(struct beri_debug *bdp)
 
 	assert(bdp != NULL);
 	return ((bdp->bd_flags & BERI_NETFPGA_IOCTL) == BERI_NETFPGA_IOCTL);
+}
+
+#define	OUTSTANDING_MAX_DEFAULT         256
+#define	OUTSTANDING_MAX_BERI2           512
+#define	OUTSTANDING_MAX_PCIEXPRESS	4096
+int
+beri_debug_get_outstanding_max(struct beri_debug *bdp)
+{
+	if(bdp->bd_flags & BERI_BERI2)
+		return OUTSTANDING_MAX_BERI2;
+	if(bdp->bd_flags & BERI_PCIEXPRESS)
+		return OUTSTANDING_MAX_PCIEXPRESS;
+	else
+		return OUTSTANDING_MAX_DEFAULT;
 }
 
 int
@@ -316,16 +383,46 @@ beri_debug_client_open(struct beri_debug **bdpp, uint32_t oflags)
 #define	__DECONST(type, var)	((type)(uintptr_t)(const void *)(var)) 
 #endif
 
+/* Attempt to kill the nios2-terminal child and restore
+ * terminal functionality if we are killed
+ * (eg by receiving SIGTERM)
+ */
+
+
+static void
+berictl_debug_nios_kill_child(int rx_signal)
+{
+        if (rx_signal != SIGTERM)
+                return;
+        if (nios2_terminal_debug_pid != 0)
+        {
+                //printf("Attempting to kill berictl child process %d\n",nios2_terminal_pid);
+                kill(nios2_terminal_debug_pid, SIGKILL);
+                nios2_terminal_debug_pid = 0;
+        }
+        fprintf(stderr, "\r\nberictl: Terminated due to signal %d, quitting\n", rx_signal);
+        exit(rx_signal);
+}
+
+
 int
 beri_debug_client_open_nios(struct beri_debug **bdpp, const char *cablep,
-    uint32_t oflags)
+    const char *devicep, int uart_id, uint32_t oflags)
 {
 	struct beri_debug *bdp;
+	struct sigaction signal_action;
 	int sockets[2];
 	char *nios_path;
+	char uart_str[4];
 	char *argv[] = {
 		"nios2-terminal-fast", "-q", "--no-quit-on-ctrl-d",
-		"--instance", "0", NULL, NULL, NULL };
+		"--instance", uart_str, NULL, NULL, NULL, NULL, NULL };
+	int argp = 5;
+
+	if ((uart_id < 0) || (uart_id > 4))
+		uart_id = 0;
+
+	sprintf(uart_str, "%d", uart_id);
 
 	if ((nios_path = getenv("BERICTL_NIOS2_TERMINAL")) != NULL)
 		argv[0] = nios_path;
@@ -333,8 +430,13 @@ beri_debug_client_open_nios(struct beri_debug **bdpp, const char *cablep,
 	assert(!(oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA));
 
 	if (cablep != NULL && *cablep != '\0') {
-		argv[5] = "--cable";
-		argv[6] = __DECONST(char *, cablep);
+		argv[argp++] = "--cable";
+		argv[argp++] = __DECONST(char *, cablep);
+	}
+	
+	if (devicep != NULL && *devicep != '\0') {
+		argv[argp++] = "--device";
+		argv[argp++] = __DECONST(char *, devicep);
 	}
 	
 	bdp = beri_debug_new();
@@ -353,7 +455,12 @@ beri_debug_client_open_nios(struct beri_debug **bdpp, const char *cablep,
 	} else if (bdp->bd_pid != 0) {
 		close(sockets[1]);
 		bdp->bd_fd = sockets[0];
-		/* XXX: set up signal handler for child? */
+
+		/* set up signal handler for child */
+		nios2_terminal_debug_pid = bdp->bd_pid;
+        	memset(&signal_action, 0, sizeof(struct sigaction));
+	        signal_action.sa_handler = berictl_debug_nios_kill_child;
+        	sigaction(SIGTERM, &signal_action, NULL);
 	} else {
 		close(sockets[0]);
 		if (dup2(sockets[1], STDIN_FILENO) == -1 ||
@@ -377,6 +484,139 @@ beri_debug_client_open_nios(struct beri_debug **bdpp, const char *cablep,
 	*bdpp = bdp;
 	return (BERI_DEBUG_SUCCESS);
 }
+
+#ifdef JTAG_ATLANTIC
+int
+beri_debug_client_open_jtag_atlantic(struct beri_debug **bdpp, const char *cablep,
+    const char *devicep, int uart_id, uint32_t oflags)
+{
+	struct beri_debug *bdp;
+//	struct sigaction signal_action;
+//	int sockets[2];
+//	char *nios_path;
+//	char *chain_str;
+	char jtagerror_str[256];
+	int device_id = 0;
+//	int jtagtype;
+
+	if ((uart_id < 0) || (uart_id > 4))
+		uart_id = 0;
+
+	if (devicep != NULL)
+	        device_id = atoi(devicep);
+	else
+		device_id = 0;
+        if ((device_id <= 0) || (device_id > 255))
+		device_id = 1;
+
+	assert(!(oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA));
+
+	bdp = beri_debug_new();
+
+	if (oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_BERI2)
+		bdp->bd_flags |= BERI_BERI2;
+
+	if (debugflag)
+        	printf("jtagatlantic hello\n");
+	bdp->bd_atlantic_link = jtagatlantic_open(
+		cablep, device_id, uart_id, "berictl debug");
+	if (debugflag)
+		printf("jtagatlantic open = %p\n", bdp->bd_atlantic_link);
+
+	if (!bdp->bd_atlantic_link) {
+		beri_jtagatlantic_geterror(jtagerror_str, sizeof(jtagerror_str));
+		fprintf(stderr, "JTAG Atlantic error: %s\n", jtagerror_str);
+		beri_debug_destroy(bdp);
+		return (BERI_DEBUG_ERROR_ATLANTIC_OPEN);
+	}
+/*
+ * jtagatlantic_cable_warning may not be supported
+ *
+	jtagtype = jtagatlantic_cable_warning(bdp->bd_atlantic_link);
+
+	if (jtagtype != 0) {
+		fprintf(stderr, "JTAG Atlantic: cable type %d unsuitable for JTAG UART\n", jtagtype);
+		beri_debug_destroy(bdp);
+		return (BERI_DEBUG_ERROR_ATLANTIC_OPEN);	
+	}
+*/
+	while (jtagatlantic_is_setup_done(bdp->bd_atlantic_link)) {
+	};
+
+	bdp->bd_flags |= BERI_JTAG_ATLANTIC;
+
+
+	*bdpp = bdp;
+	return (BERI_DEBUG_SUCCESS);
+}
+#endif
+
+#ifdef ENABLE_PCIEXPRESS
+int
+beri_debug_client_open_pcie(struct beri_debug **bdpp, uint32_t oflags)
+{
+	struct beri_debug *bdp;
+	int sockets[2];
+
+	bdp = beri_debug_new();
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == -1) {
+		beri_debug_destroy(bdp);
+		return (BERI_DEBUG_ERROR_SOCKETPAIR);
+	}
+	bdp->bd_pid = fork();
+	if (bdp->bd_pid < 0) {
+		beri_debug_destroy(bdp);
+		return (BERI_DEBUG_ERROR_FORK);
+	} else if (bdp->bd_pid != 0) {
+		close(sockets[1]);
+		bdp->bd_fd = sockets[0];
+	} else {
+		close(sockets[0]);
+		pcie_stream_start(sockets[1]);
+	}
+	bdp->bd_flags |= BERI_PCIEXPRESS;
+	*bdpp = bdp;
+	return (BERI_DEBUG_SUCCESS);
+}
+#endif
+
+#ifdef __FreeBSD__	
+int
+beri_debug_client_open_sockit(struct beri_debug **bdpp, uint32_t oflags)
+{
+	struct beri_debug *bdp;
+	int sockets[2];
+	bdp = beri_debug_new();
+
+	int fd = open("/dev/beri_debug", O_RDWR);
+	if(fd == -1)
+	{
+		beri_debug_destroy(bdp);
+		return BERI_DEBUG_ERROR_OPEN;
+	}
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == -1) {
+		beri_debug_destroy(bdp);
+		return (BERI_DEBUG_ERROR_SOCKETPAIR);
+	}
+
+	bdp->bd_pid = fork();
+	if (bdp->bd_pid < 0) {
+		beri_debug_destroy(bdp);
+		return (BERI_DEBUG_ERROR_FORK);
+	} else if (bdp->bd_pid != 0) {
+		close(sockets[1]);
+		bdp->bd_fd = sockets[0];
+	} else {
+		close(sockets[0]);
+		sockit_stream_start(sockets[1], fd);
+	}
+
+	*bdpp = bdp;
+	return BERI_DEBUG_SUCCESS;
+}
+#endif
 
 int
 beri_debug_client_open_sc(struct beri_debug **bdpp, uint32_t oflags)
@@ -420,7 +660,15 @@ beri_debug_client_open_sc(struct beri_debug **bdpp, uint32_t oflags)
 	sin.sin_family = AF_INET;
 #ifdef __FreeBSD__
 	sin.sin_len = sizeof(sin);
+#elif __APPLE__
+        int enabled = 1;
+        if (setsockopt(bdp->bd_fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) == -1)
+        {
+                perror("setsockopt");
+                exit(1);
+        }
 #endif
+
 	if (inet_pton(PF_INET, "127.0.0.1", &sin.sin_addr) != 1) {
 		beri_debug_destroy(bdp);
 		return (BERI_DEBUG_ERROR_SOCKET);
@@ -448,8 +696,30 @@ beri_debug_client_write(struct beri_debug *bdp, void *bufferp,
 	}
 	total = 0;
 	do {
+#ifdef ENABLE_STREAM_BUFFERING
+		len = circular_buffer_send(bdp->bd_fd, bufferp + total, writelen - total,
+		    MSG_NOSIGNAL, bdp->out);
+#else
+#ifdef JTAG_ATLANTIC
+		if ((bdp->bd_flags & BERI_JTAG_ATLANTIC) == BERI_JTAG_ATLANTIC) {
+			char error_string[256];
+			len = jtagatlantic_write(bdp->bd_atlantic_link, bufferp + total,
+				writelen - total);
+//                        jtagatlantic_flush(bdp->bd_atlantic_link);
+			if (debugflag) {
+				printf("jtagatlantic_write(%p, %p, %d) = %d, error = %s\n", bdp->bd_atlantic_link, bufferp + total,
+					(int) (writelen - total), (int) len,
+					beri_jtagatlantic_geterror(error_string, sizeof(error_string)) );
+			}
+		} else {
+#endif
 		len = send(bdp->bd_fd, bufferp + total, writelen - total,
 		    MSG_NOSIGNAL);
+#ifdef JTAG_ATLANTIC
+		}
+#endif
+
+#endif
 		if (len <= 0) {
 			beri_debug_close_internal(bdp);
 			return (BERI_DEBUG_ERROR_SEND);
@@ -577,6 +847,9 @@ beri_debug_client_netfpga_drain(struct beri_debug *bdp)
 int
 beri_debug_client_drain(struct beri_debug *bdp)
 {
+#ifdef ENABLE_STREAM_BUFFERING
+	circular_buffer_reset(bdp->in, bdp->out);
+#endif
 	struct pollfd pollfd;
 	ssize_t len;
 	uint8_t v;
@@ -591,7 +864,7 @@ beri_debug_client_drain(struct beri_debug *bdp)
 		memset(&pollfd, 0, sizeof(pollfd));
 		pollfd.fd = bdp->bd_fd;
 		pollfd.events = POLLIN;
-		ret = poll(&pollfd, 1, 0);
+		ret = poll(&pollfd, 1, 10);
 		if (ret < 0)
 			return (BERI_DEBUG_ERROR_READ);
 		if (ret == 1) {
@@ -619,8 +892,27 @@ beri_debug_client_read(struct beri_debug *bdp, void *bufferp,
 
 	total = 0;
 	do {
+#ifdef ENABLE_STREAM_BUFFERING
+		len = circular_buffer_recv(bdp->bd_fd, bufferp + total, readlen - total,
+		    MSG_WAITALL, bdp->in, bdp->out);
+#else
+#ifdef JTAG_ATLANTIC
+	if ((bdp->bd_flags & BERI_JTAG_ATLANTIC) == BERI_JTAG_ATLANTIC) {
+		len = 0;
+		while (len == 0) {
+			len = jtagatlantic_read(bdp->bd_atlantic_link, bufferp, readlen);
+			if (debugflag)
+                		printf("jtagatlantic_read(%p, %p, %d) = %d #0=%x\n", bdp->bd_atlantic_link, bufferp, (int) readlen, (int) len, ((char*)bufferp)[0]);
+		}
+	} else {
+#endif
 		len = recv(bdp->bd_fd, bufferp + total, readlen - total,
 		    MSG_WAITALL);
+//		printf("recv(%d, %p, %d) = %d #0=%x\n", bdp->bd_fd, bufferp, (int) readlen, (int) len, ((char*)bufferp)[0]);
+#ifdef JTAG_ATLANTIC
+	}
+#endif
+#endif
 		if (len <= 0) {
 			beri_debug_close_internal(bdp);
 			return (BERI_DEBUG_ERROR_READ);
@@ -952,7 +1244,7 @@ mips64be_make_ins_ld(u_int base, u_int rt, u_int offset, uint32_t *insp)
 #define	MIPS64_INS_DMFC0_RT_SHIFT	16
 #define	MIPS64_INS_DMFC0_RD_SHIFT	11
 int
-mips64be_make_ins_dmfc0(u_int rt, u_int rd, uint32_t *insp)
+mips64be_make_ins_dmfc0(u_int rt, u_int rd, u_int sel, uint32_t *insp)
 {
 	uint32_t v;
 
@@ -964,6 +1256,7 @@ mips64be_make_ins_dmfc0(u_int rt, u_int rd, uint32_t *insp)
 	v |= MIPS64_INS_DMFC0_DMF << MIPS64_INS_DMFC0_DMF_SHIFT;
 	v |= rt << MIPS64_INS_DMFC0_RT_SHIFT;
 	v |= rd << MIPS64_INS_DMFC0_RD_SHIFT;
+	v |= sel;
 	*insp = htobe32(v);
 	return (BERI_DEBUG_SUCCESS);
 }
@@ -1772,7 +2065,7 @@ beri_debug_client_get_c0reg(struct beri_debug *bdp, u_int regnum,
 	 * future we don't think this will be the case, so this API cannot
 	 * return one.  We might need to change this.
 	 */
-	ret = mips64be_make_ins_dmfc0(BERI_DEBUG_REGNUM_DESTINATION, regnum,
+	ret = mips64be_make_ins_dmfc0(BERI_DEBUG_REGNUM_DESTINATION, regnum, 0,
 	    &ins);
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
@@ -1791,7 +2084,7 @@ beri_debug_client_get_c0reg(struct beri_debug *bdp, u_int regnum,
 
 int
 beri_debug_client_get_c0reg_pipelined_send(struct beri_debug *bdp,
-    u_int regnum)
+    u_int regnum, u_int sel)
 {
 	uint32_t ins;
 	uint8_t command;
@@ -1808,7 +2101,7 @@ beri_debug_client_get_c0reg_pipelined_send(struct beri_debug *bdp,
 	 */
 	/* Build Instruction */
 	ret = mips64be_make_ins_dmfc0(BERI_DEBUG_REGNUM_DESTINATION, regnum,
-	    &ins);
+	    sel, &ins);
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	/* Instruction Send */
@@ -2989,9 +3282,10 @@ int
 beri_debug_client_pop_trace_receive(struct beri_debug *bdp,
     struct beri_debug_trace_entry *tep)
 {
-	int ret;
 	uint8_t command = BERI_DEBUG_OP_POP_TRACE;
 	uint8_t buf[32];
+	int ret;
+	int i;
 
 	if (bdp->bd_flags & BERI_BERI2) {
 		ret = beri_debug_client_packet_read(bdp, BERI2_DEBUG_REPLY(BERI2_DEBUG_OP_POPTRACE),
@@ -3006,21 +3300,26 @@ beri_debug_client_pop_trace_receive(struct beri_debug *bdp,
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 
-	/*
-	 * For some reason the data comes out backwards and confused so we
-	 * can't just cast the buffer :-(.
-	 */
-	//for(ret=0;ret<32;ret++) printf("0x%hhx ", buf[ret]);
-	//printf("\n");
-	tep->valid = (buf[31] & 0x80) >> 7;
+	tep->valid = buf[31] > 127;
 	tep->version = (buf[31] & 0x78) >> 3;
 	tep->exception = (buf[31] & 0x07) << 2 | (buf[30] & 0xc0) >> 6;
 	tep->cycles = (buf[30] & 0x3F) << 4 | (buf[29] & 0xF0) >> 4;
 	tep->asid = (buf[29] & 0x0F) << 4 | (buf[28] & 0xF0) >> 4;
-	tep->inst = *((uint32_t *) &buf[24]);
-	tep->pc = *((uint64_t *) &buf[16]);
-	tep->val1 = *((uint64_t *) &buf[8]);
-	tep->val2 = *((uint64_t *) &buf[0]);
+	tep->branch = (buf[28] & 0x08) >> 3;
+
+	tep->inst = 0;
+	tep->pc   = 0;
+	tep->val1 = 0;
+	tep->val2 = 0;
+
+	for (i = 0; i < 4; i++)
+		tep->inst |= ((uint32_t)buf[24+i] << 8*i);
+
+	for (i = 0; i < 8; i++) {
+		tep->pc   |= ((uint64_t)buf[16+i]  << 8*i);
+		tep->val1 |= ((uint64_t)buf[8+i] << 8*i);
+		tep->val2 |= ((uint64_t)buf[0+i] << 8*i);
+	}
 	return (BERI_DEBUG_SUCCESS);
 }
 
@@ -3090,6 +3389,24 @@ beri_trace_filter_mask_set(struct beri_debug *bdp,
 
 	command = BERI_DEBUG_OP_LOAD_TRACE_FILTER_MASK;
 	ret = beri_debug_client_packet_write(bdp, command, buf, 32);
+	if (ret != BERI_DEBUG_SUCCESS)
+		return (ret);
+	return (beri_debug_client_packet_read(bdp,
+	    BERI_DEBUG_REPLY(command), NULL, 0));
+}
+
+int
+beri_break_on_trace_filter(struct beri_debug *bdp)
+{
+	int ret;
+	uint8_t command;
+	
+	if (bdp->bd_flags & BERI_BERI2) {
+	  return BERI_DEBUG_SUCCESS;
+	}
+
+	command = BERI_DEBUG_OP_BREAK_ON_TRACE_FILTER;
+	ret = beri_debug_client_packet_write(bdp, command, NULL, 0);
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	return (beri_debug_client_packet_read(bdp,

@@ -31,11 +31,12 @@
 .set noat
 
 #
-# Test csealcode
+# Test cseal on a code capability
 #
 
 # In this test, sandbox isn't actually called, but its address is used
-# as an otype.
+# in a code capability.
+
 sandbox:
 		creturn
 
@@ -46,15 +47,16 @@ test:		.ent test
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
-		dla      $t0, sandbox
-		csettype $c1, $c0, $t0
-		csealcode $c2, $c1
+		li       $t0, 0xC0DE
+		csetoffset $c1, $c0, $t0
 
-		cgetunsealed $a0, $c2
+		dla	 $t0, sandbox
+		csetoffset $c2, $c0, $t0
+
+		cseal 	 $c2, $c2, $c1
+
+		cgetsealed $a0, $c2
 		cgettype $a1, $c2
-		dla      $t0, sandbox
-		dsubu    $a1, $a1, $t0
-		
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

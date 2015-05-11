@@ -43,4 +43,4 @@ class test_cp0_rdhwr_user2(BaseBERITestCase):
     @attr('usercount')
     def test_cp0_rdhwr_user2_count(self):
         '''Test that the user count register can be read from user space'''
-        self.assertRegisterInRange(self.MIPS.a2, self.MIPS.a3-70, self.MIPS.a3, "rdhwr counter did not approximately match cp0 count ")
+        self.assertRegisterInRange(self.MIPS.a2, self.MIPS.a3-90, self.MIPS.a3, "rdhwr counter did not approximately match cp0 count ")

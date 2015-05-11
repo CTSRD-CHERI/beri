@@ -37,7 +37,7 @@ class test_cp2_x_csealdata_reg(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_x_csealdata_reg_1(self):
         '''Test csealdata did not seal with a reserved register'''
-        self.assertRegisterEqual(self.MIPS.a0, 1,
+        self.assertRegisterEqual(self.MIPS.a0, 0,
             "csealdata sealed with a reserved register")
 
     @attr('capabilities')

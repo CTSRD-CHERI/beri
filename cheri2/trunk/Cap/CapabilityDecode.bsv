@@ -70,6 +70,7 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
     Maybe#(Bit#(26))    moffset = Invalid;
 
     Stage    whenWritten = dec.decWhenWritten;
+    Stage   cWhenWritten = Stage_Wb;
     CapOp            cop = CapOp_Id;
     
     ALUOperation          aluOp = dec.decALUOperation;
@@ -80,51 +81,32 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
     
     Bool displayRF = False;
 
-    let opcode = unpack(i[31:26]);
+    OpCode opcode = unpack(i[31:26]);
     let exception = Ex_None;
     
     case (opcode)
       Op_COP2: //OpCP2_CoP2:
         begin 
-          copA          = Valid (posC);
           let subOpCode = unpack(i[25:21]);
+	  cWhenWritten = Stage_Exe;
           case (subOpCode)
             CCP_MFC: 
-              begin 
-                dest = Dest_Reg (posB);                
+              begin
                 cop = CapOp_MFC;
-                copA = Valid (posC);
-                case (i[2:0])
-                  0: begin // CGetPerm
-                     end
-                  1: begin // CGetType
-                     end                  
-                  2: begin // CGetBase
-                     end
-                  3: begin // CGetLen
-                     end
-                  4: begin // CGetCause
-                     end                  
-                  5: begin // CGetTag
-                     end                  
-                  6: begin // CGetUnsealed
-                     end                                    
-                  7: begin // CGetPCC
-                       copA  = Invalid;
-                       cdest = Valid(posC);
-                     end
-                endcase
+                CCP_MFC_Op mfc_op = unpack(i[2:0]);
+                if (mfc_op == CCP_MFC_GetPCC)
+                  begin
+                    cdest = Valid(posC);
+                  end
+                else
+                  begin
+                    dest = Dest_Reg (posB);
+                    copA = Valid (posC);
+                  end
               end
-            CCP_SealCode:
+            CCP_Seal:
               begin
-                cop = CapOp_SealCode;
-                cdest = Valid (posB);
-                copA  = Valid (posC);
-                dest  = Dest_None;
-              end
-            CCP_SealData:
-              begin
-                cop = CapOp_SealData;              
+                cop = CapOp_Seal;
                 cdest = Valid (posB);
                 copA  = Valid (posC);
                 copB  = Valid (posD);
@@ -152,13 +134,15 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
                        cdest = Valid (posB);
                        copA  = Valid (posC);
                        opA   = Op_RegName (posD);
-                     end                  
+                     end
                   CCP_MTC_IncBase: begin // CIncBase
+                       cop   = CapOp_CIncBase;
                        cdest = Valid (posB);
                        copA  = Valid (posC);
                        opA   = Op_RegName (posD);
                      end
                   CCP_MTC_FromPtr: begin // CFromPtr
+                       cop   = CapOp_CFromPtr;
                        cdest = Valid (posB);
                        copA  = Valid (posC);
                        opA   = Op_RegName (posD);
@@ -202,17 +186,16 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
               begin
                 let link= subOpCode == CCP_JALR;
                 cop     = CapOp_JR;
-                dest    = link ? Dest_Reg (31) : Dest_None;
-                cdest   = link ? Valid(24) : Invalid;
+                dest    = Dest_None;
+                cdest   = link ? Valid(posB) : Invalid;
                 copA    = Valid (posC);
-                opA     = Op_RegName (posD);
                 brOp    = BranchOperation{
                             op_brtype:         BR_OpA,
                             op_isLikely:       brOp.op_isLikely,
                             op_isLink:         link,
                             op_BranchOnTrue:   True,
                             op_BranchOnFalse:  True
-                          };            
+                          };
               end        
             CCP_BTS, CCP_BTU: // branch tag set (or not)
               begin 
@@ -244,7 +227,7 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
                       copB = Valid(posC);
                     end
                   default:
-                  exception = dec.decException;
+                  exception = Ex_RI;
                 endcase
               end
             CCP_CToPtr:
@@ -254,9 +237,53 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
                 copA = Valid(posC);
                 copB = Valid(posD);
               end
+            CCP_Cursors:
+              begin
+                copA  = Valid(posB);
+                cWhenWritten = Stage_Exe;
+                case (unpack(i[2:0]))
+                  CCP_CUROSRS_IncOffset:
+                  begin
+                    cop   = CapOp_CIncOffset;
+                    cdest = Valid (posB);
+                    copA  = Valid (posC);
+                    opA   = Op_RegName (posD);
+                  end
+                  CCP_CUROSRS_SetOffset:
+                  begin
+                    cop   = CapOp_CSetOffset;
+                    cdest = Valid (posB);
+                    copA  = Valid (posC);
+                    opA   = Op_RegName (posD);
+                  end
+                  CCP_CUROSRS_GetOffset:
+                  begin
+                    cop   = CapOp_CGetOffset;
+                    dest  = Dest_Reg (posB);
+                    copA  = Valid (posC);
+                  end
+                  CCP_CUROSRS_IncBase2:
+                  begin
+                    cop   = CapOp_CIncBase2;
+                    cdest = Valid (posB);
+                    copA  = Valid (posC);
+                    opA   = Op_RegName (posD);
+                  end
+                  default:
+                  exception = Ex_RI;
+                endcase
+              end
+            CCP_Compare:
+            begin
+              cop = CapOp_CCompare;
+              dest = Dest_Reg (posB);
+              copA = Valid (posC);
+              copB = Valid (posD);
+            end
+            default:
+              exception = Ex_RI;
           endcase
         end
-
       Op_SDC2: //OpCP2_CSCR:  // store cap
         begin
           aluOp = ALUOperation{ op_alutype: ALU_ADD,
@@ -286,7 +313,7 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
           cop    = CapOp_CLCR;
           copA   = Valid (posB);
           cdest  = Valid (posA);
-	  dest   = Dest_None;
+          dest   = Dest_None;
           opA    = Op_RegName (posC);
           moffset = Valid(signExtend(i[10:0]));
         end
@@ -344,6 +371,7 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
           moffset = Valid(signExtend(i[10:3]));
           let isLinked = i[2:0]==3'b111;
           dest = isLinked ? Dest_Reg (posA) : Dest_None;
+          whenWritten = Stage_Wb;
           mMemOp = tagged Valid MemOperation{
                      op_memtype: case (i[1:0]) matches
                                    2'b00: return MEM_SB;
@@ -389,9 +417,9 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
                      endcase;
         end
       default: 
-	  begin
+          begin
             exception = dec.decException;
-	  end
+          end
     endcase
     
     //==================================================================================================
@@ -409,7 +437,7 @@ function ActionValue#(DecodedResult) decodeCapInst(Bit#(32) i, DecodedResult dec
                decCapOperation: CapOperation{
                                   op:     cop,
                                   dest: cdest,
-                                  whenWritten: Stage_Wb,
+                                  whenWritten: cWhenWritten,
                                   cA: copA,
                                   cB: copB,
                                   hasResult: dest != Dest_None,

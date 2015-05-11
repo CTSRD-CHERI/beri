@@ -37,7 +37,7 @@
 
 sandbox:
 		dli     $a0, 1
-		cjr     $ra($c24)
+		cjr     $c24
 		nop			# Branch delay slot
 
 		.global test
@@ -81,7 +81,8 @@ test:		.ent test
 		#
 
 		dla     $t0, sandbox
-		cjalr   $t0($c1) 	# This should raise an exception
+		csetoffset $c1, $c1, $t0
+		cjalr   $c24, $c1 	# This should raise an exception
 		nop			# Branch delay slot
 
 		ld	$fp, 16($sp)

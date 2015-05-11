@@ -2,7 +2,7 @@
  * Copyright (c) 2011-2014 Robert N. M. Watson
  * Copyright (c) 2011-2013 Jonathan Woodruff
  * Copyright (c) 2012-2014 SRI International
- * Copyright (c) 2012-2013 Robert Nortion
+ * Copyright (c) 2012-2013 Robert Norton
  * Copyright (c) 2012-2014 Bjoern A. Zeeb
  * Copyright (c) 2013 David T. Chisnall
  * Copyright (c) 2013 Colin Rothwell
@@ -87,6 +87,7 @@ struct subcommand {
 	usage_func	*sc_usage;	/* Usage printer */
 	command_func	*sc_command;	/* Parse remaing args and run command */
 	int		sc_flags;	/* flags */
+	int		oflags;		/* main getopt */
 };
 
 #define SC_FLAG_HIDDEN	0x01
@@ -97,6 +98,8 @@ struct subcommand {
     { NULL, NULL, (description), NULL, 0, 0, NULL, NULL, 0 }
 #define SC_DECLARE_NARGS(name, summary, description, n, func) \
     { (name), (summary), (description), NULL,(n), (n), generic_usage, (func), 0 }
+#define SC_DECLARE_NARGS_HIDDEN(name, summary, description, n, func) \
+    { (name), (summary), (description), NULL,(n), (n), generic_usage, (func), SC_FLAG_HIDDEN }
 #define SC_DECLARE_ZEROARGS(name, description, func) \
     { (name), NULL, (description), NULL, 0, 0, generic_usage, (func), 0 }
 
@@ -115,6 +118,7 @@ static void	loadsof_usage(struct subcommand *);
 static int	run_boot(struct subcommand *, int, char **);
 static int	run_console(struct subcommand *, int, char **);
 static int	run_dumpdevice(struct subcommand *, int, char **);
+static int	run_dumppic(struct subcommand *, int, char **);
 static int	run_load(struct subcommand *, int, char **);
 static int	run_loadfile(struct subcommand *, int, char **);
 static int	run_man(struct subcommand *, int, char **);
@@ -162,7 +166,7 @@ struct subcommand berictl_commands[] = {
 	   run_zeroargs),
 #ifdef CHERI_SUPPORT
 	SC_DECLARE_ZEROARGS("c2regs",
-	    "list CP2 (capability) register contents (has side effects)",
+	    "list CP2 (capability) register contents",
 	    run_zeroargs),
 #endif
 
@@ -188,12 +192,21 @@ struct subcommand berictl_commands[] = {
 	    "set the thread to debug", 1, run_setaddr),
 
 	SC_DECLARE_HEADER("Memory access"),
-	SC_DECLARE_NARGS("lbu", "<address>",
-	    "load unsigned byte from address", 1, run_load),
-	SC_DECLARE_NARGS("lhu", "<address>",
-	    "load unsigned half word from address", 1, run_load),
-	SC_DECLARE_NARGS("lwu", "<address>",
-	    "load unsigned word from address", 1, run_load),
+
+	SC_DECLARE_NARGS("lb", "<address>",
+	    "load byte from address", 1, run_load),
+	SC_DECLARE_NARGS("lh", "<address>",
+	    "load half word from address", 1, run_load),
+	SC_DECLARE_NARGS("lw", "<address>",
+	    "load word from address", 1, run_load),
+	/* These are synonyms for the above, for backwards compatibility */
+	SC_DECLARE_NARGS_HIDDEN("lbu", "<address>",
+	    "load byte from address", 1, run_load),
+	SC_DECLARE_NARGS_HIDDEN("lhu", "<address>",
+	    "load half word from address", 1, run_load),
+	SC_DECLARE_NARGS_HIDDEN("lwu", "<address>",
+	    "load word from address", 1, run_load),
+
 	SC_DECLARE_NARGS("ld", "<address>",
 	    "load double word from address", 1, run_load),
 	SC_DECLARE_NARGS("sb", "<value> <address>",
@@ -203,7 +216,7 @@ struct subcommand berictl_commands[] = {
 	SC_DECLARE_NARGS("sw", "<value> <address>",
 	    "store word value at address", 2, run_store),
 	SC_DECLARE_NARGS("sd", "<value> <address>",
-	    "store doubl word value at address", 2, run_store),
+	    "store double word value at address", 2, run_store),
 
 	SC_DECLARE_HEADER("Tracing"),
 	{
@@ -217,10 +230,13 @@ struct subcommand berictl_commands[] = {
 	    "set a trace filter from stream_trace_filter.config",
 	    run_zeroargs),
 	{
-		"streamtrace", "[-b] [<trace-batches>]",
+		"streamtrace", "[-b -v <version>] [<trace-batches>]",
 		"receive a stream of trace data (~4070 per batch)",
-		"bw", 0, 1, generic_usage, run_trace, 0
+		"bwv:", 0, 1, generic_usage, run_trace, 0
 	},
+	SC_DECLARE_ZEROARGS("breakontracefilter",
+	    "break when the trace filter matches",
+	    run_zeroargs),
 	SC_DECLARE_NARGS("printtrace", "<trace-file>",
 	    "print a binary trace file in human readable form", 1,
 	    run_trace),
@@ -231,9 +247,11 @@ struct subcommand berictl_commands[] = {
 	/* XXX: Altera specific? */
 	SC_DECLARE_NARGS("dumpfifo", "<address>",
 	    "dump status and metadata of a fifo", 1, run_dumpdevice),
-	/* XXX: should take an address */
-	SC_DECLARE_ZEROARGS("dumppic", "dump PIC status", run_zeroargs),
-
+	{
+		"dumppic", "[-p <pic_id>]",
+		"dump PIC status",
+		"p:", 0, 0, generic_usage, run_dumppic, 0
+	},
 	SC_DECLARE_HEADER("Help"),
 	{
 		"help", "<command>",
@@ -248,8 +266,11 @@ struct subcommand berictl_commands[] = {
 static char *berictl_path;
 
 static struct beri_debug *bdp;
-static const char *cablep, *socketp;
+static const char *cablep, *devicep, *socketp;
 static int bflag, uflag, wflag, zflag;
+static int pic_id;
+static int uart_id;
+static int trace_version;
 
 static void
 generic_usage(struct subcommand *scp) {
@@ -279,7 +300,7 @@ run_console(struct subcommand *scp, int argc, char **argv)
 
 	assert(strcmp("console", scp->sc_name) == 0);
 	
-	return (berictl_console(bdp, socketp, cablep));
+	return (berictl_console(bdp, socketp, cablep, devicep));
 }
 
 static int
@@ -299,16 +320,23 @@ run_dumpdevice(struct subcommand *scp, int argc, char **argv)
 }
 
 static int
+run_dumppic(struct subcommand *scp, int argc, char **argv)
+{
+
+	return (berictl_dumppic(bdp, pic_id));
+}
+
+static int
 run_load(struct subcommand *scp, int argc, char **argv)
 {
 
 	/* XXX: validate argv[0] as an address */
 
-	if (strcmp("lbu", scp->sc_name) == 0)
+	if (strcmp("lbu", scp->sc_name) == 0 || strcmp("lb", scp->sc_name) == 0)
 		return (berictl_lbu(bdp, argv[0]));
-	else if (strcmp("lhu", scp->sc_name) == 0)
+	else if (strcmp("lhu", scp->sc_name) == 0 || strcmp("lh", scp->sc_name) == 0)
 		return (berictl_lhu(bdp, argv[0]));
-	else if (strcmp("lwu", scp->sc_name) == 0)
+	else if (strcmp("lwu", scp->sc_name) == 0 || strcmp("lw", scp->sc_name) == 0)
 		return (berictl_lwu(bdp, argv[0]));
 	else if (strcmp("ld", scp->sc_name) == 0)
 		return (berictl_ld(bdp, argv[0]));
@@ -321,10 +349,10 @@ run_load(struct subcommand *scp, int argc, char **argv)
 static int
 run_loadfile(struct subcommand *scp, int argc, char **argv)
 {
-	int len, ret;
 	const char *extension = "";
 	char *extracted_name;
 	char *fullname;
+	int len, ret;
 
 	if ((fullname = realpath(argv[0], NULL)) == NULL) {
 		warn("%s: realpath", scp->sc_name);
@@ -354,7 +382,7 @@ run_loadfile(struct subcommand *scp, int argc, char **argv)
 
 	if (strcmp("loadsof", scp->sc_name) == 0) {
 		assert (argc == 1);
-		return(berictl_loadsof(fullname, cablep));
+		return(berictl_loadsof(fullname, cablep, devicep));
 	}
 
 	/* XXX: validate argv[1] as an address */
@@ -362,7 +390,10 @@ run_loadfile(struct subcommand *scp, int argc, char **argv)
 	if (strcmp("loadbin", scp->sc_name) == 0)
 		ret = berictl_loadbin(bdp, argv[1], fullname);
 	else if (strcmp("loaddram", scp->sc_name) == 0)
-		ret = berictl_loaddram(bdp, argv[1], fullname, cablep);
+		if (scp->oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_ARM_SOCKIT)
+			ret = berictl_loaddram_sockit(bdp, argv[1], fullname);
+		else
+			ret = berictl_loaddram(bdp, argv[1], fullname, cablep);
 	else
 		errx(EXIT_FAILURE,
 		    "PROGRAMMER ERROR: %s called with unhandled command %s",
@@ -472,7 +503,11 @@ run_trace(struct subcommand *scp, int argc, char **argv)
 				batches = 256;
 			}
 		}
-		return (berictl_stream_trace(bdp, batches, bflag));
+		if (trace_version > 2) {
+			warnx("unknown trace version version: %d\n", trace_version);
+			return (BERI_DEBUG_USAGE_ERROR);
+		}
+		return (berictl_stream_trace(bdp, batches, bflag, trace_version));
 	} else if (strcmp("printtrace", scp->sc_name) == 0) {
 		assert(argc == 1);
 		return(berictl_print_traces(bdp, argv[0]));
@@ -496,8 +531,6 @@ run_zeroargs(struct subcommand *scp, int argc, char **argv)
 		return (beri_debug_cleanup());
 	else if (strcmp("drain", scp->sc_name) == 0)
 		return (berictl_drain(bdp));
-	else if (strcmp("dumppic", scp->sc_name) == 0)
-		return (berictl_dumppic(bdp));
 	else if (strcmp("pause", scp->sc_name) == 0)
 		return (berictl_pause(bdp));
 	else if (strcmp("pc", scp->sc_name) == 0)
@@ -513,6 +546,8 @@ run_zeroargs(struct subcommand *scp, int argc, char **argv)
 			return (berictl_resume(bdp));
 	else if (strcmp("settracefilter", scp->sc_name) == 0)
 		return (berictl_set_trace_filter(bdp));
+  else if (strcmp("breakontracefilter", scp->sc_name) == 0)
+		return (beri_break_on_trace_filter(bdp));
 	else if (strcmp("step", scp->sc_name) == 0)
 		return (berictl_step(bdp));
 	else
@@ -540,7 +575,7 @@ usage(void)
 #else
 	printf("[-2dNq] ");
 #endif
-	printf("[-c <cable>] [-s <socket-path-or-port>] <command> [<args>]\n");
+	printf("[-c <cable>] [-D <device # on cable>] [-s <socket-path-or-port>] <command> [<args>]\n");
 	for (scp = berictl_commands; !SC_IS_END(scp); scp++) {
 		if (SC_IS_HIDDEN(scp))
 			continue;
@@ -627,13 +662,15 @@ main(int argc, char *argv[])
 	bdp = NULL;
 
 	cablep = NULL;
+	devicep = NULL;
 	socketp = NULL;
+	uart_id = 0;
 
 	berictl_path = argv[0];
 
 	oflags = BERI_DEBUG_CLIENT_OPEN_FLAGS_SOCKET;
 
-	while ((opt = getopt(argc, argv, _GETOPT_PLUS"2c:dNns:q")) != -1) {
+	while ((opt = getopt(argc, argv, _GETOPT_PLUS"2c:D:dNns:Pqu:Aj")) != -1) {
 		switch (opt) {
 		case '2':
 			oflags |= BERI_DEBUG_CLIENT_OPEN_FLAGS_BERI2;
@@ -641,6 +678,10 @@ main(int argc, char *argv[])
 
 		case 'c':
 			cablep = optarg;
+			break;
+
+		case 'D':
+			devicep = optarg;
 			break;
 
 		case 'd':
@@ -660,12 +701,30 @@ main(int argc, char *argv[])
 #endif
 			break;
 
+#ifdef ENABLE_PCIEXPRESS
+		case 'P':
+			oflags |= BERI_DEBUG_CLIENT_OPEN_FLAGS_PCIEXPRESS;
+			break;
+#else
+			usage();
+			exit(EXIT_FAILURE);
+#endif
+
+		case 'A':
+			oflags |= BERI_DEBUG_CLIENT_OPEN_FLAGS_ARM_SOCKIT;
+			break;
+		case 'j':
+			oflags |= BERI_DEBUG_CLIENT_OPEN_FLAGS_JTAG_ATLANTIC;
+			break;
 		case 'q':
 			quietflag++;
 			break;
 
 		case 's':
 			socketp = optarg;
+			break;
+		case 'u':
+			uart_id = strtol(optarg, NULL, 0);
 			break;
 		default:
 			warnx("Invalid argument before command");
@@ -694,6 +753,8 @@ main(int argc, char *argv[])
 	if (debugflag > 0)
 		printf("command = %s\n", scp->sc_name);
 
+	scp->oflags = oflags;
+
 	/* Restart getopt() processing from scratch for new command line. */
 	optind = 1;
 
@@ -701,6 +762,9 @@ main(int argc, char *argv[])
 	uflag = 0;
 	wflag = 0;
 	zflag = 0;
+	pic_id = 0;
+	trace_version = 0;
+
 	if (scp->sc_getoptstr != NULL) {
 		if (debugflag > 1 && argc > 0)
 			printf("getopt(%d, {%s, ...}, %s)\n",
@@ -715,10 +779,16 @@ main(int argc, char *argv[])
 				bflag++;
 				break;
 
+			case 'p':
+				pic_id = strtol(optarg, NULL, 0);
+				break;
+
 			case 'u':
 				uflag++;
 				break;
-
+			case 'v':
+				trace_version = strtol(optarg, NULL, 0);
+				break;
 			case 'w':
 				wflag++;
 				break;
@@ -772,11 +842,28 @@ main(int argc, char *argv[])
 		else
 			ret = beri_debug_client_open(&bdp, oflags);
 		if (ret != BERI_DEBUG_SUCCESS) {
-			if (strcmp("loaddram", scp->sc_name) == 0)
-				ret = beri_debug_client_open_sc(&bdp, oflags);
-			else
+			if (strcmp("loaddram", scp->sc_name) == 0) {
+				if (oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_ARM_SOCKIT)
+					ret = BERI_DEBUG_SUCCESS;
+				else
+					ret = beri_debug_client_open_sc(&bdp, oflags);
+#ifdef ENABLE_PCIEXPRESS
+			} else if (oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_PCIEXPRESS) {
+				ret = beri_debug_client_open_pcie(&bdp, oflags);
+#endif
+#ifdef JTAG_ATLANTIC
+			} else if (oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_JTAG_ATLANTIC) {
+				ret = beri_debug_client_open_jtag_atlantic(&bdp, cablep,
+					devicep, uart_id, oflags);
+#endif
+#ifdef __FreeBSD__
+			} else if (oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_ARM_SOCKIT) {
+				ret = beri_debug_client_open_sockit(&bdp, oflags);
+#endif
+			} else {
 				ret = beri_debug_client_open_nios(&bdp,
-				    cablep, oflags);
+				    cablep, devicep, uart_id, oflags);
+			}
 		}
 		atexit(close_bdp);
 		if (ret != BERI_DEBUG_SUCCESS) {

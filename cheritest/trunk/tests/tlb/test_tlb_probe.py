@@ -36,4 +36,4 @@ class test_tlb_probe(BaseBERITestCase):
 
     @attr('tlb')
     def test_tlb_probe_miss_is_correct(self):
-        self.assertRegisterEqual(self.MIPS.a1 & 0xffffffff80000000, 0xffffffff80000000, "TLB probe miss failed.")
+        self.assertRegisterMaskEqual(self.MIPS.a1, 0xffffffff80000000, 0xffffffff80000000, "TLB probe miss failed.")

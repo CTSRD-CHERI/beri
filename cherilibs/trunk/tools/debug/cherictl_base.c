@@ -3,9 +3,10 @@
  * Copyright (c) 2012-2013 Jonathan Woodruff
  * Copyright (c) 2012-2013 SRI International
  * Copyright (c) 2012 Robert Norton
- * Copyright (c) 2012,2014 Bjoern A. Zeeb
+ * Copyright (c) 2012, 2014 Bjoern A. Zeeb
  * Copyright (c) 2013 David T. Chisnall
  * Copyright (c) 2013 Colin Rothwell
+ * Copyright (c) 2015 A. Theodore Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -55,6 +56,8 @@
 
 #ifdef __linux__
 #include <endian.h>
+#elif __APPLE__
+#include "macosx.h"
 #else
 #include <sys/endian.h>
 #endif
@@ -80,6 +83,13 @@
 #endif
 #include "mips_decode.h"
 #include "status_bar.h"
+
+/* Make up for differences in socket API */
+#ifdef	__APPLE__
+#define	MSG_NOSIGNAL 0
+#endif
+
+
 
 #define BERI2_PAUSE(bdp, oldstate) do {					\
 	int _ret;							\
@@ -109,8 +119,18 @@
 	}								\
 } while(0)
 
+static int keepRunning = 1;
+
+void 
+intHandler(int unused) {
+    keepRunning = 0;
+    printf("You pressed control-C!");
+}
+
 int debugflag;
 int quietflag;
+static pid_t nios2_terminal_pid = 0;
+struct termios trm_save;
 
 int
 hex2addr(const char *string, uint64_t *addrp)
@@ -187,7 +207,7 @@ berictl_breakpoint(struct beri_debug *bdp, const char *addrp, int waitflag)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	BERI2_PAUSE(bdp, oldstate);
-	printf("Setting breakpoint at 0x%016jx\n", addr);
+	printf("Setting breakpoint at 0x%016" PRIx64 "\n", addr);
 	ret = beri_debug_client_breakpoint_set(bdp, 0, htob64(bdp, addr));
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
@@ -198,7 +218,7 @@ berictl_breakpoint(struct beri_debug *bdp, const char *addrp, int waitflag)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	breakpoint = btoh64(bdp, breakpoint);
-	printf("Breakpoint at 0x%016jx fired\n", breakpoint);
+	printf("Breakpoint at 0x%016" PRIx64 " fired\n", breakpoint);
 	return (beri_debug_client_breakpoint_clear(bdp, 0));
 }
 
@@ -243,6 +263,31 @@ _netfpga_read(struct beri_debug *bdp)
 }
 #endif
 
+/* Attempt to kill the nios2-terminal child and restore
+ * terminal functionality if we are killed
+ * (eg by receiving SIGTERM)
+ */
+static void
+berictl_console_kill_child(int rx_signal)
+{
+	if (rx_signal != SIGTERM)
+		return;
+	if (nios2_terminal_pid != 0)
+	{
+		//printf("Attempting to kill berictl child process %d\n",nios2_terminal_pid);
+		kill(nios2_terminal_pid, SIGKILL);
+		nios2_terminal_pid = 0;
+		/* we try our best that struct trm_save is initialised before we get here:
+		 * if it isn't we're about to die anyway so not much we can do about it
+		 */
+		//printf("Resetting terminal\n");
+		tcsetattr(STDIN_FILENO, TCSANOW, &trm_save);
+	}
+	fprintf(stderr, "\r\nberictl: Terminated due to signal %d, quitting\n", rx_signal);
+	exit(1);
+}
+
+
 #ifndef __DECONST
 #define	__DECONST(type, var)	((type)(uintptr_t)(const void *)(var))
 #endif
@@ -257,7 +302,7 @@ berictl_console_eventloop(struct beri_debug *bdp, int fd, pid_t pid)
 	ssize_t len;
 	u_int console_state;
 	int all_ones, is_netfpga, nfds, send_input, terminate;
-	char ch;
+	int8_t ch;
 
 	/*
 	 * This event loop has a historically deadlock-prone structure.
@@ -266,6 +311,15 @@ berictl_console_eventloop(struct beri_debug *bdp, int fd, pid_t pid)
 	is_netfpga = (bdp != NULL && beri_debug_is_netfpga(bdp));
 	terminate = 0;
 	console_state = CONSOLE_STATE_PLAIN;
+#ifdef __APPLE__
+	int enabled = 1;
+	if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) == -1)
+	{
+		perror("setsockopt");
+		exit(1);
+	}	
+#endif
+
 	do {
 		pollfd[0].events = POLLIN;
 		pollfd[0].revents = 0;
@@ -401,10 +455,11 @@ berictl_console_eventloop(struct beri_debug *bdp, int fd, pid_t pid)
 
 int
 berictl_console(struct beri_debug *bdp, const char *filenamep,
-    const char *cablep)
+    const char *cablep, const char *devicep)
 {
 	struct sockaddr_un sun;
-	struct termios trm_new, trm_save;
+	struct termios trm_new;
+	struct sigaction signal_action;
 	pid_t pid;
 	int fd, restarting;
 	int is_netfpga;
@@ -412,7 +467,8 @@ berictl_console(struct beri_debug *bdp, const char *filenamep,
 	char *nios_path;
 	char *argv[] = {
 	    "nios2-terminal", "-q", "--no-quit-on-ctrl-d", "--instance", "1",
-	    NULL, NULL, NULL };
+	    NULL, NULL, NULL, NULL, NULL };
+	int argp = 5;
 
 	if ((nios_path = getenv("BERICTL_NIOS2_TERMINAL")) != NULL)
 		argv[0] = nios_path;
@@ -432,6 +488,7 @@ restart:
 		} else if (pid != 0) {
 			close(sockets[1]);
 			fd = sockets[0];
+			nios2_terminal_pid = pid;
 		} else {
 			close(sockets[0]);
 			if (dup2(sockets[1], STDIN_FILENO) == -1 ||
@@ -444,8 +501,12 @@ restart:
 			close(sockets[1]);
 #endif
 			if (cablep != NULL && *cablep != '\0') {
-				argv[5] = "--cable";
-				argv[6] = __DECONST(char *, cablep);
+				argv[argp++] = "--cable";
+				argv[argp++] = __DECONST(char *, cablep);
+			}
+			if (devicep != NULL && *devicep != '\0') {
+				argv[argp++] = "--device";
+				argv[argp++] = __DECONST(char *, devicep);
 			}
 			/*
 			 * XXX: does not make it to the user, but without
@@ -496,23 +557,78 @@ restart:
 		tcsetattr(STDIN_FILENO, TCSANOW, &trm_new);
 	}
 
+	//printf("Setting SIGTERM handler\n");
+	memset(&signal_action, 0, sizeof(struct sigaction));
+	signal_action.sa_handler = berictl_console_kill_child;
+        sigaction(SIGTERM, &signal_action, NULL);
+
 	restarting = berictl_console_eventloop(bdp, fd, pid);
 	if (restarting != 0)
 		goto restart;
 
 	if (pid > 0)
+	{
 		kill(pid, SIGKILL);
+		nios2_terminal_pid = 0;
+	}
 	close(fd);
 	tcsetattr(STDIN_FILENO, TCSANOW, &trm_save);
 	return (BERI_DEBUG_SUCCESS);
 }
+
+struct c0_reg_info {
+	char *reg_name;
+	u_int reg_num;
+	u_int reg_sel;
+};
+
+#define N_C0REG 38
+static struct c0_reg_info c0_registers[N_C0REG] = {
+	{"Index", 0, 0},
+	{"Random", 1, 0},
+	{"EntryLo0", 2, 0},
+	{"EntryLo1", 3, 0},
+	{"Context", 4, 0},
+	{"UserLocal", 4, 2},
+	{"PageMask", 5, 0},
+	{"Wired", 6, 0},
+	{"HWREna", 7, 0},
+	{"BadVAddr", 8, 0},
+	{"Count", 9, 0},
+	{"EntryHi", 10, 0},
+	{"Compare", 11, 0},
+	{"Status", 12, 0},
+	{"Cause", 13, 0},
+	{"EPC", 14, 0},
+	{"PRId", 15, 0},
+	{"CoreId", 15, 6},
+	{"ThreadId", 15, 7},
+	{"Config", 16, 0},
+	{"Config1", 16, 1},
+	{"Config2", 16, 2},
+	{"Config3", 16, 3},
+	{"LLAddr", 17, 0},
+	{"WatchLo", 18, 0},
+	{"WatchHi", 19, 0},
+	{"XContext", 20, 0},
+	{"-", 21, 0},
+	{"-", 22, 0},
+	{"-", 23, 0},
+	{"-", 24, 0},
+	{"-", 25, 0},
+	{"ECC", 26, 0},
+	{"CacheErr", 27, 0},
+	{"TagLo", 28, 0},
+	{"TagHi", 29, 0},
+	{"ErrorEPC", 30, 0},
+	{"-", 31, 0}
+};
 
 int
 berictl_c0regs(struct beri_debug *bdp)
 {
 	uint64_t v;
 	int regnum, ret;
-	const char *regname;
 	uint8_t oldstate;
 	BERI2_PAUSE(bdp, oldstate);
 
@@ -527,122 +643,22 @@ berictl_c0regs(struct beri_debug *bdp)
 	ret = beri_debug_client_load_operand_b(bdp, 0);
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
-	for (regnum = 0; regnum < 32; regnum++) {
-		ret = beri_debug_client_get_c0reg_pipelined_send(bdp, regnum);
+	for (regnum = 0; regnum < N_C0REG; regnum++) {
+		ret = beri_debug_client_get_c0reg_pipelined_send(bdp,
+			c0_registers[regnum].reg_num,
+			c0_registers[regnum].reg_sel);
 		if (ret != BERI_DEBUG_SUCCESS)
 			return (ret);
 	}
-	for (regnum = 0; regnum < 32; regnum++) {
+	for (regnum = 0; regnum < N_C0REG; regnum++) {
 		ret = beri_debug_client_get_reg_pipelined_response(bdp, &v);
 		if (ret != BERI_DEBUG_SUCCESS)
 			return (ret);
 		v = btoh64(bdp, v);
-		switch (regnum) {
-		case 0:
-			regname = "Index";
-			break;
-
-		case 1:
-			regname = "Random";
-			break;
-
-		case 2:
-			regname = "EntryLo0";
-			break;
-
-		case 3:
-			regname = "EntryLo1";
-			break;
-
-		case 4:
-			regname = "Context";
-			break;
-
-		case 5:
-			regname = "PageMask";
-			break;
-
-		case 6:
-			regname = "Wired";
-			break;
-
-		case 8:
-			regname = "BadVAddr";
-			break;
-
-		case 9:
-			regname = "Count";
-			break;
-
-		case 10:
-			regname = "EntryHi";
-			break;
-
-		case 11:
-			regname = "Compare";
-			break;
-
-		case 12:
-			regname = "SR (Status)";
-			break;
-
-		case 13:
-			regname = "Cause";
-			break;
-
-		case 14:
-			regname = "EPC";
-			break;
-
-		case 15:
-			regname = "PRId";
-			break;
-
-		case 16:
-			regname = "Config";
-			break;
-
-		case 17:
-			regname = "LLAddr";
-			break;
-
-		case 18:
-			regname = "WatchLo";
-			break;
-
-		case 19:
-			regname = "WatchHi";
-			break;
-
-		case 20:
-			regname = "XContext";
-			break;
-
-		case 26:
-			regname = "ECC";
-			break;
-
-		case 27:
-			regname = "CacheErr";
-			break;
-
-		case 28:
-			regname = "TagLo";
-			break;
-
-		case 29:
-			regname = "TagHi";
-			break;
-
-		case 30:
-			regname = "ErrorEPC";
-			break;
-
-		default:
-			regname = "-";
-			break;
-		}
-		printf("[%d] %s: 0x%016jx\n", regnum, regname, v);
+		printf("[%2d:%d] %s: 0x%016" PRIx64 "\n",
+			c0_registers[regnum].reg_num,
+			c0_registers[regnum].reg_sel,
+			c0_registers[regnum].reg_name, v);
 	}
 
 	BERI2_RESUME(bdp, oldstate);
@@ -650,8 +666,8 @@ berictl_c0regs(struct beri_debug *bdp)
 }
 
 void berictl_print_cap(struct cap *cap) {
-  printf("tag: %d u:%d perms:0x%04jx type:0x%016jx "
-	 "base:0x%016jx length:0x%016jx\n", cap->tag,
+  printf("tag: %d u:%d perms:0x%04" PRIx64 " type:0x%016" PRIx64 " "
+	 "base:0x%016" PRIx64 " length:0x%016" PRIx64 "\n", cap->tag,
 	 cap->unsealed, (uint64_t) cap->perms, cap->type, cap->base, cap->length);
 }
 
@@ -679,6 +695,7 @@ berictl_c2regs(struct beri_debug *bdp)
 		berictl_print_cap(&cap);
 	}
 
+#ifdef BROKEN_PCC_PRINTING
 	/*
 	 * Retrieve and print the PCC.  This operation destroys capability
 	 * register 26, the return register.
@@ -693,6 +710,7 @@ berictl_c2regs(struct beri_debug *bdp)
 		return (ret);
 	printf("DEBUG CAP PCC ");
 	berictl_print_cap(&cap);
+#endif
 	BERI2_RESUME(bdp, oldstate);
 	return BERI_DEBUG_SUCCESS;
 }
@@ -719,18 +737,18 @@ berictl_lbu(struct beri_debug *bdp, const char *addrp)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	if (!quietflag)
-		printf("Attempting to lbu from 0x%016jx\n", addr);
+		printf("Attempting to lbu from 0x%016" PRIx64 "\n", addr);
 	BERI2_PAUSE(bdp, oldstate);
 	ret = beri_debug_client_lbu(bdp, htob64(bdp, addr), &v, &excode);
 	switch (ret) {
 	case BERI_DEBUG_ERROR_EXCEPTION:
 		/* We consider returning an exception to be a success here. */
-
+		print_exception(excode);
 		ret = BERI_DEBUG_SUCCESS;
 		break;
 
 	case BERI_DEBUG_SUCCESS:
-		printf("0x%016jx = 0x%02x\n", addr, v);
+		printf("0x%016" PRIx64 " = 0x%02x\n", addr, v);
 		break;
 	}
 	BERI2_RESUME(bdp, oldstate);
@@ -752,7 +770,7 @@ berictl_lhu(struct beri_debug *bdp, const char *addrp)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	if (!quietflag)
-		printf("Attempting to lhu from 0x%016jx\n", addr);
+		printf("Attempting to lhu from 0x%016" PRIx64 "\n", addr);
 	BERI2_PAUSE(bdp, oldstate);
 	ret = beri_debug_client_lhu(bdp, htob64(bdp, addr), &v, &excode);
 	switch (ret) {
@@ -763,7 +781,7 @@ berictl_lhu(struct beri_debug *bdp, const char *addrp)
 		break;
 
 	case BERI_DEBUG_SUCCESS:
-		printf("0x%016jx = 0x%04x\n", addr, v);
+		printf("0x%016" PRIx64 " = 0x%04x\n", addr, v);
 		break;
 	}
 	BERI2_RESUME(bdp, oldstate);
@@ -785,7 +803,7 @@ berictl_lwu(struct beri_debug *bdp, const char *addrp)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	if (!quietflag)
-		printf("Attempting to lwu from 0x%016jx\n", addr);
+		printf("Attempting to lwu from 0x%016" PRIx64 "\n", addr);
 	BERI2_PAUSE(bdp, oldstate);
 	ret = beri_debug_client_lwu(bdp, htob64(bdp, addr), &v, &excode);
 	switch (ret) {
@@ -796,7 +814,7 @@ berictl_lwu(struct beri_debug *bdp, const char *addrp)
 		break;
 
 	case BERI_DEBUG_SUCCESS:
-		printf("0x%016jx = 0x%08x\n", addr, v);
+		printf("0x%016" PRIx64 " = 0x%08x\n", addr, v);
 		break;
 	}
 	BERI2_RESUME(bdp, oldstate);
@@ -817,7 +835,7 @@ berictl_ld(struct beri_debug *bdp, const char *addrp)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	if (!quietflag)
-		printf("Attempting to ld from 0x%016jx\n", addr);
+		printf("Attempting to ld from 0x%016" PRIx64 "\n", addr);
 	BERI2_PAUSE(bdp, oldstate);
 	ret = beri_debug_client_ld(bdp, htob64(bdp, addr), &v, &excode);
 	switch (ret) {
@@ -829,14 +847,13 @@ berictl_ld(struct beri_debug *bdp, const char *addrp)
 
 	case BERI_DEBUG_SUCCESS:
 		v = btoh64(bdp, v);
-		printf("0x%016jx = 0x%016jx\n", addr, v);
+		printf("0x%016" PRIx64 " = 0x%016" PRIx64 "\n", addr, v);
 		break;
 	}
 	BERI2_RESUME(bdp, oldstate);
 	return (ret);
 }
 
-#define	OUTSTANDING_MAX		256
 #define	PERCENTAGES_DISPLAYED	10
 int
 berictl_loadbin(struct beri_debug *bdp, const char *addrp,
@@ -845,7 +862,7 @@ berictl_loadbin(struct beri_debug *bdp, const char *addrp,
 	struct stat sb;
 	uint8_t buf[8], excode, oldstate;
 	uint64_t addr, bytes, v;
-	int fd, i, outstanding, ret;
+	int fd, i, outstanding, outstanding_max, ret;
 	ssize_t len;
 	struct xferstat xs;
 
@@ -902,10 +919,11 @@ berictl_loadbin(struct beri_debug *bdp, const char *addrp,
 	 * XXXRW: Is this definitely right for both big- and little-endian
 	 * hosts?
 	 */
+	outstanding_max = beri_debug_get_outstanding_max(bdp);
 	bytes = 0;
 	outstanding = 0;
 	while ((len = read(fd, buf, sizeof(buf))) == sizeof(buf)) {
-		if (outstanding == OUTSTANDING_MAX) {
+		if (outstanding == outstanding_max) {
 			ret = beri_debug_client_sd_pipelined_response(bdp,
 			    &excode);
 			if (ret == BERI_DEBUG_ERROR_EXCEPTION) {
@@ -961,7 +979,7 @@ berictl_loadbin(struct beri_debug *bdp, const char *addrp,
 }
 
 int
-berictl_loadsof(const char *filep, const char *cablep)
+berictl_loadsof(const char *filep, const char *cablep, const char *devicep)
 {
 	char *quartus_path, *realfilep;
 	char *quartus_cmd[] =
@@ -983,7 +1001,10 @@ berictl_loadsof(const char *filep, const char *cablep)
 		return (BERI_DEBUG_USAGE_ERROR);
 	}
 
-	if (asprintf(&quartus_cmd[4], "P;%s", realfilep) == -1) {
+	if (asprintf(&quartus_cmd[4], "P;%s%s%s", realfilep,
+		(devicep == NULL) ? "" : "@",
+		(devicep == NULL) ? "" : devicep ) == -1)
+	{
 		free(realfilep);
 		return (BERI_DEBUG_ERROR_MALLOC);
 	}
@@ -1022,7 +1043,7 @@ berictl_pause(struct beri_debug *bdp)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	addr = btoh64(bdp, addr);
-	printf("CPU paused at %016jx\n", addr);
+	printf("CPU paused at %016" PRIx64 "\n", addr);
 	return (BERI_DEBUG_SUCCESS);
 }
 
@@ -1051,7 +1072,7 @@ berictl_pc(struct beri_debug *bdp)
 		return (ret);
 	BERI2_RESUME(bdp, oldstate);
 	addr = btoh64(bdp, addr);
-	printf("DEBUG MIPS PC 0x%016jx\n", addr);
+	printf("DEBUG MIPS PC 0x%016" PRIx64 "\n", addr);
 	return (BERI_DEBUG_SUCCESS);
 }
 
@@ -1075,7 +1096,7 @@ berictl_regs(struct beri_debug *bdp)
 	ret = beri_debug_client_load_operand_b(bdp, 0);
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
-	printf("DEBUG MIPS REG %2d 0x%016jx\n", 0, (uint64_t) 0);
+	printf("DEBUG MIPS REG %2d 0x%016" PRIx64 "\n", 0, (uint64_t) 0);
 	for (regnum = 1; regnum < 32; regnum++) {
 		ret = beri_debug_client_get_reg_pipelined_send(bdp,
 		    regnum);
@@ -1087,7 +1108,7 @@ berictl_regs(struct beri_debug *bdp)
 		if (ret != BERI_DEBUG_SUCCESS)
 			return (ret);
 		v = btoh64(bdp, v);
-		printf("DEBUG MIPS REG %2d 0x%016jx\n", regnum, v);
+		printf("DEBUG MIPS REG %2d 0x%016" PRIx64 "\n", regnum, v);
 	}
 	BERI2_RESUME(bdp, oldstate);
 	return BERI_DEBUG_SUCCESS;
@@ -1109,7 +1130,7 @@ berictl_resume(struct beri_debug *bdp)
 		return (ret);
 	addr = btoh64(bdp, addr);
 	if (!quietflag)
-		printf("CPU resumed at %016jx\n", addr);
+		printf("CPU resumed at %016" PRIx64 "\n", addr);
 	return (BERI_DEBUG_SUCCESS);
 }
 
@@ -1131,7 +1152,7 @@ berictl_sb(struct beri_debug *bdp, const char *addrp, const char *valuep)
 		return (ret);
 	v &= 0xff;
 	if (!quietflag)
-		printf("Attempting to sb 0x%02x to 0x%016jx\n", (uint8_t)v, addr);
+		printf("Attempting to sb 0x%02x to 0x%016" PRIx64 "\n", (uint8_t)v, addr);
 	BERI2_PAUSE(bdp, oldstate);
 	ret = beri_debug_client_sb(bdp, htob64(bdp, addr), v, &excode);
 	switch (ret) {
@@ -1142,7 +1163,7 @@ berictl_sb(struct beri_debug *bdp, const char *addrp, const char *valuep)
 		break;
 
 	case BERI_DEBUG_SUCCESS:
-		printf("0x%016jx = 0x%02jx\n", addr, v);
+		printf("0x%016" PRIx64 " = 0x%02" PRIx64 "\n", addr, v);
 		break;
 	}
 	BERI2_RESUME(bdp, oldstate);
@@ -1167,7 +1188,7 @@ berictl_sh(struct beri_debug *bdp, const char *addrp, const char *valuep)
 		return (ret);
 	v &= 0xffff;
 	if (!quietflag)
-		printf("Attempting to sh 0x%04x to 0x%016jx\n", (uint16_t)v,
+		printf("Attempting to sh 0x%04x to 0x%016" PRIx64 "\n", (uint16_t)v,
 		    addr);
 	BERI2_PAUSE(bdp, oldstate);
 	ret = beri_debug_client_sh(bdp, htob64(bdp, addr), v, &excode);
@@ -1179,7 +1200,7 @@ berictl_sh(struct beri_debug *bdp, const char *addrp, const char *valuep)
 		break;
 
 	case BERI_DEBUG_SUCCESS:
-		printf("0x%016jx = 0x%04jx\n", addr, v);
+		printf("0x%016" PRIx64 " = 0x%04" PRIx64 "\n", addr, v);
 		break;
 	}
 	BERI2_RESUME(bdp, oldstate);
@@ -1204,7 +1225,7 @@ berictl_sw(struct beri_debug *bdp, const char *addrp, const char *valuep)
 		return (ret);
 	v &= 0xffffffff;
 	if (!quietflag)
-		printf("Attempting to sw 0x%08x to 0x%016jx\n", (uint32_t)v,
+		printf("Attempting to sw 0x%08x to 0x%016" PRIx64 "\n", (uint32_t)v,
 		    addr);
 	BERI2_PAUSE(bdp, oldstate);
 	ret = beri_debug_client_sw(bdp, htob64(bdp, addr), v, &excode);
@@ -1216,7 +1237,7 @@ berictl_sw(struct beri_debug *bdp, const char *addrp, const char *valuep)
 		break;
 
 	case BERI_DEBUG_SUCCESS:
-		printf("0x%016jx = 0x%08jx\n", addr, v);
+		printf("0x%016" PRIx64 " = 0x%08" PRIx64 "\n", addr, v);
 		break;
 	}
 	BERI2_RESUME(bdp, oldstate);
@@ -1240,7 +1261,7 @@ berictl_sd(struct beri_debug *bdp, const char *addrp, const char *valuep)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	if (!quietflag)
-		printf("Attempting to sd %016jx to 0x%016jx\n", v, addr);
+		printf("Attempting to sd %016" PRIx64 " to 0x%016" PRIx64 "\n", v, addr);
 	BERI2_PAUSE(bdp, oldstate);
 	ret = beri_debug_client_sd(bdp, htob64(bdp, addr), htob64(bdp, v), &excode);
 	switch (ret) {
@@ -1250,7 +1271,7 @@ berictl_sd(struct beri_debug *bdp, const char *addrp, const char *valuep)
 		ret = BERI_DEBUG_SUCCESS;
 		break;
 	case BERI_DEBUG_SUCCESS:
-		printf("0x%016jx = 0x%016jx\n", addr, v);
+		printf("0x%016" PRIx64 " = 0x%016" PRIx64 "\n", addr, v);
 		break;
 	}
 	BERI2_RESUME(bdp, oldstate);
@@ -1270,7 +1291,7 @@ berictl_setpc(struct beri_debug *bdp, const char *addrp)
 	ret = hex2addr(addrp, &addr);
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
-	printf("Jumping to %016jx\n", addr);
+	printf("Jumping to %016" PRIx64 "\n", addr);
 	BERI2_PAUSE(bdp, oldstate);
 	ret = beri_debug_client_set_pc(bdp, htob64(bdp, addr));
 	if (ret != BERI_DEBUG_SUCCESS)
@@ -1279,7 +1300,7 @@ berictl_setpc(struct beri_debug *bdp, const char *addrp)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	BERI2_RESUME(bdp, oldstate);
-	printf("New PC of %016jx\n", btoh64(bdp, addr));
+	printf("New PC of %016" PRIx64 "\n", btoh64(bdp, addr));
 	return (BERI_DEBUG_SUCCESS);
 }
 
@@ -1325,7 +1346,7 @@ berictl_setreg(struct beri_debug *bdp, const char *regnump,
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	BERI2_RESUME(bdp, oldstate);
-	printf("Set $%d to %016jx\n", regnum, v);
+	printf("Set $%d to %016" PRIx64 "\n", regnum, v);
 	return (ret);
 }
 
@@ -1347,7 +1368,7 @@ berictl_step(struct beri_debug *bdp)
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	BERI2_RESUME(bdp, oldstate);
-	printf("Single-stepped CPU from 0x%016jx to 0x%016jx\n",
+	printf("Single-stepped CPU from 0x%016" PRIx64 " to 0x%016" PRIx64 "\n",
 	    btoh64(bdp, before), btoh64(bdp, after));
 	return (BERI_DEBUG_SUCCESS);
 }
@@ -1360,7 +1381,7 @@ berictl_test_run(struct beri_debug *bdp)
 	strcpy(pc, "9000000040000000");
 	ret = berictl_pause(bdp);
 	printf("Draining trace buffer:\n");
-	ret = berictl_stream_trace(bdp, 1, 0);
+	ret = berictl_stream_trace(bdp, 1, 0, 0);
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	ret = berictl_setpc(bdp, pc);
@@ -1369,7 +1390,7 @@ berictl_test_run(struct beri_debug *bdp)
 	//ret = berictl_resume(bdp);
 	int streamTimes = 16;
 	int binary = 0;
-	ret = berictl_stream_trace(bdp, streamTimes, binary);
+	ret = berictl_stream_trace(bdp, streamTimes, binary, 0);
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	// Sleep for 200ms to allow the test to execute.
@@ -1390,6 +1411,24 @@ berictl_test_report(struct beri_debug *bdp)
 	return (berictl_c0regs(bdp));
 }
 
+uint64_t
+expand_address(uint32_t shrt)
+{
+	uint64_t addr = 0;
+	uint64_t cmp = (uint64_t) shrt;
+	// Move 4 bits of the segment up to the top.
+	addr |= (cmp & 0xF0000000)<<31;
+	// If the address segment was non-zero, set the top bit also.
+	if (addr != 0) addr |= 0x8000000000000000;
+	// Shift up the top bits of the 40-bit virtual address
+	addr |= (cmp & 0x0FF00000)<<12;
+	if (addr & 0x8000000000) addr |= 0x07FFFF0000000000;
+	// Or in the bottom 20 bits of the 40-bit virtual address.
+	addr |= (cmp & 0x000FFFFF);
+	// (There will be 12 zeroed bits in the middle where address information is missing)
+	return addr;
+}
+
 static void
 print_trace_entry(struct beri_debug_trace_entry *tep)
 {
@@ -1402,22 +1441,25 @@ print_trace_entry(struct beri_debug_trace_entry *tep)
 	// Use the lower 10 bits from the instruction count and the upper bits
 	// from the global counter.
 	if (tep->version != 4) {
-	  printf("Time=%16ld : ", (global_cycle_count&(~0x3ff))|tep->cycles);
-	  mips_cpu_disassemble_instr((unsigned char *)&tep->inst, tep->pc);
+	  printf("Time=%16ld : ", (long int)(global_cycle_count&(~0x3ff))|tep->cycles);
+	  uint64_t pc = tep->pc;
+	  if (tep->version == 12 || tep->version == 13) pc = 0;
+	  mips_cpu_disassemble_instr((unsigned char *)&tep->inst, pc);
 	}
+	if (tep->branch) printf(" branch to 0x%16.16" PRIx64 "", tep->val1);
 	switch (tep->version) {
   case 0:
-	  printf("{%d}\n", tep->asid);
+	  printf(" {%d}\n", tep->asid);
 	  break;
   case 1:
-	  printf("  DestReg <- 0x%16.16jx {%d}\n", tep->val2, tep->asid);
+	  printf("  DestReg <- 0x%16.16" PRIx64 " {%d}\n", tep->val2, tep->asid);
 	  break;
   case 2:
-	  printf("  DestReg <- 0x%16.16jx from Address 0x%16.16jx {%d}\n",
+	  printf("  DestReg <- 0x%16.16" PRIx64 " from Address 0x%16.16" PRIx64 " {%d}\n",
 	      tep->val2, tep->val1, tep->asid);
 	  break;
   case 3:
-	  printf("  Address 0x%16.16jx <- 0x%16.16jx {%d}\n",
+	  printf("  Address 0x%16.16" PRIx64 " <- 0x%16.16" PRIx64 " {%d}\n",
 	     tep->val1, tep->val2, tep->asid);
 	  break;
 	case 4:
@@ -1425,12 +1467,50 @@ print_trace_entry(struct beri_debug_trace_entry *tep)
         (double)(tep->val2 - global_instruction_count));
 	  global_cycle_count = tep->val1;
 	  global_instruction_count = tep->val2;
-	  return;
+	  break;
+	case 11:
+	  printf("  CapReg <- tag:%1" PRIx64 " u:%1" PRIx64 " perms:0x%8.8" PRIx64 " type:0x%6.6" PRIx64 " offset:0x%16.16" PRIx64 " base:0x%16.16" PRIx64 " length:0x%16.16" PRIx64 " {%d}\n", 
+	  	(tep->val2>>63) & 0x1,
+	  	(tep->val2>>62) & 0x1,
+	  	(tep->val2>>53) & 0xFF,
+	  	(tep->val2>>32) & 0x3FFFFF,
+	  	expand_address((uint32_t)((tep->val2>>0)  & 0xFFFFFFFF)),
+	  	expand_address((uint32_t)((tep->val1>>32) & 0xFFFFFFFF)),
+	  	expand_address((uint32_t)((tep->val1>>0)  & 0xFFFFFFFF)),
+	  	tep->asid);
+	  break;
+	case 12:
+	  printf("  CapReg <- tag:%1" PRIx64 " u:%1" PRIx64 " perms:0x%8.8" PRIx64 " type:0x%6.6" PRIx64 " offset:0x%16.16" PRIx64 " base:0x%16.16" PRIx64 " length:0x%16.16" PRIx64 " from Address 0x%16.16" PRIx64 " {%d}\n",
+	    (tep->val2>>63) & 0x1,
+	  	(tep->val2>>62) & 0x1,
+	  	(tep->val2>>53) & 0xFF,
+	  	(tep->val2>>32) & 0x3FFFFF,
+	  	expand_address((uint32_t)((tep->val2>>0)  & 0xFFFFFFFF)),
+	  	expand_address((uint32_t)((tep->pc>>32) & 0xFFFFFFFF)),
+	  	expand_address((uint32_t)((tep->pc>>0)  & 0xFFFFFFFF)),
+	  	tep->val1,
+	  	tep->asid);
+	  break;
+  case 13:
+	  printf("  Address 0x%16.16" PRIx64 " <- tag:%1" PRIx64 " u:%1" PRIx64 " perms:0x%8.8" PRIx64 " type:0x%6.6" PRIx64 " offset:0x%16.16" PRIx64 " base:0x%16.16" PRIx64 " length:0x%16.16" PRIx64 " {%d}\n",
+	    tep->val1, 
+	    (tep->val2>>63) & 0x1,
+			(tep->val2>>62) & 0x1,
+			(tep->val2>>53) & 0xFF,
+			(tep->val2>>32) & 0x3FFFFF,
+			expand_address((uint32_t)((tep->val2>>0)  & 0xFFFFFFFF)),
+			expand_address((uint32_t)((tep->pc>>32) & 0xFFFFFFFF)),
+			expand_address((uint32_t)((tep->pc>>0)  & 0xFFFFFFFF)),
+			tep->asid);
+	  break;
+	default:
+		printf("\n");
+		break;
 	}
 }
 
 int
-berictl_stream_trace(struct beri_debug *bdp, int size, int binary)
+berictl_stream_trace(struct beri_debug *bdp, int size, int binary, int version)
 {
 	int ret;
 	int count;
@@ -1440,7 +1520,23 @@ berictl_stream_trace(struct beri_debug *bdp, int size, int binary)
 	int lastCyc;
 	double cpi;
 	struct beri_debug_trace_entry te;
-
+	
+	signal(SIGINT, intHandler);
+	if (version == 2)
+	{
+		/* For later version of trace format include a file
+		   header. This consists of a trace entry with a
+		   version field of 0x80 + the trace version number
+		   (so it won't be mistaken for a valid trace entry),
+		   followed by the string 'CheriStreamTrace' to help
+		   with identification. The header is the same size as
+		   a trace entry to aid with seeking and to allow
+		   trace files to be concatenated trivially. */
+		struct beri_debug_trace_entry_disk_v2 e;
+		bzero(&e, sizeof(e));
+		snprintf((void *) &e, sizeof(e), "%cCheriStreamTrace", ((uint8_t)0x80) + ((uint8_t) version));
+		fwrite(&e, sizeof(e), 1, stdout);
+	}
 	totCyc = 0;
 	count = 0;
 	for (i=0; i<size; i++) {
@@ -1471,20 +1567,33 @@ berictl_stream_trace(struct beri_debug *bdp, int size, int binary)
 			if (binary) {
 				if (!te.valid)
 					continue;
-				struct beri_debug_trace_entry_disk e;
-				e.version = te.version;
-				e.exception = te.exception;
-				e.cycles = htobe16((uint16_t)te.cycles);
-				e.inst = te.inst;
-				e.pc = htobe64(te.pc);
-				e.val1 = htobe64(te.val1);
-				e.val2 = htobe64(te.val2);
-
-				fwrite(&e, sizeof(e), 1, stdout);
+				if (version == 2) {
+					struct beri_debug_trace_entry_disk_v2 e;
+					e.version = te.version;
+					e.exception = te.exception;
+					e.cycles = htobe16((uint16_t)te.cycles);
+					e.inst = te.inst;
+					e.pc = htobe64(te.pc);
+					e.val1 = htobe64(te.val1);
+					e.val2 = htobe64(te.val2);
+					e.asid= te.asid;
+					e.thread = te.reserved;
+					fwrite(&e, sizeof(e), 1, stdout);
+				} else {
+					struct beri_debug_trace_entry_disk e;
+					e.version = te.version;
+					e.exception = te.exception;
+					e.cycles = htobe16((uint16_t)te.cycles);
+					e.inst = te.inst;
+					e.pc = htobe64(te.pc);
+					e.val1 = htobe64(te.val1);
+					e.val2 = htobe64(te.val2);
+					fwrite(&e, sizeof(e), 1, stdout);
+				}
 			} else
 				print_trace_entry(&te);
-
 		}
+		if (!keepRunning) return BERI_DEBUG_SUCCESS;
 	}
 
 	return BERI_DEBUG_SUCCESS;
@@ -1562,7 +1671,7 @@ berictl_get_parameter(char *search_string, uint64_t *par)
 		printf("Finished\n");
 	}
 	for (i=0; i<14; i++) {
-		fscanf(fp, "%s %16jx\n", found_string, par);
+		fscanf(fp, "%s %16" PRIx64 "\n", found_string, par);
 		if (!strcmp(search_string, found_string)) {
 			fclose(fp);
 			return BERI_DEBUG_SUCCESS;
@@ -1658,14 +1767,14 @@ berictl_set_trace_filter(struct beri_debug *bdp)
 
 	printf("From stream_trace_filter.config:\n");
 	printf("Trace Filter: version=%x, exception=0x%x, \
-		inst=0x%8.8x, pc=0x%16.16jx, val1=0x%16.16jx, val2=0x%16.16jx\n", 
+		inst=0x%8.8x, pc=0x%16.16" PRIx64 ", val1=0x%16.16" PRIx64 ", val2=0x%16.16" PRIx64 "\n", 
 		tf.version, tf.exception, tf.inst, tf.pc, 
 		tf.val1, tf.val2);
 	ret = beri_trace_filter_mask_set(bdp, &tm);
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 	printf("Trace Mask: version=%x, exception=0x%x, \
-		inst=0x%8.8x, pc=0x%16.16jx, val1=0x%16.16jx, val2=0x%16.16jx\n", 
+		inst=0x%8.8x, pc=0x%16.16" PRIx64 ", val1=0x%16.16" PRIx64 ", val2=0x%16.16" PRIx64 "\n", 
 		tm.version, tm.exception, tm.inst, tm.pc, 
 		tm.val1, tm.val2);
 	ret = beri_trace_filter_set(bdp, &tf);

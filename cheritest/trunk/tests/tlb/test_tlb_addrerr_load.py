@@ -48,7 +48,7 @@ class test_tlb_addrerr_load(BaseBERITestCase):
 
     @attr('tlb')
     def test_cause1(self):
-        self.assertRegisterEqual(self.MIPS.a4 & 0xff, 0x10, "Wrong cause 1")
+        self.assertRegisterMaskEqual(self.MIPS.a4, 0xff, 0x10, "Wrong cause 1")
 
     @attr('tlb')
     def test_epc2(self):
@@ -60,4 +60,4 @@ class test_tlb_addrerr_load(BaseBERITestCase):
 
     @attr('tlb')
     def test_cause2(self):
-        self.assertRegisterEqual(self.MIPS.s1 & 0xff, 0x10, "Wrong cause 2")
+        self.assertRegisterMaskEqual(self.MIPS.s1, 0xff, 0x10, "Wrong cause 2")

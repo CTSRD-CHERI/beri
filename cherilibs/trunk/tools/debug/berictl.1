@@ -69,6 +69,8 @@ Specify which JTAG unit to attach to on a system with multiple FPGAs attached.
 .It Fl d
 Increase debugging output.
 May be specified multiple times.
+.It Fl j
+Use JTAG Atlantic interface to the JTAG bus.
 .It Fl N
 Do not resume execution after running a command.
 .Em Note :
@@ -78,6 +80,9 @@ Connect to a NetFPGA board with a Xilinx FPGA.
 .It Fl q
 Enable quiet mode.
 .It Fl s Ar socket-path-or-port
+.It Fl u Ar uart-id
+Select which JTAG UART to connect to. (Used to connect to a particular core
+on multicore BERI).
 .El
 .Sh COMMANDS
 .Ss Hardware/Simulator access and control

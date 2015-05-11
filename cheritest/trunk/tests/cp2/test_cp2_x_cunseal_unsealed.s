@@ -63,15 +63,10 @@ test:		.ent test
 		dli      $t0, 1
 		cincbase $c1, $c0, $t0
 
-		# $c2 isn't sealed, but we set it's otype to the right
-		# value so cunseal won't raise an exception due to the
+		# $c2 isn't sealed, but we set $c3's effective address
+		# to 0 so cunseal won't raise an exception due to the
 		# otypes not matching.
-		dla     $t0, sandbox
-		csettype $c2, $c2, $t0
-
-		cmove   $c3, $c0
-		dla     $t0, sandbox
-		csettype $c3, $c3, $t0
+		csetoffset $c3, $c0, $0
 
 		# Put a recognizable value in $a0 so we can tell if the
 		# test never makes it back from the exception handler.

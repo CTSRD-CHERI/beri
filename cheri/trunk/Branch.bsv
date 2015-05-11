@@ -129,7 +129,7 @@ module mkBranch(BranchIfc);
     histories.write(check.key, check.history);
   endrule
 
-  method ActionValue#(PcAndEpoch) getPc(InstId id, Bool fromDebug);
+  method ActionValue#(PcAndEpoch) getPc(InstId id, Bool fromDebug) if (predictions.notEmpty);
     Prediction pred = predictions.first;
     if (!fromDebug) begin
       predictions.deq;

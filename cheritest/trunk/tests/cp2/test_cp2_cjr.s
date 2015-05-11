@@ -51,12 +51,13 @@ test:		.ent test
 
 
 		dla	$a0, L1
-		cjr	$a0($c1)
-		# branch delay slot
-		nop
+		csetoffset $c1, $c1, $a0
+		cjr	$c1
+		nop			# branch delay slot
 
 L1:
-		cgetpcc  $t1($c2)
+		cgetpcc  $c2
+		# FIXME: new assembler syntax
 		cgetperm $a3, $c2
 		
 

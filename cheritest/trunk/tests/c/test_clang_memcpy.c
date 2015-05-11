@@ -1,3 +1,29 @@
+/*-
+ * Copyright (c) 2012-2014 David T. Chisnall
+ * All rights reserved.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * @BERI_LICENSE_HEADER_START@
+ *
+ * Licensed to BERI Open Systems C.I.C. (BERI) under one or more contributor
+ * license agreements.  See the NOTICE file distributed with this work for
+ * additional information regarding copyright ownership.  BERI licenses this
+ * file to you under the BERI Hardware-Software License, Version 1.0 (the
+ * "License"); you may not use this file except in compliance with the
+ * License.  You may obtain a copy of the License at:
+ *
+ *   http://www.beri-open-systems.org/legal/license-1-0.txt
+ *
+ * Unless required by applicable law or agreed to in writing, Work distributed
+ * under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * @BERI_LICENSE_HEADER_END@
+ */
 #include "assert.h"
 
 typedef __SIZE_TYPE__ size_t;
@@ -11,7 +37,7 @@ __capability void *cmemcpy(__capability void *dst,
 void *memcpy(void *dst,
              const void *src,
              size_t len);
-#define CAP(x) ((__capability void*)x)
+#define CAP(x) ((__capability void*)(x))
 
 // Test structure which will be memcpy'd.  Contains data and a capability in
 // the middle.  The capability must be aligned, but memcpy should work for any
@@ -55,6 +81,7 @@ void invalidate(struct Test *t1)
 int test(void)
 {
 	struct Test t1, t2;
+
 	invalidate(&t2);
 	for (int i=0 ; i<32 ; i++)
 	{
@@ -127,6 +154,31 @@ int test(void)
 		assert(t2.pad0[i] == i+1);
 		assert(t2.pad1[i] == i+1);
 	}
+	
+	// .. and finally finally tests that offsets are taken into
+	// account when checking alignment.  These are regression tests
+	// for a bug in cmemcpy.
+
+	// aligned base, unaligned offset + base
+	invalidate(&t2);
+	cpy = cmemcpy(
+		__builtin_cheri_cap_offset_set(CAP(&t2), 3),
+		__builtin_cheri_cap_offset_set(CAP(&t1), 3),
+		sizeof(t1)-6
+		);
+	assert((void*)cpy == &t2.pad0[3]);
+	check(&t2, 3, 29);
+
+	// unaligned base, aligned offset + base
+	invalidate(&t2);
+	cpy = cmemcpy(
+		__builtin_cheri_cap_offset_set(CAP(t2.pad0-1), 1),
+		__builtin_cheri_cap_offset_set(CAP(t1.pad0-1), 1),
+		sizeof(t1)
+		);
+	assert((void*)cpy == &t2.pad0);
+	check(&t2, 0, 32);
+	
 	return 0;
 }
 

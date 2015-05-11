@@ -10,12 +10,13 @@
 # Copyright (c) 2012 Simon W. Moore
 # Copyright (c) 2012-2013 Robert M. Norton
 # Copyright (c) 2012 Ben Thorner
-# Copyright (c) 2013-2014 Theo Markettos
+# Copyright (c) 2013-2014 A. Theodore Markettos
 # Copyright (c) 2013 Philip Withnall
 # Copyright (c) 2013 Michael Roe
 # Copyright (c) 2013-2014 Colin Rothwell
 # Copyright (c) 2013 Bjoern A. Zeeb
 # Copyright (c) 2013 Alan A. Mujumdar
+# Copyright (c) 2015 Paul Fox
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -52,45 +53,61 @@ INCLUDE_DIR     = $(CHERILIBS_DIR)/include
 BUILD_DIR       = ./build
 IP_DIR          = ./ip/
 
-#TOPLEVEL = MIPSTop
-# XXX: Avalon2ClientServer.bsv isn't necessary
+OSNAME		:= $(shell uname -s)
+
 BSV_FILES=			\
 	Branch.bsv        \
 	BranchSimple.bsv  \
 	$(CHERILIBS_DIR)/BeriBootMem.bsv		\
 	Merge.bsv	        \
 	$(CHERILIBS_DIR)/L2Cache.bsv        \
+	$(CHERILIBS_DIR)/CoherenceController.bsv        \
 	$(CHERILIBS_DIR)/MemTypes.bsv        \
+	$(CHERILIBS_DIR)/MEM.bsv             \
+	$(CHERILIBS_DIR)/MasterSlave.bsv     \
 	$(CHERILIBS_DIR)/Processor.bsv        \
 	$(CHERILIBS_DIR)/TopAxi.bsv        \
 	$(CHERILIBS_DIR)/TopSimAxi.bsv			\
-	$(CHERILIBS_DIR)/CheriAxi.bsv			\
-	$(CHERILIBS_DIR)/BlueBusWrapper.bsv		\
 	$(CHERILIBS_DIR)/Interconnect.bsv		\
+	$(CHERILIBS_DIR)/InternalToAxi.bsv		\
+	$(CHERILIBS_DIR)/InflightCounter.bsv		\
+	$(CHERILIBS_DIR)/TwoWritePortRegFile.bsv	\
+	$(CHERILIBS_DIR)/InternalPeriphBridge.bsv\
 	$(CHERILIBS_DIR)/Peripheral.bsv      \
+	$(CHERILIBS_DIR)/OrderingLimiter.bsv      \
 	$(CHERILIBS_DIR)/TagCache.bsv      \
 	$(CHERILIBS_DIR)/TraceTypes.bsv      \
-	ICache.bsv		\
+	$(CHERILIBS_DIR)/AsymmetricBRAM/AsymmetricBRAM.bsv  \
+	$(CHERILIBS_DIR)/PIC.bsv			\
+	$(CHERILIBS_DIR)/Burst.bsv          \
+	$(CHERILIBS_DIR)/Bag.bsv        \
+	$(CHERILIBS_DIR)/CacheCore.bsv	\
+	$(CHERILIBS_DIR)/CheriTLM.defines  \
+	$(CHERILIBS_DIR)/FF.bsv	\
+	ICache.bsv  \
+	ICacheClassic.bsv  \
 	DCache.bsv  \
+	DCacheClassic.bsv  \
 	CP0.bsv			\
-	CP0Micro.bsv		\
-	CoProX.bsv			\
 	CapCop.bsv 	   \
-	$(PERIPHERALS_DIR)/Compositor/*.bsv \
-	FPU/*.bsv     \
+	CapCop128.bsv \
+        FPU/*.bsv     \
 	Decode.bsv		\
 	Execute.bsv		\
 	MemAccess.bsv		\
 	Memory.bsv		\
 	MIPS.bsv		\
+	Proc.bsv    \
 	ForwardingPipelinedRegFile.bsv		\
+	ForwardingPipelinedRegFileHighFrequency.bsv	\
 	MIPSTop.bsv		\
 	ResetBuffer.bsv \
 	Scheduler.bsv		\
 	TLB.bsv			\
 	Writeback.bsv			\
 	DebugUnit.bsv		\
-	Multicore.bsv
+	Multicore.bsv		\
+#	$(PERIPHERALS_DIR)/DMA/*.bsv
 
 C_HEADERS=$(INCLUDE_DIR)/parameters.h
 
@@ -98,6 +115,22 @@ PISM_LIB= $(PERIPHERALS_DIR)/libpism.so
 
 EXTRA_LINK=				\
 	$(PERIPHERALS_DIR)/pismdev/debug_stream/debug_stream.c	\
+	$(CHERILIBS_DIR)/AsymmetricBRAM/mem_model.c
+
+ifeq ($(OSNAME), Linux)
+NCPU:=	$(shell nproc)
+else
+ifeq ($(OSNAME), FreeBSD)
+NCPU:=  $(shell sysctl -n hw.ncpu)
+endif
+endif
+ifdef NCPU
+ifeq ($(NCPU), "")
+NCPU:=	1
+endif
+else
+$(error GNU make logic error, NCPU not defined)
+endif
 
 all: sim vsim
 
@@ -109,18 +142,21 @@ $(PISM_LIB): FORCE
 
 CFLAGS=-g
 BSVPATH=+:%/Libraries/TLM3:%/Libraries/Axi:%/Libraries/Contrib/NonPipelinedMath
-BSVPATH:=$(BSVPATH):$(PERIPHERALS_DIR)/UART
-BSVPATH:=$(BSVPATH):$(PERIPHERALS_DIR)/LoopbackUART:$(PERIPHERALS_DIR)/EtherCAP
+BSVPATH:=$(BSVPATH):$(PERIPHERALS_DIR)/LoopbackUART:$(PERIPHERALS_DIR)/DMA
 BSVPATH:=$(BSVPATH):$(PERIPHERALS_DIR)/PixelStream:$(PERIPHERALS_DIR)/Compositor
 BSVPATH:=$(BSVPATH):FPU:FPU/megafunctions:$(CHERILIBS_DIR)
-BSVPATH:=:$(BSVPATH):$(CHERILIBS_DIR)/debugging
+BSVPATH:=$(BSVPATH):$(CHERILIBS_DIR)/debugging
+BSVPATH:=$(BSVPATH):$(CHERILIBS_DIR)/AsymmetricBRAM
+BSVPATH:=$(BSVPATH):Test/Mem
+BSVPATH:=$(BSVPATH):$(CHERILIBS_DIR)/BlueCheck
 BSC_SIM_LIBS=
-BSCFLAGS=-p $(BSVPATH) +RTS -K4000M -RTS
-BSCFLAGS+= -no-warn-action-shadowing -show-schedule #-unspecified-to X -opt-undetermined-vals #-O
+BSCFLAGS=-p $(BSVPATH) +RTS -K4000M -RTS -check-assert
+BSCFLAGS+= -no-warn-action-shadowing -show-schedule -parallel-sim-link $(NCPU)
 
 ifdef NOT_FLAT
 BSCFLAGS+=-D NOT_FLAT
 endif
+
 ifdef WITH_COMPOSITOR
 # FIXME: aggressive-conditions is needed for flow control between the processor
 # and compositor to work correctly. The compositor needs rewriting to work
@@ -161,32 +197,92 @@ print-versions:
 EXTRACTINFO=$(TOOLS_DIR)/cheri_genfiles.py
 
 ifdef CAP
+BLUESPEC_FLAGS += -D CAP
 IP_DIR := $(IP_DIR)cheri
+BUILD_DIR := $(BUILD_DIR)_cap
+else
+ifdef CAP128
+BLUESPEC_FLAGS += -D CAP128
+IP_DIR := $(IP_DIR)cheri
+BUILD_DIR := $(BUILD_DIR)_cap128
+MEM128=1
 else
 IP_DIR := $(IP_DIR)beri
 endif
+endif
 
-ifdef GENERICL1
-BLUESPEC_FLAGS += -D GENERICL1
-BSV_FILES += $(CHERILIBS_DIR)/AsymmetricBRAM/AsymmetricBRAM.bsv
-EXTRA_LINK += $(CHERILIBS_DIR)/AsymmetricBRAM/mem_model.c
-BSVPATH := :$(BSVPATH):$(CHERILIBS_DIR)/AsymmetricBRAM
+ifdef MEM64
+BSCFLAGS+=-D MEM64
+DCACHECORE=1
+ICACHECORE=1
+BUILD_DIR := $(BUILD_DIR)_mem64
+IP_DIR := $(IP_DIR)_mem64
+else 
+ifdef MEM128
+BSCFLAGS+=-D MEM128
+DCACHECORE=1
+ICACHECORE=1
+BUILD_DIR := $(BUILD_DIR)_mem128
+IP_DIR := $(IP_DIR)_mem128
+else
+BSCFLAGS+=-D MEM256
+endif
+endif
+
+ifdef ALIGNEDMEMORY
+BUILD_DIR := $(BUILD_DIR)_aligned
+else
+BLUESPEC_FLAGS += -D UNALIGNEDMEMORY
+endif
+
+ifdef DCACHECORE
+BLUESPEC_FLAGS += -D DCACHECORE
+BUILD_DIR := $(BUILD_DIR)_dcachecore
+endif
+
+ifdef ICACHECORE
+BLUESPEC_FLAGS += -D ICACHECORE
+BUILD_DIR := $(BUILD_DIR)_icachecore
+endif
+
+ifdef MICRO
+BLUESPEC_FLAGS += -D MICRO -D MULTI -D CORE_COUNT_IN=1
+BUILD_DIR := $(BUILD_DIR)_micro
+IP_DIR := $(IP_DIR)_micro
 endif
 
 ifdef MULTI
 BLUESPEC_FLAGS += -D MULTI -D CORE_COUNT_IN=$(MULTI)
 BUILD_DIR := $(BUILD_DIR)_multi_$(MULTI)
+IP_DIR := $(IP_DIR)_multi_$(MULTI)
+DTS_CPP_FLAGS += -DMULTI=$(MULTI)
+endif
+
+ifdef RMA
+BSVPATH:=$(BSVPATH):$(PERIPHERALS_DIR)/BlueLink/components/MemorySystem/common/bluespec
+BSVPATH:=$(BSVPATH):$(PERIPHERALS_DIR)/BlueLink/components/MemorySystem/cheri/bluespec
+BSVPATH:=$(BSVPATH):$(PERIPHERALS_DIR)/BlueLink/components/ReliableLinkLayer/bluespec
+BSVPATH:=$(BSVPATH):$(PERIPHERALS_DIR)/BlueLink/components/MeshSystem/common/bluespec
+BSVPATH:=$(BSVPATH):$(PERIPHERALS_DIR)/BlueLink/components/BluespecAvalon/bluespec
+BLUESPEC_FLAGS += -D MULTI -D CORE_COUNT_IN=1 -D RMA
+BUILD_DIR := $(BUILD_DIR)_rma_1
+IP_DIR := $(IP_DIR)_rma_1
+DTS_CPP_FLAGS += -DMULTI=1
+endif
+
+ifdef DMA
+BLUESPEC_FLAGS += -D DMA
+BUILD_DIR := $(BUILD_DIR)_dma
+endif
+
+ifdef DMA_VIRT
+BLUESPEC_FLAGS += -D DMA_VIRT
+BUILD_DIR := $(BUILD_DIR)_vdma
 endif
 
 ifdef WITH_NOCACHE
 BLUESPEC_FLAGS += -D NOCACHE
 BUILD_DIR := $(BUILD_DIR)_noCache
-endif
-
-ifdef MICRO
-BLUESPEC_FLAGS += -D MICRO
-BUILD_DIR := $(BUILD_DIR)_micro
-IP_DIR := $(IP_DIR)_micro
 endif
 
 ifdef NOBRANCH
@@ -212,20 +308,29 @@ BUILD_DIR := $(BUILD_DIR)_fpu
 IP_DIR := $(IP_DIR)_fpu
 endif
 
-ifdef COP3
-BLUESPEC_FLAGS += -D COP3
-BUILD_DIR := $(BUILD_DIR)_cop3
-endif
-
-ifdef CAP
-BLUESPEC_FLAGS += -D CAP
-BUILD_DIR := $(BUILD_DIR)_cap
+ifdef NOWATCH
+BLUESPEC_FLAGS += -D NOWATCH
+BUILD_DIR := $(BUILD_DIR)_nowatch
 endif
 
 ifdef TRACE
 BLUESPEC_FLAGS += -D TRACE
 BUILD_DIR := $(BUILD_DIR)_trace
 IP_DIR := $(IP_DIR)_trace
+endif
+
+ifdef TEST_MEM
+BLUESPEC_FLAGS += -D TEST_MEM -suppress-warnings G0043
+BUILD_DIR := $(BUILD_DIR)_testmem
+BSV_FILES += \
+	$(CHERILIBS_DIR)/BlueCheck/BlueCheck.bsv  \
+	Test/Mem/TestMemTop.bsv                   \
+	Test/Mem/MIPSTop_TestMem.bsv              \
+	Test/Mem/MemoryClient.bsv                 \
+	Test/Mem/TestEquiv.bsv                    \
+	Test/Mem/ModelDRAM.bsv                    \
+	Test/Mem/RegFileAssoc.bsv
+EXTRA_LINK += Test/Mem/Hash.c Test/Mem/Axe.c
 endif
 
 IP_NAME := $(shell echo $$(basename $(IP_DIR)) | tr '[:lower:]' '[:upper:]')
@@ -242,20 +347,36 @@ PHYS_BA_TOPLEVEL = $(BUILD_DIR)/mk$(PHYS_TOPLEVEL).ba
 PHYS_BSV_TOPLEVEL = $(CHERILIBS_DIR)/$(PHYS_TOPLEVEL).bsv
 PHYS_TOPLEVEL_MODULE = mk$(PHYS_TOPLEVEL)
 # Simulation Case Variable Names
+ifdef TEST_MEM
+SIM_TOPLEVEL = TestMemTop
+SIM_BA_TOPLEVEL = $(BUILD_DIR)/mk$(SIM_TOPLEVEL).ba
+SIM_BSV_TOPLEVEL = Test/Mem/$(SIM_TOPLEVEL).bsv
+SIM_TOPLEVEL_MODULE = mk$(SIM_TOPLEVEL)
+else
 SIM_TOPLEVEL = TopSimAxi
 SIM_BA_TOPLEVEL = $(BUILD_DIR)/mk$(SIM_TOPLEVEL).ba
 SIM_BSV_TOPLEVEL = $(CHERILIBS_DIR)/$(SIM_TOPLEVEL).bsv
 SIM_TOPLEVEL_MODULE = mk$(SIM_TOPLEVEL)
+endif
 
 $(PHYS_VERILOG_TOPLEVEL): $(PHYS_BSV_TOPLEVEL) $(BSV_FILES) megawizard
 	mkdir -p $(BUILD_DIR)
 	mkdir -p $(IP_DIR)
 	$(BSC) -unspecified-to X -opt-undetermined-vals -vdir $(IP_DIR) -simdir $(BUILD_DIR) -bdir $(BUILD_DIR) -u -verilog $(BLUESPEC_FLAGS) $(PHYS_BSV_TOPLEVEL)
 	cp $(CHERILIBS_DIR)/BRAM2Load.v $(IP_DIR)/
+	cp $(CHERILIBS_DIR)/AsymmetricBRAM/AsymmetricBRAM.v $(IP_DIR)/
 ifeq ($(MULTI),2)
 	cp ip_include/dualcore_hw.tcl $(IP_DIR)/$(IP_NAME)_hw.tcl
 else
+ifdef MEM64
+	cp ip_include/hw64.tcl $(IP_DIR)/$(IP_NAME)_hw.tcl
+else 
+ifdef MEM128
+	cp ip_include/hw128.tcl $(IP_DIR)/$(IP_NAME)_hw.tcl
+else
 	cp ip_include/hw.tcl $(IP_DIR)/$(IP_NAME)_hw.tcl
+endif
+endif
 endif
 ifdef COP1
 	cp FPU/QuartusProject/*.* $(IP_DIR)/
@@ -264,15 +385,8 @@ endif
 ifdef GENERICL1
 	cp $(CHERILIBS_DIR)/AsymmetricBRAM/*.v $(IP_DIR)/ 
 endif
-	echo "#!/bin/sh" > rename_qsys.sh
-	echo "sed 's/BERI/$(IP_NAME)/g' < \$$1 > \$$2 " >> rename_qsys.sh
-	chmod +x rename_qsys.sh
-	# output a script to rename the Qsys instantiation to match the module being generated
-#	echo "#!/usr/bin/env python" > rename_qsys.py
-#	echo "import Qsys,sys" >> rename_qsys.py
-#	echo "q = Qsys.Qsys(sys.argv[1])" >> rename_qsys.py
-#	echo "q.renameComponent(\"BERI\",\"$(IP_NAME)\")" >> rename_qsys.py
-#	echo "q.writeQsys(sys.argv[2])" >> rename_qsys.py
+	# make a note of the name of the toplevel module so Qsys can be adjusted to match
+	echo "$(IP_NAME)" > ip_name.txt
 
 $(PHYS_BA_TOPLEVEL): $(BSV_FILES)
 	mkdir -p $(BUILD_DIR)
@@ -282,9 +396,25 @@ mem64.hex: sw
 
 BUILD_DIR_SIM = $(BUILD_DIR)_sim
 
-sim sim.so: $(BUILD_DIR_SIM)/sim $(BUILD_DIR_SIM)/sim.so FORCE
-	rm -f sim sim.so
+$(BUILD_DIR_SIM)/sim.dts.cpp: $(PERIPHERALS_DIR)/sim.dts.in
+	mkdir -p $(BUILD_DIR_SIM)
+	cpp $(DTS_CPP_FLAGS) -x assembler-with-cpp -include $< /dev/null | \
+	    grep -v '^# [0-9]* "' > $@
+
+.PHONY: $(QUARTUS_PROJECT).dts
+$(BUILD_DIR_SIM)/sim.dts: $(BUILD_DIR_SIM)/sim.dts.cpp
+	@echo "**********************************************************************"
+	@echo "* Generate Simulation DTS file"
+	@echo "**********************************************************************"
+	$(TOOLS_DIR)/process-dts.sh $< $@
+
+$(BUILD_DIR_SIM)/sim.dtb: $(BUILD_DIR_SIM)/sim.dts
+	dtc -O dtb -o $@ -b 0 $<
+
+sim sim.dtb sim.so: $(BUILD_DIR_SIM)/sim $(BUILD_DIR_SIM)/sim.so $(BUILD_DIR_SIM)/sim.dtb FORCE
+	rm -f sim sim.dtb sim.so
 	ln -s $(BUILD_DIR_SIM)/sim sim
+	ln -s $(BUILD_DIR_SIM)/sim.dtb sim.dtb
 	ln -s $(BUILD_DIR_SIM)/sim.so sim.so
 
 $(BUILD_DIR_SIM)/sim $(BUILD_DIR_SIM)/sim.so: $(BSV_FILES) $(PISM_LIB) mem64.hex
@@ -346,8 +476,11 @@ version.hex:
 clean:
 	rm -rf ./build*
 	rm -f *.sched
+	rm -f Test/Mem/*.sched
+	rm -f Test/Mem/*.o
 	rm -f .vcsmx_rebuild
 	rm -f sim
+	rm -f sim.dtb
 	rm -f sim.so
 	rm -f sim.out
 	rm -f mem.bin
@@ -361,6 +494,7 @@ clean:
 	rm -f rename_qsys.py
 	rm -f pism
 	rm -f $(CHERILIBS_DIR)/AsymmetricBRAM/mem_model.o
+	rm -f ip_name.txt
 	$(MAKE) -C $(PERIPHERALS_DIR) clean
 	$(MAKE) -C FPU/QuartusProject clean
 	cd sw && $(MAKE) clean

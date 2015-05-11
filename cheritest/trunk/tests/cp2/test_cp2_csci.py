@@ -39,21 +39,25 @@ class test_cp2_csci(BaseBERITestCase):
         self.assertRegisterEqual(self.MIPS.a4, 0x0123456789abcdef, "csci underflow")
 
     @attr('capabilities')
+    @attr('cap256')
     def test_cp2_csci_dword0(self):
-        '''Test that csci stored perms, u fields correctly'''
-        self.assertRegisterEqual(self.MIPS.a0, 0x00000000000000ff, "csci stored incorrect u, perms fields")
+        '''Test that csci stored sealed, perms, type fields correctly'''
+        self.assertRegisterEqual(self.MIPS.a0, 0x00000000000000fe, "csci stored incorrect sealed, perms, and type fields")
 
     @attr('capabilities')
+    @attr('cap256')
     def test_cp2_csci_dword1(self):
-        '''Test that csci stored the otype field correctly'''
-        self.assertRegisterEqual(self.MIPS.a1, 0x0000000000000001, "csci stored incorrect otype")
+        '''Test that csci stored the offset field correctly'''
+        self.assertRegisterEqual(self.MIPS.a1, 5, "csci stored incorrect offset")
 
     @attr('capabilities')
+    @attr('cap256')
     def test_cp2_csci_dword2(self):
         '''Test that csci stored the base field correctly'''
         self.assertRegisterEqual(self.MIPS.a2, 0x0000000000000000, "csci stored incorrect base address")
 
     @attr('capabilities')
+    @attr('cap256')
     def test_cp2_csci_dword3(self):
         '''Test that csci stored the length field correctly'''
         self.assertRegisterEqual(self.MIPS.a3, 0xffffffffffffffff, "csci stored incorrect length")

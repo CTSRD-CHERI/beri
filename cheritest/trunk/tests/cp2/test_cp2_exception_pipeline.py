@@ -52,9 +52,9 @@ class test_cp2_exception_pipeline(BaseBERITestCase):
         # Should be unchanged from default
         self.assertRegisterEqual(self.MIPS.c4.perms, 0x7fffffff, "candperms instruction was not properly flushed from pipeline")
     @attr('capabilities')
-    def test_csettype(self):
+    def test_csetoffset(self):
         # Should be unchanged from default
-        self.assertRegisterEqual(self.MIPS.c5.ctype, 0x0, "csettype instruction was not properly flushed from pipeline")
+        self.assertRegisterEqual(self.MIPS.c5.offset, 0x0, "csetoffset instruction was not properly flushed from pipeline")
     @attr('capabilities')
     def test_cscr(self):
         # These registers should contain test data, NOT the stored capability register
@@ -67,5 +67,6 @@ class test_cp2_exception_pipeline(BaseBERITestCase):
         # The c7 register should be unchanged from its default value
         self.assertRegisterEqual(self.MIPS.c7.ctype, 0, "clcr instruction was not properly flushed from pipeline")
         self.assertRegisterEqual(self.MIPS.c7.perms, 0x7fffffff, "clcr instruction was not properly flushed from pipeline")
+        self.assertRegisterEqual(self.MIPS.c7.offset, 0, "clcr instruction was not properly flushed from pipeline")
         self.assertRegisterEqual(self.MIPS.c7.base, 0, "clcr instruction was not properly flushed from pipeline")
         self.assertRegisterEqual(self.MIPS.c7.length, 0xffffffffffffffff, "clcr instruction was not properly flushed from pipeline")

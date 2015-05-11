@@ -1,0 +1,13 @@
+hostname="beri1"
+sendmail_enable="NONE"
+tmpmfs="YES"
+tmpsize="40m"
+#ifconfig_atse0="polling DHCP"
+#ifconfig_atse1="polling"
+de4_hdmi_enable="YES"
+
+sshd_enable="NO"
+# Disable all but ECDSA and RSA (for Mac support) to speed first boot on sdcard.
+# sshd whines, but loads as long as there is a key around.
+sshd_rsa1_enable="NO"
+sshd_dsa_enable="NO"

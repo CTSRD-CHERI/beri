@@ -46,6 +46,12 @@ test:		.ent test
 		daddu	$fp, $sp, 32
 
 		#
+		# Set BEV state to BEV0
+		#
+		jal	bev_clear
+		nop
+
+		#
 		# Set up exception handler
 		#
 
@@ -76,14 +82,24 @@ test:		.ent test
 
 		cmove   $c2, $c0
 
-		cmove	$c1, $c0
-		dla	$t0, sandbox
-		csettype $c1, $c1, $t0
-		dli	$t0, 0xd # Permit_Store, Permit_Load and Non_Ephemeral
+		#
+		# Make $c1 a template capability for type 0x1234
+		#
+
+		dli	$t0, 0x1234
+		csetoffset $c1, $c0, $t0
+
+		#
+		# Make $c0 a sealed data capability
+		#
+
+		dli	$t0, 0xd # Permit_Store, Permit_Load and Global
 		candperm $c0, $c0, $t0
-		csealdata $c0, $c0, $c1
+		cseal	$c0, $c0, $c1
 		
-		
+		#
+		# Read from memory - implicitly references $c0
+		#
 
 		dla	$t1, data
 		dli     $a0, 0

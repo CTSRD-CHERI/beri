@@ -38,6 +38,7 @@ int main(int argc, char **argv)
 char buff[1023];
 int len;
 int reg_num;
+int core = 0;
 
   while (fgets(buff, sizeof(buff), stdin) != NULL)
   {
@@ -47,15 +48,25 @@ int reg_num;
       len--;
       buff[len] = '\0';
     }
-    if (strncmp(buff, "Reg ", 4) == 0)
+    if ((strncmp(buff, "Reg ", 4) == 0) &&
+      (strstr(buff, "<-") == (char *) 0))
     {
       buff[6] = '\0';
       reg_num = atoi(buff + 4);
       printf("DEBUG MIPS REG %2d 0x%s\n", reg_num, buff + 7);
     }
-    else if (strncmp(buff, "PC ", 3) == 0)
+    else if ((strncmp(buff, "PC ", 3) == 0) && (core == 0))
     {
       printf("DEBUG MIPS PC 0x%s\n", buff + 7);
+    }
+    else if (strncmp(buff, "Core = ", 7) == 0)
+    {
+      core = strtol(buff + 7, NULL, 0);
+      printf("DEBUG MIPS COREID %d\n", core);
+    }
+    else if (strncmp(buff, "DEBUG CAP", 9) == 0)
+    {
+      printf("%s\n", buff);
     }
   }
 

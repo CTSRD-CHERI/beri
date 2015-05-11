@@ -51,6 +51,7 @@ import FIFO::*;
 import FIFOF::*;
 import ConfigReg::*;
 import MemTypes::*;
+import Vector::*;
 
 // MIPS.bsv contains types and interface declarations that are common among many
 // files.
@@ -73,18 +74,15 @@ import MemAccess::*;
 import Writeback::*;
 // DebugUnit.bsv describes the debug unit of the processor.
 import DebugUnit::*;
+// CP0.bsv describes the system control processor holding privileged state
+// such as the TLB.
+import CP0::*;
 // The MICRO version of CHERI has a simplified CP0 (system control processor)
 // and branch predictor.
 `ifndef MICRO
-  // CP0.bsv describes the system control processor holding privileged state
-  // such as the TLB.
-  import CP0::*;
   // Branch.bsv describes the branch predictor.
   import Branch::*;
 `else
-  // CP0Micro.bsv describes a simplified system control processor with basic
-  // interrupt support but no TLB.
-  import CP0Micro::*;
   // BranchSimple.bsv describes a minimal branch predictor.
   import BranchSimple::*;
 `endif
@@ -99,6 +97,12 @@ import ResetBuffer::*;
   // CapCop.bsv describes the optional "Capabilty" coprocessor for enhanced
   // memory protection.
   import CapCop::*;
+  `define USECAP 1
+`elsif CAP128
+  // CapCop.bsv describes the optional "Capabilty" coprocessor for enhanced
+  // memory protection.
+  import CapCop128::*;
+  `define USECAP 1
 `endif
 // The COP1 flag enables the inclusion of the optional floating point unit.
 `ifdef COP1
@@ -128,6 +132,7 @@ interface MIPSTopIfc;
   // interface below is required for the multiport L2Cache
   //interface Client#(MemoryRequest#(35, 32), BigMemoryResponse#(256)) memory;
   // 5 interrupt lines, matching the standard MIPS spec.
+  (* always_ready, always_enabled *)
   method Action putIrqs(Bit#(5) interruptLines);
   // Deliver common state to this core.
   method Action putState(Bit#(48) count, Bool pause);
@@ -140,6 +145,13 @@ interface MIPSTopIfc;
     // ourselves (if it is fed back in).
   method Bool reset_n();
   // Whether we want the trace unit to be recording at each cycle.
+
+  // For testing the memory sub-system
+  interface MIPSMemory mipsMemory;
+
+  `ifdef DMA_VIRT
+      interface Vector#(2, Server#(TlbRequest, TlbResponse)) tlbs;
+  `endif
 endinterface
 
 
@@ -161,16 +173,14 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
 
   // The MICRO flag will use a simplified CP0 (system control processor) with no
   // TLB and also a simple branch predictor.
+  // theCP0 is the system control processor containing the TLB and handling
+  // exception logic.
+  CP0Ifc theCP0 <- mkCP0(coreId);
   `ifndef MICRO
-    // theCP0 is the system control processor containing the TLB and handling
-    // exception logic.
-    CP0Ifc theCP0 <- mkCP0(coreId);
     // branch is the higher performance branch predictor with a branch history
     // and call stack.
     BranchIfc branch <- mkBranch();
   `else
-    // mkCP0Micro makes a CP0 with exception support but no TLB.
-    CP0Ifc theCP0 <- mkCP0Micro();
     // BranchSimple is a branch predictor that makes due with nothing but a
     // target buffer.
     BranchIfc branch <- mkBranchSimple();
@@ -183,20 +193,14 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
   `else
     CoProIfc cop1 <- mkCoProNull();
   `endif
-  // Coprocessor 3 is not a supported coprocessor at this time but can be used
-  // for extensions. A null stub is compiled in by default.
-  `ifdef COP3
-    CoProIfc cop3 <- mkCoPro();
-  `else
-    CoProIfc cop3 <- mkCoProNull();
-  `endif
+
   // theDebug is the debug unit that is able to control the pipeline and insert
   // instructions. theDebug also consumes an instruction report for each
   // instruction and can report those over the byte stream interface.
   DebugIfc theDebug <- mkDebug();
   // theRF is the general purpose register file with 2 read ports and one write
   // port, enough to not stall for all general purpose MIPS instructions.
-  ForwardingPipelinedRegFileIfc#(MIPSReg) theRF <- mkForwardingPipelinedRegFile();
+  MIPSRegFileIfc theRF <- mkForwardingPipelinedRegFile();
   // theMem is the memory hierarchy which needs the system control processor
   // for TLB integration.
   MIPSMemory theMem <- mkMIPSMemory(coreId,theCP0);
@@ -206,46 +210,51 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
   PipeStageIfc decode <- mkDecode(theCP0);
   // These are the module instantiations for the "Capability" case which
   // includes our memory protection extensions.
-  `ifdef CAP
+  `ifdef USECAP
       // theCapCop is the "Capability coprocessor", logically MIPS coprocessor
       // 2, which inserts itself into the general purpose pipeline for register
       // reads and writes and which also becomes part of the memory path.
-      CapCopIfc theCapCop <- mkCapCop(coreId);
+      `ifdef CAP
+        CapCopIfc theCapCop <- mkCapCop(coreId);
+      `elsif CAP128
+        CapCopIfc theCapCop <- mkCapCop128(coreId);
+      `endif
+      
       // memAccess is the memory access stage of the pipeline which imports data
       // memory and the capability coprocessor interface
       PipeStageIfc memAccess <- mkMemAccess(theMem.dataMemory, theCapCop);
       // The writeback stage of the pipeline imports lots of interfaces because
       // it updates all system state that results from an instruction commit.
-      WritebackIfc writeback <- mkWriteback(theMem, theRF, theCP0, branch, theDebug, cop1, theCapCop, cop3, memAccess);
+      WritebackIfc writeback <- mkWriteback(theMem, theRF, theCP0, branch, theDebug, cop1, theCapCop, memAccess);
       // The scheduler pulls the instruction out of the instruction memory interface
       // and reports any branches to the branch unit. The scheduler also submits
       // register read addresses to the register file
-      PipeStageIfc scheduler <- mkScheduler(branch, theRF, theCP0, cop1, theCapCop, cop3, theMem.instructionMemory);
+      PipeStageIfc scheduler <- mkScheduler(branch, theRF, theCP0, cop1, theCapCop, theMem.instructionMemory);
       // The execute stage of the pipeline has access to the coprocessor
       // interfaces since they may hold their own uncommitted temporary values,
       // and also the decode interface which it directly accesses so that it can
       // check conditions of the next instruction before consuming and also the
       // writeback interface so that it can receive values loaded from memory
       // for forwarding.
-      PipeStageIfc execute <- mkExecute(theRF, writeback, theCP0, cop1, theCapCop, cop3, decode);
+      PipeStageIfc execute <- mkExecute(theRF, writeback, theCP0, cop1, theCapCop, decode);
   `else
       // memAccess is the memory access stage of the pipeline which imports the
       // data memory interface.
       PipeStageIfc memAccess <- mkMemAccess(theMem.dataMemory);
       // The writeback stage of the pipeline imports lots of interfaces because
       // it updates all system state that results from an instruction commit.
-      WritebackIfc writeback <- mkWriteback(theMem, theRF, theCP0, branch, theDebug, cop1, cop3, memAccess);
+      WritebackIfc writeback <- mkWriteback(theMem, theRF, theCP0, branch, theDebug, cop1, memAccess);
       // The scheduler pulls the instruction out of the instruction memory interface
       // and reports any branches to the branch unit. The scheduler also submits
       // register read addresses to the register file
-      PipeStageIfc scheduler <- mkScheduler(branch, theRF, theCP0, cop1, cop3, theMem.instructionMemory);
+      PipeStageIfc scheduler <- mkScheduler(branch, theRF, theCP0, cop1, theMem.instructionMemory);
       // The execute stage of the pipeline has access to the coprocessor
       // interfaces since they may hold their own uncommitted temporary values,
       // and also the decode interface which it directly accesses so that it can
       // check conditions of the next instruction before consuming and also the
       // writeback interface so that it can receive values loaded from memory
       // for forwarding.
-      PipeStageIfc execute <- mkExecute(theRF, writeback, theCP0, cop1, cop3, decode);
+      PipeStageIfc execute <- mkExecute(theRF, writeback, theCP0, cop1, decode);
   `endif
   // resetBuffer facilitates a system reset triggered from within the processor,
   // currently by the debug unit.
@@ -296,7 +305,7 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
     theCP0.putDeterministicCycleCount(theDebug.getDeterministicCycleCount);
   endrule
   
-  rule reportCommittingToL2Cache;
+  rule reportCommittingToDCache;
     Bool commit <- writeback.nextWillCommit();
     theMem.nextWillCommit(commit);
   endrule
@@ -489,6 +498,11 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
   // level module.
   interface debugStream = theDebug.stream;
 
+  // For testing the memory sub-system
+  `ifdef TEST_MEM
+    interface mipsMemory = theMem;
+  `endif
+    
   `ifdef MULTI
     interface invalidateICache = theMem.invalidateICache;
     interface invalidateDCache = theMem.invalidateDCache;
@@ -505,4 +519,8 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
     theDebug.pause(commonPause);
     pause <= commonPause;
   endmethod
+
+  `ifdef DMA_VIRT
+      interface tlbs = theCP0.tlbs;
+  `endif
 endmodule

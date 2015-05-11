@@ -45,6 +45,7 @@ import GetPut :: *;
 import Vector :: *;
 import Assert :: *;
 import DefaultValue :: *;
+import ConfigReg :: *;
 
 import MIPS :: *;
 import CHERITypes::*;
@@ -79,7 +80,7 @@ typedef UInt#(Log2StreamEntries) StreamIndex;
 // Tracing
 
 interface TraceLogger;
-  method Action addEntry(Exception e, Bit#(32) inst, Address pc, Value result, Value result2, ASID asid);
+  method Action addEntry(Bit#(10) count, TraceEntry te);
   method ActionValue#(Maybe#(TraceEntry)) popEntry();
   method Bool notEmpty();
   method Bool almostFull();
@@ -93,29 +94,76 @@ typedef Bit#(DebugInfoBitWidth) DebugInfo;
 module mkTraceLogger(TraceLogger);
   Reg#(Bit#(256))  traceCmpMaskReg  <- mkReg(0); //trace everything to start
   Reg#(TraceEntry) traceCmpReg      <- mkRegU();
+  let              traceFile        <- mkReg(InvalidFile);
 
   CircularBuffer#(Log2StreamEntries, TraceEntry) traceQ <- mkBRAMCircularBuffer;
-  Reg#(Bit#(10))   count           <- mkReg(0);
 
-  rule counter;
-    count <= count + 1;
-  endrule
-
-  method Action addEntry(Exception e, Bit#(32) inst, Address pc, Value result, Value result2, ASID asid);
-    let te = TraceEntry{
-      valid:     True,
-      version:   1,
-      ex:        pack(e),
-      inst:      inst,
-      pc:        pc,
-      regVal1:   result,
-      regVal2:   result2,
-      reserved:  0,
-      asid:      asid,
-      count:     count
-    };
+  method Action addEntry(Bit#(10) count, TraceEntry te);
+    te.count = count;
     if ((pack(te) & traceCmpMaskReg) == (pack(traceCmpReg) & traceCmpMaskReg))
       traceQ.enq(te);
+    Bool btrace <- $test$plusargs("btrace");
+    if (traceFile != InvalidFile)
+      begin
+        TraceEntryDisk_v2 tev2 = traceEntryToDiskV2(te);
+        // Yes, this really is the only way to write out some binary data...
+        $fwrite(traceFile, "%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", 
+           tev2.entry_type,
+           tev2.exception,
+
+           tev2.count[15:8],
+           tev2.count[7:0],
+
+// NB For some reason inst is little endian unlike other fields.
+           tev2.inst[07:00],
+           tev2.inst[15:08],
+           tev2.inst[23:16],
+           tev2.inst[31:24],
+
+           tev2.pc[63:56],
+           tev2.pc[55:48],
+           tev2.pc[47:40],
+           tev2.pc[39:32],
+           tev2.pc[31:24],
+           tev2.pc[23:16],
+           tev2.pc[15:08],
+           tev2.pc[07:00],
+
+// rmn30 YYY for some reason we have to swap regVal2 and regVal1 from the expected order
+           tev2.regVal2[63:56],
+           tev2.regVal2[55:48],
+           tev2.regVal2[47:40],
+           tev2.regVal2[39:32],
+           tev2.regVal2[31:24],
+           tev2.regVal2[23:16],
+           tev2.regVal2[15:08],
+           tev2.regVal2[07:00],
+
+           tev2.regVal1[63:56],
+           tev2.regVal1[55:48],
+           tev2.regVal1[47:40],
+           tev2.regVal1[39:32],
+           tev2.regVal1[31:24],
+           tev2.regVal1[23:16],
+           tev2.regVal1[15:08],
+           tev2.regVal1[07:00],
+
+           tev2.thread,
+           tev2.asid
+           );
+      end
+    else if (btrace)
+      begin
+        File fh   <- $fopen("sim_trace.bin", "w");
+        if (fh == InvalidFile)
+          begin
+            $display("Failed to open sim_trace.bin");
+            $finish(1);
+          end
+        String header = "\x82CheriStreamTrace%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c";
+        $fwrite(fh, header, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);
+        traceFile <= fh;
+      end
   endmethod
 
   method ActionValue#(Maybe#(TraceEntry)) popEntry();
@@ -144,7 +192,7 @@ interface DebugUnit;
   interface CapabilityRegisterFile caprf;
 
   method Action           canFetchInst();
-  method ActionValue#(Bool) completeInst(Bit#(32) inst, Address pc, Address nextpc, Value result, Value result2, Exception e, ASID asid);
+  method ActionValue#(Bool) completeInst(TraceEntry te, Address nextPC);
 endinterface
 
 module mkDebugUnit#(
@@ -158,25 +206,28 @@ module mkDebugUnit#(
 
   ByteMarshaller#(DebugCommand) marshaller <- mkTLVByteMarshaller_DebugCommand();
 
-  EHR#(2,PipelineState)       pipeState <- mkEHR(Pipe_RunningPipelined);
+  Reg#(PipelineState)         pipeState <- mkConfigReg(Pipe_RunningPipelined);
   Reg#(Bool)               sendingTrace <- mkReg(False);
   Reg#(Vector#(4, Address)) breakpoints <- mkReg(replicate(64'hFFFFFFFF)); //Threads
-  Reg#(ThreadID)            debugThread <- mkReg(fromInteger(valueOf(DebugThread))); // current thread to debug.
+  Reg#(ThreadID)            debugThread <- mkConfigReg(fromInteger(valueOf(DebugThread))); // current thread to debug.
   TraceLogger tracelogger               <- mkTraceLogger();
+  // counter for trace cycles
+  Reg#(Bit#(10))             cycleCount <- mkReg(0);
 
-  Bool canDebug = (pipeState[1] == Pipe_Paused); // would ideally wait for pipeLineFlushed too but this causes awkward dependency cycles
+  Bool canDebug = (pipeState == Pipe_Paused && pipelineFlushed);
 
   //
   FIFO#(void)               stepQ <- mkFIFO();
   FIFO#(DebugCommand) precommandQ <- mkFIFO();
   FIFO#(DebugCommand)    commandQ <- mkFIFO();
+  let                     memReqQ <- mkFIFO();
   FIFO#(Exception)        memExQ1 <- mkFIFO();
-  FIFO#(Exception)        memExQ2 <- mkFIFO();
+  FIFO#(Tuple2#(Bool, Exception)) memExQ2 <- mkFIFO();
 
-  let debug_rf    = when(canDebug, regfile);
-  let debug_cp0rf = when(canDebug, cp0regfile);
-  let debug_caprf = when(canDebug, capregfile);
-  let debug_dmem  = when(canDebug, dmemory);
+  let debug_rf    = regfile;
+  let debug_cp0rf = cp0regfile;
+  let debug_caprf = capregfile;
+  let debug_dmem  = dmemory;
 
   rule loadCommand;
     let cmd <- marshaller.messageStream.request.get();
@@ -187,6 +238,7 @@ module mkDebugUnit#(
 
   rule startDebugCommand_isolated;
     let cmd <- popFIFO(precommandQ);
+    debug2("dbunit", $display("start isolated ", fshow(cmd)));
     case (cmd) matches
       tagged D_PausePipelineReq:     noAction;
       tagged D_ResumePipelinedReq:   noAction;
@@ -199,6 +251,7 @@ module mkDebugUnit#(
 
   rule startDebugCommand_notIsolated (canDebug);
     let cmd <- popFIFO(precommandQ);
+    debug2("dbunit", $display("start not isolated ", fshow(cmd)));
     Maybe#(Tuple3#(MemOp, Address, Value)) mmemreq = Invalid;
     case (cmd) matches
       tagged D_PausePipelineReq:     when(False, noAction);
@@ -261,54 +314,64 @@ module mkDebugUnit#(
       tagged D_SetThreadResp .v: noAction;
       default: noAction; // Responses
     endcase
-    // do mem operations which we set up in the previous case block
-    case (mmemreq) matches
-      tagged Valid {.op, .a, .v}:
-	begin
-          let memop = MemOperation {
-             op_memtype: op,
-             op_isMemLinked: False,
-             op_signed: False
-          };
-          let ts = debug_cp0rf.threadStates[debugThread];
-          // allow debug unit to access all memory by pretending this
-          // thread is executing in kernel mode
-          ts.errorLevel = True;
-          Exception e <- debug_dmem.req(debugThread, ts, memop, a, v);
-          memExQ1.enq(e);
-        end
-    endcase
+    // memory operations must be executed in a separate rule to avoid
+    // a dependency cycle caused by a conflict for dmem.req with the
+    // memory stage of main pipeline.
+    if (mmemreq matches tagged Valid .memreq)
+        memReqQ.enq(memreq);
     commandQ.enq(cmd);
+  endrule
+
+  rule startMem;
+    match {.op, .a, .v} <- popFIFO(memReqQ);
+    let memop = MemOperation {
+      op_memtype: op,
+      op_isMemLinked: False,
+      op_signed: False
+    };
+    let ts = debug_cp0rf.threadStates[debugThread];
+    // allow debug unit to access all memory by pretending this
+    // thread is executing in kernel mode
+    ts.errorLevel = True;
+    Exception e <- debug_dmem.req(debugThread, ts, memop, a, v);
+    memExQ1.enq(e);
+    debug2("dbunit", $display("startMem ", fshow(memop), " -> ", fshow(e)));
   endrule
 
   rule commitMem;
     Exception e    <- popFIFO(memExQ1);
-    Exception newE <- (e == Ex_None) ? debug_dmem.commit(True) : toAV(e);
-    memExQ2.enq(newE);
+    let wasReqEx = e != Ex_None;
+    // We must call dmem.commit and dmem.resp only if there was no
+    // exception from dmem.req. However we must still call dmem.resp
+    // even if dmem.commit returns an exception.
+    Exception newE <- (wasReqEx) ? toAV(e) : debug_dmem.commit(True);
+    memExQ2.enq(tuple2(wasReqEx, newE));
+    debug2("dbunit", $display("commitMem ", fshow(e), " -> ", fshow(newE)));
   endrule
 
   rule endCommand_isolated;
     let cmd <- popFIFO(commandQ);
+    debug2("dbunit", $display("end isolated ", fshow(cmd)));
     case (cmd) matches
       tagged D_PausePipelineReq:
         action
-          marshaller.messageStream.response.put(tagged D_PausePipelineResp pipeState[0]);
-          pipeState[0] <= Pipe_Paused;
+          marshaller.messageStream.response.put(tagged D_PausePipelineResp pipeState);
+          pipeState <= Pipe_Paused;
         endaction
       tagged D_ResumePipelinedReq:
         action
-          marshaller.messageStream.response.put(tagged D_ResumePipelinedResp pipeState[0]);
-          pipeState[0] <= Pipe_RunningPipelined;
+          marshaller.messageStream.response.put(tagged D_ResumePipelinedResp pipeState);
+          pipeState <= Pipe_RunningPipelined;
         endaction
       tagged D_ResumeUnpipelinedReq:
         action
-          marshaller.messageStream.response.put(tagged D_ResumeUnpipelinedResp pipeState[0]);
-          pipeState[0] <= Pipe_RunningUnpipelined;
+          marshaller.messageStream.response.put(tagged D_ResumeUnpipelinedResp pipeState);
+          pipeState <= Pipe_RunningUnpipelined;
         endaction
       tagged D_ResumeStreamingReq:
         action
-          marshaller.messageStream.response.put(tagged D_ResumeStreamingResp pipeState[0]);
-          pipeState[0] <= Pipe_Streaming;
+          marshaller.messageStream.response.put(tagged D_ResumeStreamingResp pipeState);
+          pipeState <= Pipe_Streaming;
           sendingTrace <= True;
         endaction
       default: when(False, noAction);
@@ -317,17 +380,19 @@ module mkDebugUnit#(
 
   rule endCommand_notIsolated;
     let cmd <- popFIFO(commandQ);
-
+    debug2("dbunit", $display("end not isolated ", fshow(cmd)));
     Exception memEx = ?;
     Value   memResp = ?;
     if (isMemCommandReq(cmd))
       begin
-        memEx   <- popFIFO(memExQ2);
-        memResp <- debug_dmem.resp();
-        if (memEx != Ex_None)
+        match {.wasReqEx, .ex} <- popFIFO(memExQ2);
+        memEx = ex;
+        if (!wasReqEx) // only call resp if there was no req exception (see above)
+          memResp <- debug_dmem.resp();
+        if (ex != Ex_None)
           marshaller.messageStream.response.put(tagged D_ExceptionOccurred(zeroExtend(pack(memEx))));
       end
-      
+    (*split*)
     case (cmd) matches
       tagged D_PausePipelineReq:     when(False, noAction);
       tagged D_ResumePipelinedReq:   when(False, noAction);
@@ -343,42 +408,42 @@ module mkDebugUnit#(
       tagged D_GetPCReq:     marshaller.messageStream.response.put(tagged D_GetPCResp debug_rf.pc[debugThread]);
       tagged D_SetByteReq {.addr,.val}:
         action
-          if (memEx == Ex_None)
+          (*nosplit*) if (memEx == Ex_None)
               marshaller.messageStream.response.put(tagged D_SetByteResp);
         endaction
       tagged D_GetByteReq .addr:
         action
-          if (memEx == Ex_None)
+          (*nosplit*) if (memEx == Ex_None)
             marshaller.messageStream.response.put(tagged D_GetByteResp (truncate(memResp)));
         endaction
       tagged D_SetHalfWordReq {.addr,.val}:
         action
-          if (memEx == Ex_None)
+          (*nosplit*) if (memEx == Ex_None)
             marshaller.messageStream.response.put(tagged D_SetHalfWordResp);
         endaction
       tagged D_GetHalfWordReq .addr:
         action
-          if (memEx == Ex_None)
+          (*nosplit*) if (memEx == Ex_None)
              marshaller.messageStream.response.put(tagged D_GetHalfWordResp (truncate(memResp)));
         endaction
       tagged D_SetWordReq {.addr,.val}:
         action
-          if (memEx == Ex_None)
+          (*nosplit*) if (memEx == Ex_None)
             marshaller.messageStream.response.put(tagged D_SetWordResp);
         endaction
       tagged D_GetWordReq .addr:
         action
-          if (memEx == Ex_None)
+          (*nosplit*) if (memEx == Ex_None)
             marshaller.messageStream.response.put(tagged D_GetWordResp (truncate(memResp)));
         endaction
       tagged D_SetDoubleWordReq {.addr,.val}:
         action
-          if (memEx == Ex_None)
+          (*nosplit*) if (memEx == Ex_None)
             marshaller.messageStream.response.put(tagged D_SetDoubleWordResp);
         endaction
       tagged D_GetDoubleWordReq .addr:
         action
-          if (memEx == Ex_None)
+          (*nosplit*) if (memEx == Ex_None)
             marshaller.messageStream.response.put(tagged D_GetDoubleWordResp (memResp));
         endaction
       tagged D_SetRegisterReq {.r,.v}: marshaller.messageStream.response.put(tagged D_SetRegisterResp);
@@ -447,8 +512,7 @@ module mkDebugUnit#(
     endcase
   endrule
 
-  (* preempts="streamtrace, (endCommand_notIsolated, endCommand_isolated)" *)
-  rule streamtrace (pipeState[0] == Pipe_Streaming && sendingTrace);
+  rule streamtrace (pipeState == Pipe_Streaming && sendingTrace);
     if (!tracelogger.notEmpty())
       begin
 	// This indicates the end of the stream trace.
@@ -465,29 +529,40 @@ module mkDebugUnit#(
       end
   endrule
 
+
+  rule counter;
+    // Increment a counter every cycle to get cycle counts for
+    // tracing. We must pause the counter when the trace buffer is
+    // full or we are sending the trace, but not until the pipeline is
+    // flushed (see also canFetchInst below). This prevents wildly
+    // inaccurate cycle counts around the boundaries between trace
+    // batches (although there will still be anomalies).
+    if ((!tracelogger.almostFull() && !sendingTrace) || !pipelineFlushed)
+      cycleCount <= cycleCount + 1;
+  endrule
+  
   interface Server stream                = marshaller.byteStream;
 
-  //XXX ndave: adding canDebug should not apply to writeback
-  interface RegisterFile              rf =    regfile;//when(!canDebug, regfile);
-  interface CP0RegisterFile        cp0rf = cp0regfile;//when(!canDebug, cp0regfile);
-  interface CapabilityRegisterFile caprf = capregfile;//when(!canDebug, capregfile);
+  interface RegisterFile              rf =    regfile;
+  interface CP0RegisterFile        cp0rf = cp0regfile;
+  interface CapabilityRegisterFile caprf = capregfile;
 
-  method Action canFetchInst; // this controls 
-    case (pipeState[1])
+  method Action canFetchInst; // this controls
+    case (pipeState)
       Pipe_Paused:              when(pipelineFlushed, stepQ.deq()); // only if we have a step
       Pipe_RunningPipelined:    noAction;                           // We can always fetch
       Pipe_RunningUnpipelined:  when(pipelineFlushed, noAction);    // Only one instruction in pipeline (fetch only when flushed)
-      Pipe_Streaming:           when(!tracelogger.almostFull() && !sendingTrace, noAction); // Pause pipeline when buffer fills up and whilst emptying the buffer (in order to get instruction cycle times correct) 
+      Pipe_Streaming:           when(!tracelogger.almostFull() && !sendingTrace, noAction); // Pause pipeline when buffer fills up and whilst emptying the buffer (in order to get instruction cycle times correct)
     endcase
   endmethod
 
-  method ActionValue#(Bool) completeInst(Bit#(32) i, Address pc, Address nextpc,Value v1, Value v2, Exception e, ASID asid);
-    tracelogger.addEntry(e,i,pc,v1,v2,asid);
+  method ActionValue#(Bool) completeInst(TraceEntry te, Address nextpc);
+    tracelogger.addEntry(cycleCount, te);
     function Bool matchAddr(Address a); return (a == nextpc); endfunction
     Maybe#(UInt#(2)) breakpointMatch = Vector::findIndex(matchAddr, breakpoints);
     if(breakpointMatch matches tagged Valid .name )
       begin
-	pipeState[1] <= Pipe_Paused;
+	pipeState <= Pipe_Paused;
 	//marshaller.messageStream.response.put(tagged D_BreakPointFired tuple2(pack(name), nextpc));
       end
     return isValid(breakpointMatch);

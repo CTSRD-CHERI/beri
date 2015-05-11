@@ -329,6 +329,7 @@ module mkGenericDCache#(Bit#(16) coreId) (CacheDataIfc#(nb_ways, sets_per_way, b
                     endfunction
                     CheriMemRequest mem_req = defaultValue;
                     mem_req.addr = unpack(req.tr.addr);
+                    if (cached) mem_req.addr.byteOffset = 0;
                     mem_req.masterID = unpack(truncate({coreId,1'b1}));
                     mem_req.operation = tagged Read {
                                           uncached: ! cached,

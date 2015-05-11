@@ -39,7 +39,11 @@
 #include <sys/stat.h>
 
 #include <assert.h>
+#if defined(__linux__)
 #include <endian.h>
+#elif (__FreeBSD__)
+#include <sys/endian.h>
+#endif
 #include <err.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -183,7 +187,7 @@ struct sdcard_private {
 	pism_data_t	 sdp_reqfifo;
 	bool		 sdp_reqfifo_empty;
 	bool		 sdp_readonly;
-	uint		 sdp_delay;
+	unsigned int	 sdp_delay;
 	uint64_t	 sdp_replycycle;  /* Earliest cycle reply permitted. */
 
 	/*

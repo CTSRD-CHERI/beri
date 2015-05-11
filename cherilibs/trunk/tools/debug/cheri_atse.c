@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2012-2013 Bjoern A. Zeeb
+ * Copyright (c) 2015 A. Theodore Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -29,6 +30,8 @@
 
 #ifdef __FreeBSD__
 #include <sys/endian.h>
+#elif __APPLE__
+#include "macosx.h"
 #else
 #include <endian.h>
 #endif
@@ -562,12 +565,12 @@ berictl_dumpatse(struct beri_debug *bdp, const char *addrp)
 		ret = beri_debug_client_lwu(bdp, htobe64(addr), &v, &excode);
 		switch (ret) {
 		case BERI_DEBUG_ERROR_EXCEPTION:
-			fprintf(stderr, "0x%02x 0x%016jx Exception!  "
+			fprintf(stderr, "0x%02x 0x%016" PRIx64 " Exception!  "
 			    "Code = 0x%x\n", i, addr, excode);
 			break;
 		case BERI_DEBUG_SUCCESS:
 			v = be32toh(v);
-			printf("0x%02x 0x%016jx = 0x%08x (%s%s)\n", i, addr, v,
+			printf("0x%02x 0x%016" PRIx64 " = 0x%08x (%s%s)\n", i, addr, v,
 			    atse_regs[i].reg_name,
 			    (*atse_regs[i].reg_print)(v, buf, sizeof(buf)));
 			break;
@@ -658,12 +661,12 @@ berictl_dumpfifo(struct beri_debug *bdp, const char *addrp)
 		    htobe64(addr + fifo_regs[i].offset), &v, &excode);
 		switch (ret) {
 		case BERI_DEBUG_ERROR_EXCEPTION:
-			fprintf(stderr, "0x%02x 0x%016jx Exception!  "
+			fprintf(stderr, "0x%02x 0x%016" PRIx64 " Exception!  "
 			    "Code = 0x%x\n", i, addr, excode);
 			break;
 		case BERI_DEBUG_SUCCESS:
 			v = be32toh(v);
-			printf("0x%02x 0x%016jx = 0x%08x (%s%s)\n",
+			printf("0x%02x 0x%016" PRIx64 " = 0x%08x (%s%s)\n",
 			    i, (addr + fifo_regs[i].offset), v,
 			    fifo_regs[i].reg_name,
 			    (*fifo_regs[i].reg_print)(v, buf, sizeof(buf)));

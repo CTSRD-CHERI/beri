@@ -33,7 +33,7 @@ class test_raw_fpu_div_d32(BaseBERITestCase):
     @attr('float32')
     def test_raw_fpu_div_d32_lower(self):
         '''Test can divide in double precision when in 32-bit mode'''
-	self.assertRegisterEqual(self.MIPS.a0 & 0xffffffff, 0xd1bc2504, "Failed to divide 3456.3 by 12.45 in double precision")
+	self.assertRegisterMaskEqual(self.MIPS.a0, 0xffffffff, 0xd1bc2504, "Failed to divide 3456.3 by 12.45 in double precision")
 
     @attr('float32')
     def test_raw_fpu_div_d32_upper(self):

@@ -94,19 +94,21 @@ test:		.ent test
 		# permission to access reserved registers).
 		#
 
-		cgetpcc $t1($c1)
+		cgetpcc $c1
 		dli	$t0, 0x1ff
 		candperm $c1, $c1, $t0
 		dla	$t0, L1
-		cjr	$t0($c1)
+		csetoffset $c1, $c1, $t0
+		cjr	$c1
 		nop		# branch delay slot
 L1:
 		#
-                # Make $c4 a template capability for a user-defined type
-		# whose otype is equal to the address of sandbox.
+                # Make $c4 a template capability for user-defined type
+		# number 0x1234.
+		#
 
-		dla	$t0, sandbox
-		csettype $c4, $c0, $t0
+		dli	$t0, 0x1234
+		csetoffset $c4, $c0, $t0
 
 		#
                 # Make $c3 a data capability for the array at address data
@@ -124,26 +126,21 @@ L1:
 		candperm $c3, $c3, $t0
 
 		#
-		# Seal data capability $c3 to the otype of $c4, and store
+		# Seal data capability $c3 to the offset of $c4, and store
 		# result in $c2.
 		#
 
-                csealdata $c2, $c3, $c4
-
-		#
-		# Remove the permissions to access reserved registers from
-		# $c4, so the sandboxed code can't escape the sandbox by
-		# using reserved registers.
-		#
-
-		dli $t0, 0x1ff
-		candperm $c4, $c4, $t0
+                cseal	 $c2, $c3, $c4
 
 		#
 		# Make $c1 a code capability for sandbox
+		# $c1 already has restricted permissions so the sandboxed
+		# code can't escape the sandbox using reserved registers.
 		#
 
-		csealcode $c1, $c4
+		dla	$t0, sandbox
+		csetoffset $c1, $c1, $t0
+		cseal	$c1, $c1, $c4
 
 		#
 		# Move $c0 into IDC ($c26) so that it will be saved onto
@@ -241,50 +238,49 @@ do_ccall:
 		csc	$c26, $k0, 0($c28)
 
 		#
+		# Bump the EPCC.offset (user's PC) by 1 instruction (4 bytes)
+		#
+
+		cgetoffset $k1, $c31
+		daddi	$k1, $k1, 8
+		csetoffset $c31, $c31, $k1
+
+		#
 		# Push EPCC (the user's PCC) on to the trusted system stack
 		#
 
 		csc	$c31, $k0, 32($c28)
 
 		#
-		# Bump the EPC (user's PC) by 1 instruction (4 bytes) and
-		# push it on to the trusted system stack
-		#
-
-		dmfc0	$t0, $14	# XXX: corrupts $t0
-		daddi	$t0, $t0, 8	# XXX: 2 instructions. Why???
-		csd	$t0, $k0, 64($c28)
-
-		#
 		# Check that $c1 and $c2 are valid capabilities (tag set)
 		#
 
-		cgettag $t0, $c1
-		beq	$t0, $zero, ccall_fails
+		cgettag $k1, $c1
+		beq	$k1, $zero, ccall_fails
 
-		cgettag	$t0, $c2
-		beq	$t0, $zero, ccall_fails
+		cgettag	$k1, $c2
+		beq	$k1, $zero, ccall_fails
 
 		#
 		# Check that $c1 and $c2 are sealed
 		#
 
-		cgetunsealed $t0, $c1
-		bne	$t0, $zero, ccall_fails
+		cgetsealed $k1, $c1
+		beqz	$k1, ccall_fails
 
-		cgetunsealed $t0, $c2
-		bne	$t0, $zero, ccall_fails
+		cgetsealed $k1, $c2
+		beqz	$k1, ccall_fails
 
 		#
-		# Set the otype of the Kernel Data Capability ($c27) to
+		# Set the offset of the Kernel Data Capability ($c27) to
 		# the type of the code capability the user is trying to
 		# invoke. KDC has access to everything, so is permitted to
 		# do this. XXX: should we use a different reserved register
 		# for this?
 		#
 
-		cgettype $t0, $c1
-		csettype $c27, $c27, $t0
+		cgettype $k1, $c1
+		csetoffset $c27, $c27, $k1
 
 		#
 		# Check that the data capability passed to the kernel by the
@@ -292,8 +288,9 @@ do_ccall:
 		# security error if they don't match.
 		#
 
-		cgettype $t1, $c2
-		bne	$t0, $t1, ccall_fails
+		cgettype $t0, $c2	# XXX: corrupts $t0
+		
+		bne	$t0, $k1, ccall_fails
 
 		#
 		# Unseal the code capability into EPCC (which will become
@@ -313,14 +310,18 @@ do_ccall:
 		cunseal $c26, $c2, $c27
 
 		#
-		# Move $c1.otype - $c1.base into EPC, so that when we return 
+		# Restore the offset on KDC
+		#
+
+		csetoffset $c27, $c27, $zero
+
+		#
+		# Move $c1.offset into EPC, so that when we return 
                 # PC will be set to the entry point of the invoked sandbox
 		#
 
-		cgettype $t0, $c1
-		cgetbase $t1, $c1
-		dsub $t0, $t0, $t1
-		dmtc0   $t0, $14
+		cgetoffset $k1, $c1
+		dmtc0   $k1, $14
 		nop
 		nop
 		nop
@@ -361,12 +362,11 @@ do_creturn:
                 clc     $c31, $k0, 32($c28)
 
                 #
-                # Pop the return address off the trusted system stack into
-                # EPC, so it will be returned to when this exception handler
-                # returns to user space.
+		# Set the return address (EPC) to the offset in the EPCC
+		# that was restored from the trusted system stack.
                 #
 
-                cld    $k0, $k0, 64($c28)
+                cgetoffset $k0, $c31
                 dmtc0   $k0, $14
 
                 nop

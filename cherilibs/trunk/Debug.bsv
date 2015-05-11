@@ -100,6 +100,14 @@ function Action debug(Action a);
   endaction
 endfunction
 
+function Action cachedump(Action a);
+  action 
+      Bool cachedumpB <- $test$plusargs("cachedump");
+      if (cachedumpB)
+        a;
+  endaction 
+endfunction 
+
 function Action debug2(String component, Action a);
   action
     Bool debugP<-$test$plusargs("debug");

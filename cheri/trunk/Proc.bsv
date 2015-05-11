@@ -58,20 +58,25 @@ import Peripheral::*;
 
 `ifdef MULTI
   import Multicore::*;
+`else
+  (* synthesize *)
+  module mkMyPIC(PIC#(32, Bit#(0)));
+    PIC#(32, Bit#(0)) myPIC <- mkPIC();
+    return myPIC;
+  endmodule
 `endif
 
+(* synthesize *)
 module mkCheri(Processor);
   `ifdef MULTI
     MulticoreIfc beri <- mkMulticore;
-    let memory <- mkInternalMemoryToInterconnect(beri.memoryStage);
   `else
     MIPSTopIfc beri <- mkMIPSTop(0);
-    let        myPIC <- mkPIC();
-    let memory <- mkInternalMemoryToInterconnect(beri.memory);
+    PIC#(32, Bit#(0)) myPIC <- mkMyPIC();
     
     // Synchronised count and pause registers for all cores.
-    Reg#(Bit#(48))                      count           <- mkReg(48'b0);
-    Reg#(Bool)                          pause           <- mkReg(False);
+    Reg#(Bit#(48))  count   <- mkReg(48'b0);
+    Reg#(Bool)      pause   <- mkReg(False);
   
     (* fire_when_enabled, no_implicit_conditions *)
     rule irqForward;
@@ -92,18 +97,26 @@ module mkCheri(Processor);
     periphVector[0] = myPIC.regs;
 
     method Action putIrqs(Bit#(32) irqs);
-      myPIC.irqMapper.putExtIrqs(zeroExtend(irqs));
+      myPIC.irqMapper.putExtIrqs(irqs);
     endmethod
   `endif
    
-  interface TLMReadWriteSendIfc extMemory = memory;
   `ifdef MULTI
+    interface Master extMemory = beri.memoryStage;
     interface pic = beri.pic;
     interface putIrqs = beri.putIrqs;
     interface Server debugStream = beri.debugStream;
   `else
+    interface Master extMemory = beri.memory;
     interface PIC pic = periphVector;
     interface Server debugStream = debugVector;
+  `endif
+  `ifdef RMA
+    interface networkRx = beri.networkRx;
+    interface networkTx = beri.networkTx;
+  `endif
+  `ifdef DMA_VIRT
+    interface tlbs = beri.tlbs;
   `endif
   interface reset_n = beri.reset_n;
 endmodule

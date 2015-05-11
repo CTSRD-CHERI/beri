@@ -99,3 +99,13 @@ device "uart2" {
 	length 0x20;
 	option type "null";
 }
+
+ifdef "BERI_FDT" device "dtb" {
+        class dram;
+        addr 0x7f010000;
+        length 0x10000;
+        option path getenv "BERI_FDT";
+        option type "mmap";
+        option cow "yes";
+};
+

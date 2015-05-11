@@ -40,8 +40,8 @@ class test_cp2_cjalr_rcc(BaseBERITestCase):
 
     @attr('capabilities')
     def test_cp2_cjalr_rcc2(self):
-        '''Test that RCC.otype was changed by cjalr'''
-        self.assertRegisterEqual(self.MIPS.a1, 0, "RCC.otype was not set correctly by cjalr")
+        '''Test that RCC.offset was changed by cjalr'''
+        self.assertRegisterEqual(self.MIPS.a1, 0, "RCC.offset was not set correctly by cjalr")
 
     @attr('capabilities')
     def test_cp2_cjalr_rcc3(self):

@@ -26,9 +26,10 @@
 BSC=bsc
 SHARED_SRCS=../megafunctions/*.bsv
 # Include CoProcessor, Cheri and Megafunctions
-BSV_PATH=+:../..:../../bsim:..:../megafunctions 
+BSV_PATH=+:../..:../../bsim:..:../megafunctions:../../../../cherilibs/trunk
+BSV_PATH:=$(BSV_PATH):%/Libraries/Contrib/NonPipelinedMath
 BSCFLAGS=-keep-fires -cross-info -aggressive-conditions -p $(BSV_PATH)
-BSCFLAGS+=-bdir bsim -simdir bsim -u +RTS -K4GB -RTS
+BSCFLAGS+=-bdir bsim -simdir bsim -u #+RTS -K4GB -RTS
 SIMFLAGS=-sim -D BLUESIM
 VERILOGFLAGS=-vdir verilog -verilog
 

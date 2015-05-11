@@ -46,7 +46,7 @@ import TLB::*;
 import Vector::*;
 import Debug::*;
 
-/**/import MemTypes::*;
+import MemTypes::*;
 
 typedef struct {
   Word   data;
@@ -120,7 +120,11 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     px  : False,    // Use 32-bit addressing with 64-bit instructions in user mode.
     mx  : False,    // 0, we don't have an MDMX unit.
     re  : False,    // Currently does nothing!
-    fr  : True,     // The FPU has 64 bit registers if true. False unsupported.
+    `ifdef COP1
+      fr  : True,     // The FPU has 64 bit registers if true. False unsupported.
+    `else
+      fr : False,
+    `endif
     rp  : False,    // Does nothing!
     cpEn: CoProEn {
       cu0 : False,  // Allows user-mode to access CP0 instructions!
@@ -155,9 +159,9 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   };
 
   LxChCfg l2ChCfg = LxChCfg{
-    ta : 0, // Associativity = A+1.  (A=0 for direct mapped)
-    tl : 4, // Cache line size = 2*2^L.  L=0 if there is no cache. (32)
-    ts : 8, // Number of Cache index positions is 64 * 2^S. Mult by
+    ta : 3, // Associativity = A+1.  (A=0 for direct mapped)
+    tl : 6, // Cache line size = 2*2^L.  L=0 if there is no cache. (128)
+    ts : 1, // Number of Cache index positions is 64 * 2^S. Mult by
             // Associativity for total number of cache lines. (128)
     tu : 3  // Configuration bits.  Could be writeable.
   };
@@ -180,7 +184,11 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     fp : coPro1, // True if Floating Point unit is available.
     ep : False,  // True if EJTAG unit is available.
     ca : False,  // True if MIPS16e is available.
-    wr : True,   // True if there is at least one watchpoint register.
+    `ifdef NOWATCH
+      wr : False,// True if there is at least one watchpoint register.
+    `else
+      wr : True, // True if there is at least one watchpoint register.
+    `endif
     pc : False,  // True if there is at least one performance counter
                  // in the design.
     md : False,  // True if MDMX is implemented in the floating point unit.
@@ -233,7 +241,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       noCapLoad : False,
       noCapStore : False,
     `endif
-    zeros : 0,
+    //zeros : 0,
     pfn : 28'b0,  // Physical address of the page.
     c   : Cached, // Cache algorithm or cache coherency attribute
                   // for multi-processor systems.
@@ -291,9 +299,9 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   Reg#(Address)         tlsPointer    <- mkReg(64'b0);
   // 5 : Used to create bigger-than-4k pages.
   Reg#(Bit#(12))        tlbPageMask   <- mkConfigReg(12'b0);
+  Reg#(HWREna)          hwrena        <- mkReg(defaultHWREna);
   // 6 : The TLB location below which all entries are static and not
   //     replacable by random replacement.
-  Reg#(HWREna)          hwrena        <- mkReg(defaultHWREna);
   Reg#(Bit#(8))         tlbWired      <- mkConfigReg(0);
   // 8.0 : Virtual Address that Caused Exception
   Reg#(Bit#(64))        badVAddr      <- mkConfigReg(64'b0);
@@ -301,6 +309,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   Reg#(Bit#(32))        badInst       <- mkConfigReg(32'b0);
   // 9 : Counts up all the time.  R/W but rarely written.
   Reg#(Bit#(32))        count         <- mkConfigReg(32'b0);
+  Reg#(Bit#(32))        instCount     <- mkConfigReg(32'b0);
   // 9 sel 6 : Whether tracing is enabled.
   Reg#(Bool)            doTrace       <- mkConfigReg(False);
   // 10: Entry Hi contains the virtual address and space ID for a pair of
@@ -311,11 +320,13 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   Reg#(Bit#(32))        compare       <- mkConfigReg(32'b0);
   // 12: Status register
   Reg#(StatusRegister)  sr            <- mkConfigReg(defaultSR);
-  FIFOF#(StatusRegister)srUpdate      <- mkUGFIFOF();
+  RWire#(StatusRegister)srWrite       <- mkRWire();
+  RWire#(Bool)          srException   <- mkRWire();
   // 13: Cause register
   Reg#(CauseRegister)   cause         <- mkConfigReg(unpack(32'b0));
   // Just the ip field of the cause register broken out to avoid conflicts.
   Reg#(Bit#(8))         causeip       <- mkConfigReg(0);
+  RWire#(Bit#(8))       causeipWire   <- mkRWire();
   // 14: Exception Program Counter.  The place to restart after returning
   //     from an exception.
   Reg#(Bit#(64))        epc           <- mkConfigReg(64'b0);
@@ -342,90 +353,107 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   // 20: Context convenience register for > 32bit address spaces.
   Reg#(XContext)        tlbXContext   <- mkReg(unpack(64'b0));
   // 21-25 are reserved in R4000.
+  // 28: TagLo and DataLo registers read from the L1 and L2 caches.
+  // DataLo is not implemented as our data lines are 256 and they would not fit. 
+  Reg#(Bit#(32))        tagLo         <- mkReg(32'hdeaddead);
+  Reg#(Bit#(32))        dataLo        <- mkReg(32'hdeaddead);
+  // 29: TagHi and DataHi registers read from the L1 and L2 caches.
+  // Both TagHi and DataHi are not implemented as the entire Tag fits in TagLo and
+  // the datalines are too large to fit in this field.
+  Reg#(Bit#(32))        tagHi         <- mkReg(32'hdeaddead);
+  Reg#(Bit#(32))        dataHi        <- mkReg(32'hdeaddead);
   // 30: Error exception program counter
   Reg#(Bit#(64))        errorEPC      <- mkConfigReg(64'b0);
 
   Reg#(Bit#(5))         exInterrupts  <- mkReg(5'b0);
   Reg#(Bool)       countInstructions  <- mkConfigRegU;
 
-  TLBIfc tlb <- mkTLB(coreid.coreID);
+  `ifndef MICRO
+    TLBIfc tlb <- mkTLB(coreid.coreID);
+  `else
+    Vector#(NumTLBLookups, FIFOF#(TlbResponse)) smt_fifos <- replicateM(mkFIFOF);
+  `endif
 
   Bool kernelMode     = sr.ksu == 0 || sr.exl;
   Bool supervisorMode = sr.ksu == 1;
 
-  (* descending_urgency = "readTlb, probeCatch, updateCP0Registers, dequeueExpectWrites" *)
-  rule readTlb;
-    TLBEntryT te <- tlb.readWrite.response.get();
-    tlbPageMask <= te.assosEntry.pageMask;
-    tlbEntryHi  <= te.assosEntry.entryHi;
-    tlbEntryLo0 <= te.entryLo0;
-    tlbEntryLo1 <= te.entryLo1;
-    tlbReads.deq;
-    `ifndef MULTI
-      tlbtrace($display("TLB Read of index %d", fromMaybe(0,tlbIndex)));
-      tlbtrace($display("     PageMask <- %x", te.assosEntry.pageMask));
-      tlbtrace($display("     EntryHi <-  priv:%d vpn:%x asid:%d",
-        te.assosEntry.entryHi.r, te.assosEntry.entryHi.vpn2, te.assosEntry.entryHi.asid));
-      tlbtrace($display("     EntryLo0 <- pfn:%x cache:%d dirty:%d valid:%d global:%d",
-        te.entryLo0.pfn, te.entryLo0.c, te.entryLo0.d, te.entryLo0.v, te.entryLo0.g));
-      tlbtrace($display("     EntryLo1 <- pfn:%x cache:%d dirty:%d valid:%d global:%d",
-        te.entryLo1.pfn, te.entryLo1.c, te.entryLo1.d, te.entryLo1.v, te.entryLo1.g));
+  `ifndef MICRO
+    (* descending_urgency = "readTlb, probeCatch, updateCP0Registers, dequeueExpectWrites" *)
+    rule readTlb;
+      TLBEntryT te <- tlb.readWrite.response.get();
+      tlbPageMask <= te.assosEntry.pageMask;
+      tlbEntryHi  <= te.assosEntry.entryHi;
+      tlbEntryLo0 <= te.entryLo0;
+      tlbEntryLo1 <= te.entryLo1;
+      tlbReads.deq;
+      `ifndef MULTI
+        tlbtrace($display("TLB Read of index %d", fromMaybe(0,tlbIndex)));
+        tlbtrace($display("     PageMask <- %x", te.assosEntry.pageMask));
+        tlbtrace($display("     EntryHi <-  priv:%d vpn:%x asid:%d",
+          te.assosEntry.entryHi.r, te.assosEntry.entryHi.vpn2, te.assosEntry.entryHi.asid));
+        tlbtrace($display("     EntryLo0 <- pfn:%x cache:%d dirty:%d valid:%d global:%d",
+          te.entryLo0.pfn, te.entryLo0.c, te.entryLo0.d, te.entryLo0.v, te.entryLo0.g));
+        tlbtrace($display("     EntryLo1 <- pfn:%x cache:%d dirty:%d valid:%d global:%d",
+          te.entryLo1.pfn, te.entryLo1.c, te.entryLo1.d, te.entryLo1.v, te.entryLo1.g));
+        expectWrites.deq;
+      `else
+        tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Read of index %d", $time, coreid.coreID, fromMaybe(0,tlbIndex)));
+        tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: PageMask <- %x", $time, coreid.coreID, te.assosEntry.pageMask));
+        tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryHi <-  priv:%d vpn:%x asid:%d", $time, coreid.coreID, te.assosEntry.entryHi.r, te.assosEntry.entryHi.vpn2, te.assosEntry.entryHi.asid));
+        tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo0 <- pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, te.entryLo0.pfn, te.entryLo0.c, te.entryLo0.d, te.entryLo0.v, te.entryLo0.g));
+        tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo1 <- pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, te.entryLo1.pfn, te.entryLo1.c, te.entryLo1.d, te.entryLo1.v, te.entryLo1.g));
+        expectWrites.deq;
+      `endif
+    endrule
+    
+    rule dequeueExpectWrites;
+      deqExpectWrites.deq;
       expectWrites.deq;
-    `else
-      tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Read of index %d", $time, coreid.coreID, fromMaybe(0,tlbIndex)));
-      tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: PageMask <- %x", $time, coreid.coreID, te.assosEntry.pageMask));
-      tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryHi <-  priv:%d vpn:%x asid:%d", $time, coreid.coreID, te.assosEntry.entryHi.r, te.assosEntry.entryHi.vpn2, te.assosEntry.entryHi.asid));
-      tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo0 <- pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, te.entryLo0.pfn, te.entryLo0.c, te.entryLo0.d, te.entryLo0.v, te.entryLo0.g));
-      tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo1 <- pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, te.entryLo1.pfn, te.entryLo1.c, te.entryLo1.d, te.entryLo1.v, te.entryLo1.g));
-      expectWrites.deq;
-    `endif
-  endrule
+    endrule
   
-  rule dequeueExpectWrites;
-    deqExpectWrites.deq;
-    expectWrites.deq;
-  endrule
+    rule reportWiredToTLB;
+      tlb.putConfig(tlbRandom, configReg6.enableLargeTlb, tlbEntryHi.asid);
+    endrule
+  
+    rule probeStart;
+      tlb.lookup[0].request.put(TlbRequest{
+        addr: tlbProbes.first,
+        write: False,
+        ll: False,
+        exception: None,
+        fromDebug: False,
+        instId: 0
+      });
+      tlbProbes.deq;
+      tlbProbeResponses.enq(True);
+      debug($display("TLB Probe Start."));
+    endrule
+  
+    rule probeCatch(tlbProbeResponses.notEmpty);
+      TlbResponse tr <- tlb.lookup[0].response.get;
+      if (tr.exception != DTLBL) begin
+        tlbIndex <= tagged Valid tr.addr[logTLBSize:0];
+        `ifndef MULTI
+          tlbtrace($display("TLB Probe, Index <- %x", tr.addr));
+        `else
+          tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Probe, Index <- %x", $time, coreid.coreID, tr.addr));
+        `endif
+      end else begin
+        tlbIndex <= tagged Invalid;
+        `ifndef MULTI
+          tlbtrace($display("TLB Probe, Index <- %x0 (Invalid)", {1'b1, 27'h0}));
+        `else
+          tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Probe, Index <- %x0 (Invalid)", $time, coreid.coreID, {1'b1, 27'h0}));
+        `endif
+      end
+      tlbProbeResponses.deq;
+      expectWrites.deq;
+      debug($display("TLB Probe Catch."));
+    endrule
+  `endif
 
-  rule reportWiredToTLB;
-    tlb.putConfig(tlbRandom, configReg6.enableLargeTlb, tlbEntryHi.asid);
-  endrule
-
-  rule probeStart;
-    tlb.lookup[0].request.put(TlbRequest{
-      addr: tlbProbes.first,
-      write: False,
-      ll: False,
-      exception: None,
-      fromDebug: False,
-      instId: 0
-    });
-    tlbProbes.deq;
-    tlbProbeResponses.enq(True);
-    debug($display("TLB Probe Start."));
-  endrule
-
-  rule probeCatch(tlbProbeResponses.notEmpty);
-    TlbResponse tr <- tlb.lookup[0].response.get;
-    if (tr.exception != DTLBL) begin
-      tlbIndex <= tagged Valid tr.addr[logTLBSize:0];
-      `ifndef MULTI
-        tlbtrace($display("TLB Probe, Index <- %x", tr.addr));
-      `else
-        tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Probe, Index <- %x", $time, coreid.coreID, tr.addr));
-      `endif
-    end else begin
-      tlbIndex <= tagged Invalid;
-      `ifndef MULTI
-        tlbtrace($display("TLB Probe, Index <- %x0 (Invalid)", {1'b1, 27'h0}));
-      `else
-        tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Probe, Index <- %x0 (Invalid)", $time, coreid.coreID, {1'b1, 27'h0}));
-      `endif
-    end
-    tlbProbeResponses.deq;
-    expectWrites.deq;
-    debug($display("TLB Probe Catch."));
-  endrule
-
+  // This rule must fire every cycle to ensure we do not drop
+  // writes to some registers.
   (*no_implicit_conditions*)
   rule updateContextRegisters_And_Count;
     Bit#(41) pte = fromMaybe(tlbContext.pteBase,pteWire.wget);
@@ -442,10 +470,15 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       badVPN2: badVAddr[39:13],
       zeros: 4'b0
     };
-    //if (cause.dc == False && !countInstructions) count <= count + 1;
-    if (count == compare) begin
-      causeip[7] <= 1;
-    end
+    Bit#(8) newcauseip = fromMaybe(causeip, causeipWire.wget);
+    if (count == compare) newcauseip[7] = 1;
+    newcauseip[6:2] = exInterrupts;
+    causeip <= newcauseip;
+    
+    StatusRegister srn = sr;
+    srn = fromMaybe(srn, srWrite.wget);
+    srn.exl = fromMaybe(srn.exl, srException.wget);
+    sr <= srn;
   endrule
 
   rule updateCP0Registers(!tlbReads.notEmpty && !tlbProbeResponses.notEmpty);
@@ -461,8 +494,8 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       case (rn)
          0: tlbIndex <= tagged Valid data[logTLBSize:0];
          // tlbRandom not writeable?
-         2: tlbEntryLo0 <= unpack({data[63:62],zeroExtend(data[33:0])});
-         3: tlbEntryLo1 <= unpack({data[63:62],zeroExtend(data[33:0])});
+         2: tlbEntryLo0 <= unpack(truncate({data[63:62],data[33:0]}));
+         3: tlbEntryLo1 <= unpack(truncate({data[63:62],data[33:0]}));
          4: begin
           case (sel)
             0: begin
@@ -524,7 +557,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
           srn.ie = updt.ie;
           srn.exl = updt.exl;
           srn.cpEn = updt.cpEn;
-          srUpdate.enq(srn);
+          srWrite.wset(srn);
         end
         13: begin
           CauseRegister orig = cause;
@@ -559,7 +592,9 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
           $finish;
         end
         25: begin // TLB report.  Custom instruction for dumping TLB state.
-          debugInst(tlb.debugDump());
+          `ifndef MICRO
+            debugInst(tlb.debugDump());
+          `endif
         end
         27: begin // CP0 register report.  Custom instruction for dumping CP0 state.
           debugInst($display("======   CP0 Registers   ======"));
@@ -590,102 +625,116 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
           //debugInst($display("[20] XContext: 0x%x", tlbXContext));
           debugInst($display("[30] ErrorEPC: 0x%x", errorEPC));
         end
+        28: begin
+          case (sel)
+            0: tagLo <= data[31:0];
+            1: dataLo <= data[31:0]; // Not Implemented
+          endcase
+        end
+        29: begin
+          case (sel)
+            0: tagHi <= data[31:0];  // Not Implemented
+            1: dataHi <= data[31:0]; // Not Implemented 
+          endcase
+        end
         30: errorEPC <= data;
         31: begin
           CP0Inst cp0Inst = unpack(data[5:0]);
           case (cp0Inst)
-            RDE: begin// Read indexed entry
-              TLBEntryT te = TLBEntryT{
-                write: False,
-                random: False,
-                tlbAddr: fromMaybe(?, tlbIndex),
-                assosEntry: ?,
-                entryLo0: ?,
-                entryLo1: ?
-              };
-              tlb.readWrite.request.put(te);
-              debug($display("CP0 tlb read"));
-              tlbReads.enq(True);
-              // Tell the pipeline we're waiting for an update.
-              writeIsDone = False;
-            end
-            WIE: begin // Write indexed entry
-              TLBEntryT te = TLBEntryT{
-                write: True,
-                random: False,
-                tlbAddr: fromMaybe(?, tlbIndex),
-                assosEntry: TlbAssosEntry{
-                  entryHi: tlbEntryHi,
-                  whichLoBit: 12-pack(countZerosMSB(tlbPageMask)),
-                  valid: True,      // Always valid for a stored entry.  Will be returned invalid if there is no entry.
-                  pageMask: tlbPageMask,      // The page mask register determines the page size
-                  g: (tlbEntryLo0.g && tlbEntryLo1.g)  // Global.  This virtual address maps in all spaces.
-                },
-                entryLo0: tlbEntryLo0,
-                entryLo1: tlbEntryLo1
-              };
-              `ifndef MULTI
-                tlbtrace($display("TLB Write Indexed to index %d", fromMaybe(0,tlbIndex)));
-                tlbtrace($display("     PageMask: %x", tlbPageMask));
-                tlbtrace($display("     EntryHi:  priv:%d vpn:%x asid:%d", tlbEntryHi.r, tlbEntryHi.vpn2, tlbEntryHi.asid));
-                tlbtrace($display("     EntryLo0: pfn:%x cache:%d dirty:%d valid:%d global:%d", tlbEntryLo0.pfn, tlbEntryLo0.c, tlbEntryLo0.d, tlbEntryLo0.v, tlbEntryLo0.g));
-                tlbtrace($display("     EntryLo1: pfn:%x cache:%d dirty:%d valid:%d global:%d", tlbEntryLo1.pfn, tlbEntryLo1.c, tlbEntryLo1.d, tlbEntryLo1.v, tlbEntryLo1.g));
-              `else
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Write Indexed to index %d", $time, coreid.coreID, fromMaybe(0,tlbIndex)));
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: PageMask: %x", $time, coreid.coreID, tlbPageMask));
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryHi:  priv:%d vpn:%x asid:%d", $time, coreid.coreID, tlbEntryHi.r, tlbEntryHi.vpn2, tlbEntryHi.asid));
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo0: pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, tlbEntryLo0.pfn, tlbEntryLo0.c, tlbEntryLo0.d, tlbEntryLo0.v, tlbEntryLo0.g));
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo1: pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, tlbEntryLo1.pfn, tlbEntryLo1.c, tlbEntryLo1.d, tlbEntryLo1.v, tlbEntryLo1.g));
-              `endif
-              if (isValid(tlbIndex)) tlb.readWrite.request.put(te);
-            end
-            WRE: begin // Write random entry
-              Bit#(LogTLBSize) hashKey = tlbEntryHi.vpn2[logTLBSize-1:0]-fromInteger(assosTLBSize);
-              Bit#(LogTLBSizePlusOne) tlbAddr = zeroExtend(hashKey)+fromInteger(assosTLBSize);
-              if (!configReg6.enableLargeTlb || tlbPageMask!=0) tlbAddr = zeroExtend(tlbRandom);
-              TLBEntryT te = TLBEntryT{
-                write: True,
-                random: True,
-                tlbAddr: tlbAddr,
-                assosEntry: TlbAssosEntry{
-                  entryHi: tlbEntryHi,
-                  whichLoBit: 12-pack(countZerosMSB(tlbPageMask)),
-                  valid: True,      // Always valid for a stored entry.  Will be returned invalid if there is no entry.
-                  pageMask: tlbPageMask,      // The page mask register determines the page size
-                  g: (tlbEntryLo0.g && tlbEntryLo1.g)      // Global.  This virtual address maps in all spaces.
-                },
-                entryLo0: tlbEntryLo0,
-                entryLo1: tlbEntryLo1
-              };
-              `ifndef MULTI 
-                tlbtrace($display("TLB Write Random to index %d", te.tlbAddr));
-                tlbtrace($display("     PageMask: %x", 0));
-                tlbtrace($display("     EntryHi:  priv:%d vpn:%x asid:%d", tlbEntryHi.r, tlbEntryHi.vpn2, tlbEntryHi.asid));
-                tlbtrace($display("     EntryLo0: pfn:%x cache:%d dirty:%d valid:%d global:%d", tlbEntryLo0.pfn, tlbEntryLo0.c, tlbEntryLo0.d, tlbEntryLo0.v, tlbEntryLo0.g));
-                tlbtrace($display("     EntryLo1: pfn:%x cache:%d dirty:%d valid:%d global:%d", tlbEntryLo1.pfn, tlbEntryLo1.c, tlbEntryLo1.d, tlbEntryLo1.v, tlbEntryLo1.g));
-              `else
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Write Random to index %d", $time, coreid.coreID, te.tlbAddr));
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: PageMask: %x", $time, coreid.coreID, 0));
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryHi:  priv:%d vpn:%x asid:%d", $time, coreid.coreID, tlbEntryHi.r, tlbEntryHi.vpn2, tlbEntryHi.asid));
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo0: pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, tlbEntryLo0.pfn, tlbEntryLo0.c, tlbEntryLo0.d, tlbEntryLo0.v, tlbEntryLo0.g));
-                tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo1: pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, tlbEntryLo1.pfn, tlbEntryLo1.c, tlbEntryLo1.d, tlbEntryLo1.v, tlbEntryLo1.g));
-              `endif
-              tlb.readWrite.request.put(te);
-              // Update the random register.  It's not that random, it just decrements once
-              // for every write.  Incrementing continually allows patterns that cause bad cycles and no progress.
-              if (tlbRandom != tlbWired[logAssosTLBSize-1:0]) tlbRandom <= tlbRandom - 1;
-              else tlbRandom <= fromInteger(assosTLBSize-1); // The top entry in the tlb.
-            end
-            PME: begin // Probe matching entry
-              tlbProbes.enq({tlbEntryHi.r,22'b0,tlbEntryHi.vpn2, 13'b0});
-              // Tell the pipeline we're waiting for an update.
-              writeIsDone = False;
-            end
+            `ifndef MICRO
+              RDE: begin// Read indexed entry
+                TLBEntryT te = TLBEntryT{
+                  write: False,
+                  random: False,
+                  tlbAddr: fromMaybe(?, tlbIndex),
+                  assosEntry: ?,
+                  entryLo0: ?,
+                  entryLo1: ?
+                };
+                tlb.readWrite.request.put(te);
+                debug($display("CP0 tlb read"));
+                tlbReads.enq(True);
+                // Tell the pipeline we're waiting for an update.
+                writeIsDone = False;
+              end
+              WIE: begin // Write indexed entry
+                TLBEntryT te = TLBEntryT{
+                  write: True,
+                  random: False,
+                  tlbAddr: fromMaybe(?, tlbIndex),
+                  assosEntry: TlbAssosEntry{
+                    entryHi: tlbEntryHi,
+                    whichLoBit: 12-pack(countZerosMSB(tlbPageMask)),
+                    valid: True,      // Always valid for a stored entry.  Will be returned invalid if there is no entry.
+                    pageMask: tlbPageMask,      // The page mask register determines the page size
+                    g: (tlbEntryLo0.g && tlbEntryLo1.g)  // Global.  This virtual address maps in all spaces.
+                  },
+                  entryLo0: tlbEntryLo0,
+                  entryLo1: tlbEntryLo1
+                };
+                `ifndef MULTI
+                  tlbtrace($display("TLB Write Indexed to index %d", fromMaybe(0,tlbIndex)));
+                  tlbtrace($display("     PageMask: %x", tlbPageMask));
+                  tlbtrace($display("     EntryHi:  priv:%d vpn:%x asid:%d", tlbEntryHi.r, tlbEntryHi.vpn2, tlbEntryHi.asid));
+                  tlbtrace($display("     EntryLo0: pfn:%x cache:%d dirty:%d valid:%d global:%d", tlbEntryLo0.pfn, tlbEntryLo0.c, tlbEntryLo0.d, tlbEntryLo0.v, tlbEntryLo0.g));
+                  tlbtrace($display("     EntryLo1: pfn:%x cache:%d dirty:%d valid:%d global:%d", tlbEntryLo1.pfn, tlbEntryLo1.c, tlbEntryLo1.d, tlbEntryLo1.v, tlbEntryLo1.g));
+                `else
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Write Indexed to index %d", $time, coreid.coreID, fromMaybe(0,tlbIndex)));
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: PageMask: %x", $time, coreid.coreID, tlbPageMask));
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryHi:  priv:%d vpn:%x asid:%d", $time, coreid.coreID, tlbEntryHi.r, tlbEntryHi.vpn2, tlbEntryHi.asid));
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo0: pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, tlbEntryLo0.pfn, tlbEntryLo0.c, tlbEntryLo0.d, tlbEntryLo0.v, tlbEntryLo0.g));
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo1: pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, tlbEntryLo1.pfn, tlbEntryLo1.c, tlbEntryLo1.d, tlbEntryLo1.v, tlbEntryLo1.g));
+                `endif
+                if (isValid(tlbIndex)) tlb.readWrite.request.put(te);
+              end
+              WRE: begin // Write random entry
+                Bit#(LogTLBSize) hashKey = tlbEntryHi.vpn2[logTLBSize-1:0]-fromInteger(assosTLBSize);
+                Bit#(LogTLBSizePlusOne) tlbAddr = zeroExtend(hashKey)+fromInteger(assosTLBSize);
+                if (!configReg6.enableLargeTlb || tlbPageMask!=0) tlbAddr = zeroExtend(tlbRandom);
+                TLBEntryT te = TLBEntryT{
+                  write: True,
+                  random: True,
+                  tlbAddr: tlbAddr,
+                  assosEntry: TlbAssosEntry{
+                    entryHi: tlbEntryHi,
+                    whichLoBit: 12-pack(countZerosMSB(tlbPageMask)),
+                    valid: True,      // Always valid for a stored entry.  Will be returned invalid if there is no entry.
+                    pageMask: tlbPageMask,      // The page mask register determines the page size
+                    g: (tlbEntryLo0.g && tlbEntryLo1.g)      // Global.  This virtual address maps in all spaces.
+                  },
+                  entryLo0: tlbEntryLo0,
+                  entryLo1: tlbEntryLo1
+                };
+                `ifndef MULTI 
+                  tlbtrace($display("TLB Write Random to index %d", te.tlbAddr));
+                  tlbtrace($display("     PageMask: %x", 0));
+                  tlbtrace($display("     EntryHi:  priv:%d vpn:%x asid:%d", tlbEntryHi.r, tlbEntryHi.vpn2, tlbEntryHi.asid));
+                  tlbtrace($display("     EntryLo0: pfn:%x cache:%d dirty:%d valid:%d global:%d", tlbEntryLo0.pfn, tlbEntryLo0.c, tlbEntryLo0.d, tlbEntryLo0.v, tlbEntryLo0.g));
+                  tlbtrace($display("     EntryLo1: pfn:%x cache:%d dirty:%d valid:%d global:%d", tlbEntryLo1.pfn, tlbEntryLo1.c, tlbEntryLo1.d, tlbEntryLo1.v, tlbEntryLo1.g));
+                `else
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: TLB Write Random to index %d", $time, coreid.coreID, te.tlbAddr));
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: PageMask: %x", $time, coreid.coreID, 0));
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryHi:  priv:%d vpn:%x asid:%d", $time, coreid.coreID, tlbEntryHi.r, tlbEntryHi.vpn2, tlbEntryHi.asid));
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo0: pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, tlbEntryLo0.pfn, tlbEntryLo0.c, tlbEntryLo0.d, tlbEntryLo0.v, tlbEntryLo0.g));
+                  tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: EntryLo1: pfn:%x cache:%d dirty:%d valid:%d global:%d", $time, coreid.coreID, tlbEntryLo1.pfn, tlbEntryLo1.c, tlbEntryLo1.d, tlbEntryLo1.v, tlbEntryLo1.g));
+                `endif
+                tlb.readWrite.request.put(te);
+                // Update the random register.  It's not that random, it just decrements once
+                // for every write.  Incrementing continually allows patterns that cause bad cycles and no progress.
+                if (tlbRandom != tlbWired[logAssosTLBSize-1:0]) tlbRandom <= tlbRandom - 1;
+                else tlbRandom <= fromInteger(assosTLBSize-1); // The top entry in the tlb.
+              end
+              PME: begin // Probe matching entry
+                tlbProbes.enq({tlbEntryHi.r,22'b0,tlbEntryHi.vpn2, 13'b0});
+                // Tell the pipeline we're waiting for an update.
+                writeIsDone = False;
+              end
+            `endif
             ERET: begin // Exception Return
               if (!sr.erl) begin // er.erl should always be False...
                 StatusRegister srn = sr;
                 srn.exl = False; // Clear sr.exl, the exception level flag.
-                srUpdate.enq(srn);
+                srWrite.wset(srn);
                 if (!eretHappened.notEmpty) eretHappened.enq(True);  // signal llSc to clear.
                 //debug($display("eret Happened!"));
               end
@@ -696,8 +745,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       endcase
       if (writeIsDone) expectWrites.deq;
     end
-    newcauseip[6:2] = exInterrupts;
-    causeip <= newcauseip;
+    causeipWire.wset(newcauseip);
   endrule
 
   method Action readReq(RegNum rn, Bit#(3) sel);
@@ -716,14 +764,19 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     RegNum regNum = readReqs.first.regNum();
     Bit#(3) sel = readReqs.first.sel();
     readReqs.deq;
-    Bit#(64) rv;
+    Bit#(64) rv = ?;
     debug($display("CP0 read out"));
     Bit#(31) tlbIndexBase = zeroExtend(fromMaybe(0,tlbIndex));
     case (regNum)
       0: rv = signExtend({pack(!isValid(tlbIndex)), tlbIndexBase});
-      //1: rv = zeroExtend(tlbRandom);
-      2: rv = zeroExtend(pack(tlbEntryLo0));
-      3: rv = zeroExtend(pack(tlbEntryLo1));
+      1: rv = zeroExtend(tlbRandom);
+      `ifdef CAP
+        2: rv = {pack(tlbEntryLo0)[35:34],28'b0,pack(tlbEntryLo0)[33:0]};
+        3: rv = {pack(tlbEntryLo1)[35:34],28'b0,pack(tlbEntryLo1)[33:0]};
+      `else
+        2: rv = zeroExtend(pack(tlbEntryLo0)[33:0]);
+        3: rv = zeroExtend(pack(tlbEntryLo1)[33:0]);
+      `endif
       4: begin
         case (sel)
           0: rv = pack(tlbContext);
@@ -788,6 +841,20 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       18: rv = zeroExtend(watchLo);
       19: rv = zeroExtend(watchHi);
       20: rv = pack(tlbXContext);
+      28: begin
+        case (sel)
+          0: rv = zeroExtend(tagLo);
+          1: rv = zeroExtend(dataLo); // Not Implemented
+          default: rv = 64'b0;
+        endcase
+      end
+      29: begin
+        case (sel)
+          0: rv = zeroExtend(tagHi);  // Not Implemented
+          1: rv = zeroExtend(dataHi); // Not Implemented
+          default: rv = 64'b0;
+        endcase
+      end
       30: rv = errorEPC;
       default: rv = 64'b0;
     endcase
@@ -829,15 +896,10 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     end
     if (exp.exception == DTLBL || exp.exception == DTLBLI || 
             exp.exception == DTLBS || exp.exception == DTLBSI || 
-            exp.exception == CTLBL || exp.exception == CTLBS || 
+            exp.exception == CTLBS || 
             exp.exception == Mod || exp.exception == DADEL || 
             exp.exception == DADES) begin
       badVaddr = dvaddr;
-    end
-    StatusRegister srn = sr;
-    if (srUpdate.notEmpty) begin
-      srn = srUpdate.first;
-      srUpdate.deq;
     end
     if (exp.exception != None && !exp.dead) begin
       CauseRegister cr = cause;
@@ -853,7 +915,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       //causeUpdate1.enq(cr);
       cause <= cr;
       badInst <= exp.instruction;
-      srn.exl = True;
+      srException.wset(True);
       // Error exceptions, NMI, (Soft) Reset, and Cache error (unused),
       // expect the VAddr in errorEPC, not EPC as everything else.
       if (exp.exception == NMI /* || cacheErr */)
@@ -861,7 +923,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       else
         epc <= exp.victim;
       case(exp.exception)
-        ITLB, ITLBI, DTLBL, DTLBS, DTLBLI, DTLBSI, CTLBL, CTLBS, 
+        ITLB, ITLBI, DTLBL, DTLBS, DTLBLI, DTLBSI, CTLBS, 
                 Mod, IADEL, DADEL, DADES: begin
           `ifdef MULTI
             trace($display("Time:%0d, Core:%0d, Thread:0 :: Bad virtual address: %x", $time, coreid.coreID, badVaddr));
@@ -876,66 +938,136 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
           };
         end
       endcase
-    end //else if (!exp.dead) begin
-      //if (cause.dc == False && countInstructions) count <= count + 1;
-    //end
-    sr <= srn;
+    end
+    if (exp.exception == None && !exp.dead) instCount <= instCount + 1;
   endmethod
 
   method Action interrupts(Bit#(5) interruptLines);
     exInterrupts <= interruptLines;
   endmethod
 
-  interface Server tlbLookupInstruction;
-    interface Put request;
-      method Action put(reqIn);
-        tlb.lookup[1].request.put(reqIn);
-        debug($display("Instruction TLB Request %x. At time %d", reqIn.addr, $time));
-      endmethod
+  `ifndef MICRO
+    interface Server tlbLookupInstruction;
+      interface Put request;
+        method Action put(reqIn);
+          tlb.lookup[1].request.put(reqIn);
+          debug($display("Instruction TLB Request %x. At time %d", reqIn.addr, $time));
+        endmethod
+      endinterface
+      interface Get response;
+        method get();
+          actionvalue
+            TlbResponse retVal <- tlb.lookup[1].response.get();
+            debug($display("Instruction TLB Testing Watch. Address=%x. Watch=%x. Read Flag=%d", retVal.addr[35:0], {watchHi,watchLo[31:3],3'b0}, watchLo[1]==1'b1));
+            if (!kernelMode) begin
+              if (retVal.priv==Kernel) retVal.exception = IADEL;
+              else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = IADEL;
+            end
+            if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} && watchLo[1]==1'b1) begin
+              if (retVal.exception == None) retVal.exception = Watch;
+            end
+            debug($display("Instruction TLB Response. Exception=%d. At time %d", retVal.exception!=None, $time));
+            return retVal;
+          endactionvalue
+        endmethod
+      endinterface
     endinterface
-    interface Get response;
-      method get();
-        actionvalue
-          TlbResponse retVal <- tlb.lookup[1].response.get();
-          debug($display("Instruction TLB Testing Watch. Address=%x. Watch=%x. Read Flag=%d", retVal.addr[35:0], {watchHi,watchLo[31:3],3'b0}, watchLo[1]==1'b1));
-          if (!kernelMode) begin
-            if (retVal.priv==Kernel) retVal.exception = IADEL;
-            else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = IADEL;
+  
+    interface Server tlbLookupData;
+      interface Put request;
+        method Action put(reqIn);
+          tlb.lookup[2].request.put(reqIn);
+        endmethod
+      endinterface
+      interface Get response;
+        method get();
+          actionvalue
+            TlbResponse retVal <- tlb.lookup[2].response.get();
+            if (!kernelMode && !retVal.fromDebug) begin// && retVal.exception==None) begin
+              if (retVal.priv==Kernel) retVal.exception = (retVal.write) ? DADES : DADEL;
+              else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = (retVal.write) ? DADES : DADEL;
+            end
+  
+            if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} &&     // If there has not been an exception and the address matches
+              ((watchLo[1]==1'b1 && !retVal.write) || (watchLo[0]==1'b1 && retVal.write))) begin  // and the address is watching for a read or a write and the operation matches.
+              if (retVal.exception == None) retVal.exception = Watch;
+            end
+            return retVal;
+          endactionvalue
+        endmethod
+      endinterface
+    endinterface
+  `else                        
+    interface Server tlbLookupInstruction;
+      interface Put request;
+        method Action put(reqIn);
+          TlbResponse simpleResponse = TlbResponse{
+            addr: ?,
+            exception: None,
+            write:reqIn.write,
+            ll:reqIn.ll,
+            cached:True,
+            fromDebug:reqIn.fromDebug,
+            priv:Kernel,
+            instId:reqIn.instId
+          };
+          if (reqIn.addr[63:56] == 8'h90 || (reqIn.addr[63:32] == 32'hFFFFFFFF && reqIn.addr[31:29] == 3'b101)) begin
+            simpleResponse.cached = False;
           end
-          if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} && watchLo[1]==1'b1) begin
-            if (retVal.exception == None) retVal.exception = Watch;
+          if (reqIn.addr[63:32] == 32'hFFFFFFFF && (reqIn.addr[31:29] == 3'b100 || reqIn.addr[31:29] == 3'b101)) begin // Simple translation for the kseg1 & kseg0 regions which map into 512MB of physical memory.
+            simpleResponse.addr = {11'b0,reqIn.addr[28:0]};
+            smt_fifos[0].enq(simpleResponse); // Shave off the top 35 bits...
+          end else begin // Simple translation for the xkphys regions which map into physical memory.
+            simpleResponse.addr = reqIn.addr[39:0];
+            smt_fifos[0].enq(simpleResponse); // Just shave off the top bits...
           end
-          debug($display("Instruction TLB Response. Exception=%d. At time %d", retVal.exception!=None, $time));
+          debug($display("Instruction TLB Request %x. At time %d", reqIn.addr, $time));
+        endmethod
+      endinterface
+      interface Get response;
+        method ActionValue#(TlbResponse) get();
+          TlbResponse retVal = smt_fifos[0].first();
+          smt_fifos[0].deq;
+          debug($display("Instruction TLB Response. Exception=%d. At time %d", retVal.exception != None, $time));
           return retVal;
-        endactionvalue
-      endmethod
+        endmethod
+      endinterface
     endinterface
-  endinterface
-
-  interface Server tlbLookupData;
-    interface Put request;
-      method Action put(reqIn);
-        tlb.lookup[2].request.put(reqIn);
-      endmethod
-    endinterface
-    interface Get response;
-      method get();
-        actionvalue
-          TlbResponse retVal <- tlb.lookup[2].response.get();
-          if (!kernelMode && !retVal.fromDebug) begin// && retVal.exception==None) begin
-            if (retVal.priv==Kernel) retVal.exception = (retVal.write) ? DADES : DADEL;
-            else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = (retVal.write) ? DADES : DADEL;
+  
+    interface Server tlbLookupData;
+      interface Put request;
+        method Action put(reqIn);
+          TlbResponse simpleResponse = TlbResponse{
+            addr: ?,
+            exception: None,
+            write:reqIn.write,
+            ll:reqIn.ll,
+            cached:True,
+            fromDebug:reqIn.fromDebug,
+            priv:Kernel,
+            instId:reqIn.instId
+          };
+          if (reqIn.addr[63:56] == 8'h90 || (reqIn.addr[63:32] == 32'hFFFFFFFF && reqIn.addr[31:29] == 3'b101)) begin
+            simpleResponse.cached = False;
           end
-
-          if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} &&     // If there has not been an exception and the address matches
-            ((watchLo[1]==1'b1 && !retVal.write) || (watchLo[0]==1'b1 && retVal.write))) begin  // and the address is watching for a read or a write and the operation matches.
-            if (retVal.exception == None) retVal.exception = Watch;
+          if (reqIn.addr[63:32] == 32'hFFFFFFFF && (reqIn.addr[31:29] == 3'b100 || reqIn.addr[31:29] == 3'b101)) begin // Simple translation for the kseg1 & kseg0 regions which map into 512MB of physical memory.
+            simpleResponse.addr = {11'b0,reqIn.addr[28:0]};
+            smt_fifos[1].enq(simpleResponse); // Shave off the top 35 bits...
+          end else begin // Simple translation for the xkphys regions which map into physical memory.
+            simpleResponse.addr = reqIn.addr[39:0];
+            smt_fifos[1].enq(simpleResponse); // Just shave off the top bits...
           end
+        endmethod
+      endinterface
+      interface Get response;
+        method ActionValue#(TlbResponse) get();
+          TlbResponse retVal = smt_fifos[1].first();
+          smt_fifos[1].deq;
           return retVal;
-        endactionvalue
-      endmethod
+        endmethod
+      endinterface
     endinterface
-  endinterface
+  `endif
 
   method ActionValue#(Bool) setLlScReg(Address matchAddress, Bool link, Bool store);
     Maybe#(Address) newLlSc = llScReg;
@@ -990,7 +1122,11 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   endmethod
   
   method Action putCount(Bit#(32) commonCount);
-    count <= commonCount;
+    count <= (countInstructions) ? instCount:commonCount;
   endmethod
+
+  `ifdef DMA_VIRT
+      interface tlbs = takeAt(3, tlb.lookup);
+  `endif
 
 endmodule

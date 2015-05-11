@@ -1,6 +1,6 @@
 /*-
 * Copyright (c) 2014 Colin Rothwell
-* Copyright (c) 2014 Alexandre Joannou
+* Copyright (c) 2014, 2015 Alexandre Joannou
 * All rights reserved.
 *
 * This software was developed by SRI International and the University of
@@ -211,7 +211,6 @@ function TLMBSize bpfToBurstSize(BytesPerFlit bpf);
 endfunction
 
 function CheriMemResponse tlmToMemoryResponse(CheriTLMResp resp);
-    Vector#(64, Bit#(4)) allAs = replicate(4'hA);
     CheriMemResponse memResp = defaultValue();
 
     case (resp.command)
@@ -221,7 +220,7 @@ function CheriMemResponse tlmToMemoryResponse(CheriTLMResp resp);
                 cap: unpack(0), // cap bit not used at this level of the cache hierarchy
                 `endif
                 data:   (case (resp.status)
-                            ERROR: return unpack(pack(allAs));
+                            ERROR: return ?;
                             default: return unpack(pack(resp.data));
                         endcase)
             };
@@ -248,7 +247,9 @@ interface ReadWriteMaster#(type req, type resp);
     interface Master#(req, resp) write;
 endinterface
 
+/*
 
+aj443: Doesn't build with a masterID of 12
 
 instance Reorderable#(CheriTLMResp, 256);
     function ReorderToken#(256) extractToken(CheriTLMResp element);
@@ -266,8 +267,9 @@ module mkFourElementResponseBuffer(ReorderBuffer#(4, CheriTLMResp));
     interface complete = worker.complete;
     interface drain = worker.drain;
 endmodule
+*/
 
-module mkInternalMemoryToInterconnect
+module mkInternalToTLMMaster
         #(Master#(CheriMemRequest, CheriMemResponse) internal)
         (Master#(`TLM_RR_CHERI));
 
@@ -314,6 +316,39 @@ module mkInternalMemoryToInterconnect
     interface CheckedPut response = toCheckedPut(resps);
     
 endmodule
+
+module mkInternalToTLMSlave
+        #(Slave#(`TLM_RR_CHERI) external)
+        (Slave#(CheriMemRequest, CheriMemResponse));
+
+    FIFOF#(CheriMemRequest)  reqs  <- mkBypassFIFOF();
+    FIFOF#(CheriMemResponse) resps <- mkBypassFIFOF();
+    
+    rule deqReq;
+        CheriMemRequest req <- popFIFOF(reqs);
+        debug2("tlm", $display("%t: Passing req: ", $time, 
+            fshow(req)));
+        Maybe#(CheriTLMReq) mTlmReq = memReqToTLM(req);
+        dynamicAssert(isValid(mTlmReq), "TLM translation failed");
+        external.request.put(fromMaybe(?,mTlmReq));
+    endrule   
+    
+    rule deqResp;
+        CheriTLMResp resp <- external.response.get();
+        debug2("tlm", $display("%t: Passing resp: ", $time, 
+            fshow(resp)));
+        dynamicAssert(resp.command != UNKNOWN, "Can't deal with unknown response type.");
+        resps.enq(tlmToMemoryResponse(resp));
+    endrule
+
+    interface CheckedPut request  = toCheckedPut(reqs);
+    interface CheckedGet response = toCheckedGet(resps);
+    
+endmodule
+
+/*
+
+aj443: Doesn't build with a masterID of 12
 
 module mkReorderInternalMemoryToInterconnect
         #(Client#(CheriMemRequest, CheriMemResponse) internal)
@@ -362,6 +397,7 @@ module mkReorderInternalMemoryToInterconnect
     interface CheckedPut response = respBuffer.complete;
     
 endmodule
+*/
 
 // This strictly preserves order. Technical we only need to preserve order on a
 // per transaction-id basis, but as we don't ever do re-ordering this doesn't
@@ -613,8 +649,10 @@ module mkSplitTLMToInterconnectSlave
             return currentResponseFIFO().first();
         endmethod
 
-        method ActionValue#(CheriTLMResp) get();
-            debug2("tlm", $display("%t: Slave responding: ", $time,
+        method ActionValue#(CheriTLMResp) get() if (responseReady());
+            debug2("tlm", $display("%t: ", $time,
+                fshow(responseSources.first()),
+                " slave responding: ", 
                 fshow(currentResponseFIFO().first())));
             let resp <- popFIFOF(currentResponseFIFO());
             responseSources.deq();

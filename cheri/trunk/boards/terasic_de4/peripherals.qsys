@@ -1,0 +1,1743 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<system name="$${FILENAME}">
+ <component
+   name="$${FILENAME}"
+   displayName="$${FILENAME}"
+   version="1.0"
+   description=""
+   tags=""
+   categories="System" />
+ <parameter name="bonusData"><![CDATA[bonusData 
+{
+   element $${FILENAME}
+   {
+   }
+   element FanControl50MHz_0
+   {
+      datum _sortIndex
+      {
+         value = "20";
+         type = "int";
+      }
+   }
+   element LEDs
+   {
+      datum _sortIndex
+      {
+         value = "10";
+         type = "int";
+      }
+   }
+   element PixelStreamHDMI_0
+   {
+      datum _sortIndex
+      {
+         value = "28";
+         type = "int";
+      }
+   }
+   element ReconfigPLL_0
+   {
+      datum _sortIndex
+      {
+         value = "30";
+         type = "int";
+      }
+   }
+   element Switches
+   {
+      datum _sortIndex
+      {
+         value = "16";
+         type = "int";
+      }
+   }
+   element USB1761Bridge
+   {
+      datum _sortIndex
+      {
+         value = "21";
+         type = "int";
+      }
+   }
+   element debug_uart.avalon_jtag_slave
+   {
+      datum baseAddress
+      {
+         value = "1056968704";
+         type = "String";
+      }
+   }
+   element data_uart.avalon_jtag_slave
+   {
+      datum baseAddress
+      {
+         value = "1056972800";
+         type = "String";
+      }
+   }
+   element terminal_uart.avalon_jtag_slave
+   {
+      datum baseAddress
+      {
+         value = "1056964608";
+         type = "String";
+      }
+   }
+   element ReconfigPLL_0.avalon_slave
+   {
+      datum baseAddress
+      {
+         value = "1057021952";
+         type = "String";
+      }
+   }
+   element i2c_avalon_1.avalon_slave
+   {
+      datum baseAddress
+      {
+         value = "1057009664";
+         type = "String";
+      }
+   }
+   element Altera_UP_SD_Card_Avalon_Interface_1.avalon_slave_0
+   {
+      datum baseAddress
+      {
+         value = "1056976896";
+         type = "String";
+      }
+   }
+   element bridge_wide
+   {
+      datum _sortIndex
+      {
+         value = "3";
+         type = "int";
+      }
+   }
+   element clk_100
+   {
+      datum _sortIndex
+      {
+         value = "1";
+         type = "int";
+      }
+   }
+   element clk_125
+   {
+      datum _sortIndex
+      {
+         value = "2";
+         type = "int";
+      }
+   }
+   element clk_50
+   {
+      datum _sortIndex
+      {
+         value = "0";
+         type = "int";
+      }
+   }
+   element clock_bridge_0
+   {
+      datum _sortIndex
+      {
+         value = "31";
+         type = "int";
+      }
+   }
+   element clock_bridge_1
+   {
+      datum _sortIndex
+      {
+         value = "29";
+         type = "int";
+      }
+   }
+   element tse_mac.control_port
+   {
+      datum baseAddress
+      {
+         value = "1056993280";
+         type = "String";
+      }
+   }
+   element tse_mac1.control_port
+   {
+      datum baseAddress
+      {
+         value = "1056985088";
+         type = "String";
+      }
+   }
+   element data_uart
+   {
+      datum _sortIndex
+      {
+         value = "9";
+         type = "int";
+      }
+   }
+   element debug_uart
+   {
+      datum _sortIndex
+      {
+         value = "8";
+         type = "int";
+      }
+   }
+   element displayFeed
+   {
+      datum _sortIndex
+      {
+         value = "6";
+         type = "int";
+      }
+   }
+   element display_clk
+   {
+      datum _sortIndex
+      {
+         value = "5";
+         type = "int";
+      }
+   }
+   element flattened_device_tree
+   {
+      datum _sortIndex
+      {
+         value = "27";
+         type = "int";
+      }
+   }
+   element hdmi_tx_reset_n
+   {
+      datum _sortIndex
+      {
+         value = "19";
+         type = "int";
+      }
+   }
+   element i2c_avalon_1
+   {
+      datum _sortIndex
+      {
+         value = "18";
+         type = "int";
+      }
+   }
+   element transmit_fifo.in
+   {
+      datum baseAddress
+      {
+         value = "1056994304";
+         type = "String";
+      }
+   }
+   element transmit_fifo.in_csr
+   {
+      datum baseAddress
+      {
+         value = "1056994336";
+         type = "String";
+      }
+   }
+   element receive_fifo.out
+   {
+      datum baseAddress
+      {
+         value = "1056994560";
+         type = "String";
+      }
+   }
+   element receive_fifo.out_csr
+   {
+      datum baseAddress
+      {
+         value = "1056994592";
+         type = "String";
+      }
+   }
+   element peripheral_bridge_narrow
+   {
+      datum _sortIndex
+      {
+         value = "4";
+         type = "int";
+      }
+   }
+   element receive_adapter
+   {
+      datum _sortIndex
+      {
+         value = "14";
+         type = "int";
+      }
+   }
+   element receive_fifo
+   {
+      datum _sortIndex
+      {
+         value = "15";
+         type = "int";
+      }
+   }
+   element rx_fifo1
+   {
+      datum _sortIndex
+      {
+         value = "26";
+         type = "int";
+      }
+   }
+   element rx_timing1
+   {
+      datum _sortIndex
+      {
+         value = "25";
+         type = "int";
+      }
+   }
+   element FanControl50MHz_0.s0
+   {
+      datum baseAddress
+      {
+         value = "1057013760";
+         type = "String";
+      }
+   }
+   element USB1761Bridge.s0
+   {
+      datum baseAddress
+      {
+         value = "1058013184";
+         type = "String";
+      }
+   }
+   element peripheral_bridge_narrow.s0
+   {
+      datum baseAddress
+      {
+         value = "0";
+         type = "String";
+      }
+   }
+   element MTL_Framebuffer_Flash_0.s0
+   {
+      datum baseAddress
+      {
+         value = "805306368";
+         type = "String";
+      }
+   }
+   element Switches.s1
+   {
+      datum baseAddress
+      {
+         value = "1057001472";
+         type = "String";
+      }
+   }
+   element versionRom.s1
+   {
+      datum baseAddress
+      {
+         value = "1057005568";
+         type = "String";
+      }
+   }
+   element LEDs.s1
+   {
+      datum baseAddress
+      {
+         value = "1056989184";
+         type = "String";
+      }
+   }
+   element OpenCore_16550_uart_0.s1
+   {
+      datum baseAddress
+      {
+         value = "1056973056";
+         type = "String";
+      }
+   }
+   element flattened_device_tree.s1
+   {
+      datum baseAddress
+      {
+         value = "1057030144";
+         type = "String";
+      }
+   }
+   element hdmi_tx_reset_n.s1
+   {
+      datum baseAddress
+      {
+         value = "1057009792";
+         type = "String";
+      }
+   }
+   element PixelStreamHDMI_0.slave_parameters
+   {
+      datum baseAddress
+      {
+         value = "1057017856";
+         type = "String";
+      }
+   }
+   element terminal_uart
+   {
+      datum _sortIndex
+      {
+         value = "7";
+         type = "int";
+      }
+   }
+   element transmit_adapter
+   {
+      datum _sortIndex
+      {
+         value = "12";
+         type = "int";
+      }
+   }
+   element transmit_fifo
+   {
+      datum _sortIndex
+      {
+         value = "11";
+         type = "int";
+      }
+   }
+   element tse_mac
+   {
+      datum _sortIndex
+      {
+         value = "13";
+         type = "int";
+      }
+      datum megawizard_uipreferences
+      {
+         value = "{}";
+         type = "String";
+      }
+   }
+   element tse_mac1
+   {
+      datum _sortIndex
+      {
+         value = "24";
+         type = "int";
+      }
+      datum megawizard_uipreferences
+      {
+         value = "{}";
+         type = "String";
+      }
+      datum sopceditor_expanded
+      {
+         value = "1";
+         type = "boolean";
+      }
+   }
+   element tx_fifo1
+   {
+      datum _sortIndex
+      {
+         value = "22";
+         type = "int";
+      }
+   }
+   element tx_timing1
+   {
+      datum _sortIndex
+      {
+         value = "23";
+         type = "int";
+      }
+   }
+   element versionRom
+   {
+      datum _sortIndex
+      {
+         value = "17";
+         type = "int";
+      }
+   }
+}
+]]></parameter>
+ <parameter name="clockCrossingAdapter" value="AUTO" />
+ <parameter name="device" value="EP4SGX230KF40C2" />
+ <parameter name="deviceFamily" value="Stratix IV" />
+ <parameter name="deviceSpeedGrade" value="2" />
+ <parameter name="fabricMode" value="QSYS" />
+ <parameter name="generateLegacySim" value="false" />
+ <parameter name="generationId" value="0" />
+ <parameter name="globalResetBus" value="false" />
+ <parameter name="hdlLanguage" value="VERILOG" />
+ <parameter name="maxAdditionalLatency" value="2" />
+ <parameter name="projectName" value="DE4_BERI.qpf" />
+ <parameter name="sopcBorderPoints" value="false" />
+ <parameter name="systemHash" value="0" />
+ <parameter name="timeStamp" value="0" />
+ <parameter name="useTestBenchNamingPattern" value="false" />
+ <instanceScript></instanceScript>
+ <interface name="clk_50" internal="clk_50.clk_in" type="clock" dir="end" />
+ <interface name="reset" internal="clk_50.clk_in_reset" type="reset" dir="end" />
+ <interface name="clk_27" internal="display_clk.clk_in" type="clock" dir="end" />
+ <interface
+   name="reset_0"
+   internal="display_clk.clk_in_reset"
+   type="reset"
+   dir="end" />
+ <interface
+   name="leds_external_connection"
+   internal="LEDs.external_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="hdmi_tx_reset_n_external_connection"
+   internal="hdmi_tx_reset_n.external_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="switches"
+   internal="Switches.external_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="coe_i2c"
+   internal="i2c_avalon_1.conduit_i2c"
+   type="conduit"
+   dir="end" />
+ <interface name="reset_1" internal="clk_100.clk_in_reset" type="reset" dir="end" />
+ <interface name="clk_100" internal="clk_100.clk_in" type="clock" dir="end" />
+ <interface
+   name="terminal_uart_irq"
+   internal="terminal_uart.irq"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="receive_fifo_out_irq"
+   internal="receive_fifo.out_irq"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="transmit_fifo_in_irq"
+   internal="transmit_fifo.in_irq"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="fan"
+   internal="FanControl50MHz_0.fancontrol"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="debug_uart_irq"
+   internal="debug_uart.irq"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="data_uart_irq"
+   internal="data_uart.irq"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="i2c_avalon_1_irq"
+   internal="i2c_avalon_1.irq"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="tx_fifo1_in_irq"
+   internal="tx_fifo1.in_irq"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="rx_fifo1_out_irq"
+   internal="rx_fifo1.out_irq"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="tse_mac_mac_mdio_connection"
+   internal="tse_mac.mac_mdio_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="tse_mac_mac_misc_connection"
+   internal="tse_mac.mac_misc_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="tse_mac_status_led_connection"
+   internal="tse_mac.status_led_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="tse_mac_serdes_control_connection"
+   internal="tse_mac.serdes_control_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="tse_mac_serial_connection"
+   internal="tse_mac.serial_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="tse_mac1_mac_mdio_connection"
+   internal="tse_mac1.mac_mdio_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="tse_mac1_mac_misc_connection"
+   internal="tse_mac1.mac_misc_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="tse_mac1_status_led_connection"
+   internal="tse_mac1.status_led_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="tse_mac1_serdes_control_connection"
+   internal="tse_mac1.serdes_control_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="tse_mac1_serial_connection"
+   internal="tse_mac1.serial_connection"
+   type="conduit"
+   dir="end" />
+ <interface name="clk_125" internal="clk_125.clk_in" type="clock" dir="end" />
+ <interface
+   name="reset_clk_125"
+   internal="clk_125.clk_in_reset"
+   type="reset"
+   dir="end" />
+ <interface
+   name="usb"
+   internal="USB1761Bridge.conduit_end_0"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="isp1761_0_interrupt_sender_hc"
+   internal="USB1761Bridge.hc"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="isp1761_0_interrupt_sender_dc"
+   internal="USB1761Bridge.dc"
+   type="interrupt"
+   dir="end" />
+ <interface
+   name="pixel_stream_master"
+   internal="PixelStreamHDMI_0.master_burstreads"
+   type="avalon"
+   dir="start" />
+ <interface
+   name="hdmi"
+   internal="PixelStreamHDMI_0.conduit_end_0"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="osc_50_bank5"
+   internal="ReconfigPLL_0.clock_ref_pin"
+   type="clock"
+   dir="end" />
+ <interface
+   name="hdmi_vid_clock"
+   internal="clock_bridge_0.out_clk"
+   type="clock"
+   dir="start" />
+ <interface
+   name="hdmi_pixel_clock"
+   internal="clock_bridge_1.in_clk"
+   type="clock"
+   dir="end" />
+ <interface name="bridge" internal="bridge_wide.s0" type="avalon" dir="end" />
+ <module kind="clock_source" version="13.1" enabled="1" name="clk_50">
+  <parameter name="clockFrequency" value="50000000" />
+  <parameter name="clockFrequencyKnown" value="true" />
+  <parameter name="inputClockFrequency" value="0" />
+  <parameter name="resetSynchronousEdges" value="NONE" />
+ </module>
+ <module kind="clock_source" version="13.1" enabled="1" name="display_clk">
+  <parameter name="clockFrequency" value="27000000" />
+  <parameter name="clockFrequencyKnown" value="true" />
+  <parameter name="inputClockFrequency" value="0" />
+  <parameter name="resetSynchronousEdges" value="NONE" />
+ </module>
+ <module
+   kind="altera_avalon_dc_fifo"
+   version="13.1"
+   enabled="1"
+   name="displayFeed">
+  <parameter name="SYMBOLS_PER_BEAT" value="1" />
+  <parameter name="BITS_PER_SYMBOL" value="24" />
+  <parameter name="FIFO_DEPTH" value="32" />
+  <parameter name="CHANNEL_WIDTH" value="0" />
+  <parameter name="ERROR_WIDTH" value="0" />
+  <parameter name="USE_PACKETS" value="1" />
+  <parameter name="USE_IN_FILL_LEVEL" value="0" />
+  <parameter name="USE_OUT_FILL_LEVEL" value="0" />
+  <parameter name="WR_SYNC_DEPTH" value="2" />
+  <parameter name="RD_SYNC_DEPTH" value="2" />
+  <parameter name="ENABLE_EXPLICIT_MAXCHANNEL" value="false" />
+  <parameter name="EXPLICIT_MAXCHANNEL" value="0" />
+  <parameter name="AUTO_DEVICE_FAMILY" value="Stratix IV" />
+ </module>
+ <module
+   kind="altera_avalon_jtag_uart"
+   version="13.1"
+   enabled="1"
+   name="terminal_uart">
+  <parameter name="allowMultipleConnections" value="false" />
+  <parameter name="hubInstanceID" value="0" />
+  <parameter name="readBufferDepth" value="4096" />
+  <parameter name="readIRQThreshold" value="8" />
+  <parameter name="simInputCharacterStream" value="" />
+  <parameter name="simInteractiveOptions">INTERACTIVE_ASCII_OUTPUT</parameter>
+  <parameter name="useRegistersForReadBuffer" value="false" />
+  <parameter name="useRegistersForWriteBuffer" value="false" />
+  <parameter name="useRelativePathForSimFile" value="false" />
+  <parameter name="writeBufferDepth" value="512" />
+  <parameter name="writeIRQThreshold" value="8" />
+  <parameter name="avalonSpec" value="2.0" />
+ </module>
+ <module
+   kind="altera_avalon_jtag_uart"
+   version="13.1"
+   enabled="1"
+   name="debug_uart">
+  <parameter name="allowMultipleConnections" value="false" />
+  <parameter name="hubInstanceID" value="0" />
+  <parameter name="readBufferDepth" value="4096" />
+  <parameter name="readIRQThreshold" value="8" />
+  <parameter name="simInputCharacterStream" value="" />
+  <parameter name="simInteractiveOptions">INTERACTIVE_ASCII_OUTPUT</parameter>
+  <parameter name="useRegistersForReadBuffer" value="false" />
+  <parameter name="useRegistersForWriteBuffer" value="false" />
+  <parameter name="useRelativePathForSimFile" value="false" />
+  <parameter name="writeBufferDepth" value="512" />
+  <parameter name="writeIRQThreshold" value="8" />
+  <parameter name="avalonSpec" value="2.0" />
+ </module>
+ <module
+   kind="altera_avalon_jtag_uart"
+   version="13.1"
+   enabled="1"
+   name="data_uart">
+  <parameter name="allowMultipleConnections" value="false" />
+  <parameter name="hubInstanceID" value="0" />
+  <parameter name="readBufferDepth" value="4096" />
+  <parameter name="readIRQThreshold" value="8" />
+  <parameter name="simInputCharacterStream" value="" />
+  <parameter name="simInteractiveOptions">INTERACTIVE_ASCII_OUTPUT</parameter>
+  <parameter name="useRegistersForReadBuffer" value="false" />
+  <parameter name="useRegistersForWriteBuffer" value="false" />
+  <parameter name="useRelativePathForSimFile" value="false" />
+  <parameter name="writeBufferDepth" value="512" />
+  <parameter name="writeIRQThreshold" value="8" />
+  <parameter name="avalonSpec" value="2.0" />
+ </module>
+ <module kind="altera_avalon_pio" version="13.1" enabled="1" name="LEDs">
+  <parameter name="bitClearingEdgeCapReg" value="false" />
+  <parameter name="bitModifyingOutReg" value="false" />
+  <parameter name="captureEdge" value="false" />
+  <parameter name="direction" value="Output" />
+  <parameter name="edgeType" value="RISING" />
+  <parameter name="generateIRQ" value="false" />
+  <parameter name="irqType" value="LEVEL" />
+  <parameter name="resetValue" value="0" />
+  <parameter name="simDoTestBenchWiring" value="false" />
+  <parameter name="simDrivenValue" value="0" />
+  <parameter name="width" value="8" />
+  <parameter name="clockRate" value="100000000" />
+ </module>
+ <module
+   kind="altera_avalon_fifo"
+   version="13.1"
+   enabled="1"
+   name="transmit_fifo">
+  <parameter name="avalonMMAvalonMMDataWidth" value="32" />
+  <parameter name="avalonMMAvalonSTDataWidth" value="32" />
+  <parameter name="bitsPerSymbol" value="8" />
+  <parameter name="channelWidth" value="0" />
+  <parameter name="errorWidth" value="1" />
+  <parameter name="fifoDepth" value="16" />
+  <parameter name="fifoInputInterfaceOptions" value="AVALONMM_WRITE" />
+  <parameter name="fifoOutputInterfaceOptions" value="AVALONST_SOURCE" />
+  <parameter name="showHiddenFeatures" value="false" />
+  <parameter name="singleClockMode" value="true" />
+  <parameter name="singleResetMode" value="false" />
+  <parameter name="symbolsPerBeat" value="4" />
+  <parameter name="useBackpressure" value="true" />
+  <parameter name="useIRQ" value="true" />
+  <parameter name="usePacket" value="true" />
+  <parameter name="useReadControl" value="false" />
+  <parameter name="useRegister" value="false" />
+  <parameter name="useWriteControl" value="true" />
+  <parameter name="deviceFamilyString" value="Stratix IV" />
+ </module>
+ <module
+   kind="altera_avalon_fifo"
+   version="13.1"
+   enabled="1"
+   name="receive_fifo">
+  <parameter name="avalonMMAvalonMMDataWidth" value="32" />
+  <parameter name="avalonMMAvalonSTDataWidth" value="32" />
+  <parameter name="bitsPerSymbol" value="8" />
+  <parameter name="channelWidth" value="0" />
+  <parameter name="errorWidth" value="6" />
+  <parameter name="fifoDepth" value="16" />
+  <parameter name="fifoInputInterfaceOptions" value="AVALONST_SINK" />
+  <parameter name="fifoOutputInterfaceOptions" value="AVALONMM_READ" />
+  <parameter name="showHiddenFeatures" value="false" />
+  <parameter name="singleClockMode" value="false" />
+  <parameter name="singleResetMode" value="false" />
+  <parameter name="symbolsPerBeat" value="4" />
+  <parameter name="useBackpressure" value="true" />
+  <parameter name="useIRQ" value="true" />
+  <parameter name="usePacket" value="true" />
+  <parameter name="useReadControl" value="true" />
+  <parameter name="useRegister" value="false" />
+  <parameter name="useWriteControl" value="false" />
+  <parameter name="deviceFamilyString" value="Stratix IV" />
+ </module>
+ <module
+   kind="timing_adapter"
+   version="13.1"
+   enabled="1"
+   name="transmit_adapter">
+  <parameter name="generationLanguage" value="VERILOG" />
+  <parameter name="inBitsPerSymbol" value="8" />
+  <parameter name="inChannelWidth" value="0" />
+  <parameter name="inErrorDescriptor" value="" />
+  <parameter name="inErrorWidth" value="1" />
+  <parameter name="inMaxChannel" value="0" />
+  <parameter name="inReadyLatency" value="1" />
+  <parameter name="inSymbolsPerBeat" value="4" />
+  <parameter name="inUseEmpty" value="false" />
+  <parameter name="inUseEmptyPort" value="YES" />
+  <parameter name="inUsePackets" value="true" />
+  <parameter name="inUseReady" value="true" />
+  <parameter name="inUseValid" value="true" />
+  <parameter name="moduleName" value="" />
+  <parameter name="outReadyLatency" value="0" />
+  <parameter name="outUseReady" value="true" />
+  <parameter name="outUseValid" value="true" />
+ </module>
+ <module
+   kind="timing_adapter"
+   version="13.1"
+   enabled="1"
+   name="receive_adapter">
+  <parameter name="generationLanguage" value="VERILOG" />
+  <parameter name="inBitsPerSymbol" value="8" />
+  <parameter name="inChannelWidth" value="0" />
+  <parameter name="inErrorDescriptor" value="" />
+  <parameter name="inErrorWidth" value="6" />
+  <parameter name="inMaxChannel" value="0" />
+  <parameter name="inReadyLatency" value="0" />
+  <parameter name="inSymbolsPerBeat" value="4" />
+  <parameter name="inUseEmpty" value="false" />
+  <parameter name="inUseEmptyPort" value="YES" />
+  <parameter name="inUsePackets" value="true" />
+  <parameter name="inUseReady" value="true" />
+  <parameter name="inUseValid" value="true" />
+  <parameter name="moduleName" value="" />
+  <parameter name="outReadyLatency" value="1" />
+  <parameter name="outUseReady" value="true" />
+  <parameter name="outUseValid" value="true" />
+ </module>
+ <module
+   kind="altera_avalon_onchip_memory2"
+   version="13.1"
+   enabled="1"
+   name="versionRom">
+  <parameter name="allowInSystemMemoryContentEditor" value="false" />
+  <parameter name="blockType" value="AUTO" />
+  <parameter name="dataWidth" value="32" />
+  <parameter name="dualPort" value="false" />
+  <parameter name="initMemContent" value="true" />
+  <parameter name="initializationFileName" value="version" />
+  <parameter name="instanceID" value="NONE" />
+  <parameter name="memorySize" value="1024" />
+  <parameter name="readDuringWriteMode" value="DONT_CARE" />
+  <parameter name="simAllowMRAMContentsFile" value="false" />
+  <parameter name="simMemInitOnlyFilename" value="0" />
+  <parameter name="singleClockOperation" value="false" />
+  <parameter name="slave1Latency" value="1" />
+  <parameter name="slave2Latency" value="1" />
+  <parameter name="useNonDefaultInitFile" value="true" />
+  <parameter name="useShallowMemBlocks" value="false" />
+  <parameter name="writable" value="false" />
+  <parameter name="ecc_enabled" value="false" />
+  <parameter name="autoInitializationFileName">$${FILENAME}_versionRom</parameter>
+  <parameter name="deviceFamily" value="Stratix IV" />
+  <parameter name="deviceFeatures">ADDRESS_STALL 1 ADVANCED_INFO 0 ANY_QFP 0 CELL_LEVEL_BACK_ANNOTATION_DISABLED 0 COMPILER_SUPPORT 1 DSP 1 DSP_SHIFTER_BLOCK 1 DUMP_ASM_LAB_BITS_FOR_POWER 1 EMUL 0 ENABLE_ADVANCED_IO_ANALYSIS_GUI_FEATURES 1 ENABLE_PIN_PLANNER 0 ENGINEERING_SAMPLE 0 EPCS 1 ESB 0 FAKE1 0 FAKE2 0 FAKE3 0 FAMILY_LEVEL_INSTALLATION_ONLY 1 FASTEST 0 FINAL_TIMING_MODEL 0 FITTER_USE_FALLING_EDGE_DELAY 1 GENERATE_DC_ON_CURRENT_WARNING_FOR_INTERNAL_CLAMPING_DIODE 1 HARDCOPY 0 HAS_18_BIT_MULTS 1 HAS_ACE_SUPPORT 1 HAS_ACTIVE_PARALLEL_FLASH_SUPPORT 0 HAS_ADJUSTABLE_OUTPUT_IO_TIMING_MEAS_POINT 1 HAS_ADVANCED_IO_INVERTED_CORNER 1 HAS_ADVANCED_IO_POWER_SUPPORT 1 HAS_ADVANCED_IO_TIMING_SUPPORT 1 HAS_ALM_SUPPORT 1 HAS_ATOM_AND_ROUTING_POWER_MODELED_TOGETHER 0 HAS_AUTO_DERIVE_CLOCK_UNCERTAINTY_SUPPORT 1 HAS_AUTO_FIT_SUPPORT 1 HAS_BALANCED_OPT_TECHNIQUE_SUPPORT 1 HAS_BENEFICIAL_SKEW_SUPPORT 1 HAS_BITLEVEL_DRIVE_STRENGTH_CONTROL 1 HAS_BSDL_FILE_GENERATION 1 HAS_CDB_RE_NETWORK_PRESERVATION_SUPPORT 0 HAS_CGA_SUPPORT 1 HAS_CHECK_NETLIST_SUPPORT 1 HAS_CLOCK_REGION_CHECKER_ENABLED 1 HAS_CORE_JUNCTION_TEMP_DERATING 0 HAS_CROSSTALK_SUPPORT 0 HAS_CUSTOM_REGION_SUPPORT 1 HAS_DAP_JTAG_FROM_HPS 0 HAS_DATA_DRIVEN_ACVQ_HSSI_SUPPORT 0 HAS_DDB_FDI_SUPPORT 0 HAS_DESIGN_ANALYZER_SUPPORT 1 HAS_DETAILED_IO_RAIL_POWER_MODEL 1 HAS_DETAILED_LEIM_STATIC_POWER_MODEL 0 HAS_DETAILED_LE_POWER_MODEL 1 HAS_DETAILED_ROUTING_MUX_STATIC_POWER_MODEL 0 HAS_DETAILED_THERMAL_CIRCUIT_PARAMETER_SUPPORT 1 HAS_DEVICE_MIGRATION_SUPPORT 1 HAS_DIAGONAL_MIGRATION_SUPPORT 0 HAS_EMIF_TOOLKIT_SUPPORT 1 HAS_ERROR_DETECTION_SUPPORT 0 HAS_FAMILY_VARIANT_MIGRATION_SUPPORT 0 HAS_FANOUT_FREE_NODE_SUPPORT 1 HAS_FAST_FIT_SUPPORT 1 HAS_FITTER_EARLY_TIMING_ESTIMATE_SUPPORT 1 HAS_FITTER_ECO_SUPPORT 1 HAS_FIT_NETLIST_OPT_RETIME_SUPPORT 1 HAS_FIT_NETLIST_OPT_SUPPORT 1 HAS_FORMAL_VERIFICATION_SUPPORT 1 HAS_FPGA_XCHANGE_SUPPORT 1 HAS_FSAC_LUTRAM_REGISTER_PACKING_SUPPORT 0 HAS_FULL_DAT_MIN_TIMING_SUPPORT 1 HAS_FULL_INCREMENTAL_DESIGN_SUPPORT 1 HAS_FUNCTIONAL_SIMULATION_SUPPORT 1 HAS_FUNCTIONAL_VERILOG_SIMULATION_SUPPORT 0 HAS_FUNCTIONAL_VHDL_SIMULATION_SUPPORT 0 HAS_GLITCH_FILTERING_SUPPORT 1 HAS_HARDCOPYII_SUPPORT 0 HAS_HC_READY_SUPPORT 1 HAS_HIGH_SPEED_LOW_POWER_TILE_SUPPORT 1 HAS_HOLD_TIME_AVOIDANCE_ACROSS_CLOCK_SPINE_SUPPORT 1 HAS_HSPICE_WRITER_SUPPORT 1 HAS_HSSI_POWER_CALCULATOR 1 HAS_IBISO_WRITER_SUPPORT 0 HAS_ICD_DATA_IP 0 HAS_INCREMENTAL_DAT_SUPPORT 1 HAS_INCREMENTAL_SYNTHESIS_SUPPORT 1 HAS_INTERFACE_PLANNER_SUPPORT 0 HAS_IO_ASSIGNMENT_ANALYSIS_SUPPORT 1 HAS_IO_DECODER 1 HAS_IO_PLACEMENT_OPTIMIZATION_SUPPORT 1 HAS_IO_SMART_RECOMPILE_SUPPORT 0 HAS_JITTER_SUPPORT 1 HAS_JTAG_SLD_HUB_SUPPORT 1 HAS_LIMITED_TCL_FITTER_SUPPORT 0 HAS_LOGICAL_FLOORPLANNER_SUPPORT 0 HAS_LOGIC_LOCK_SUPPORT 1 HAS_MICROPROCESSOR 0 HAS_MIF_SMART_COMPILE_SUPPORT 1 HAS_MINMAX_TIMING_MODELING_SUPPORT 1 HAS_MIN_TIMING_ANALYSIS_SUPPORT 1 HAS_MUX_RESTRUCTURE_SUPPORT 1 HAS_NEW_HC_FLOW_SUPPORT 0 HAS_NEW_SERDES_MAX_RESOURCE_COUNT_REPORTING_SUPPORT 1 HAS_NEW_VPR_SUPPORT 1 HAS_NONSOCKET_TECHNOLOGY_MIGRATION_SUPPORT 1 HAS_NO_HARDBLOCK_PARTITION_SUPPORT 0 HAS_NO_JTAG_USERCODE_SUPPORT 0 HAS_OPERATING_SETTINGS_AND_CONDITIONS_REPORTING_SUPPORT 1 HAS_PAD_LOCATION_ASSIGNMENT_SUPPORT 0 HAS_PARTIAL_RECONFIG_SUPPORT 0 HAS_PASSIVE_PARALLEL_SUPPORT 0 HAS_PHYSICAL_NETLIST_OUTPUT 0 HAS_PHYSICAL_ROUTING_SUPPORT 1 HAS_PIN_SPECIFIC_VOLTAGE_SUPPORT 1 HAS_PLDM_REF_SUPPORT 1 HAS_POWER_BINNING_LIMITS_DATA 0 HAS_POWER_ESTIMATION_SUPPORT 1 HAS_PRELIMINARY_CLOCK_UNCERTAINTY_NUMBERS 0 HAS_PRE_FITTER_FPP_SUPPORT 0 HAS_PRE_FITTER_LUTRAM_NETLIST_CHECKER_ENABLED 1 HAS_PVA_SUPPORT 1 HAS_RAPID_RECOMPILE_SUPPORT 0 HAS_RCF_SUPPORT 1 HAS_RCF_SUPPORT_FOR_DEBUGGING 0 HAS_RED_BLACK_SEPARATION_SUPPORT 0 HAS_RE_LEVEL_TIMING_GRAPH_SUPPORT 1 HAS_RISEFALL_DELAY_SUPPORT 1 HAS_SIGNAL_PROBE_SUPPORT 1 HAS_SIGNAL_TAP_SUPPORT 1 HAS_SIMULATOR_SUPPORT 0 HAS_SPLIT_IO_SUPPORT 1 HAS_SPLIT_LC_SUPPORT 1 HAS_STRICT_PRESERVATION_SUPPORT 0 HAS_SYNTH_FSYN_NETLIST_OPT_SUPPORT 1 HAS_SYNTH_NETLIST_OPT_RETIME_SUPPORT 1 HAS_SYNTH_NETLIST_OPT_SUPPORT 1 HAS_TCL_FITTER_SUPPORT 0 HAS_TECHNOLOGY_MIGRATION_SUPPORT 1 HAS_TEMPLATED_REGISTER_PACKING_SUPPORT 1 HAS_TIME_BORROWING_SUPPORT 0 HAS_TIMING_DRIVEN_SYNTHESIS_SUPPORT 1 HAS_TIMING_INFO_SUPPORT 1 HAS_TIMING_OPERATING_CONDITIONS 1 HAS_TIMING_SIMULATION_SUPPORT 1 HAS_TITAN_BASED_MAC_REGISTER_PACKER_SUPPORT 1 HAS_U2B2_SUPPORT 0 HAS_USER_HIGH_SPEED_LOW_POWER_TILE_SUPPORT 1 HAS_USE_FITTER_INFO_SUPPORT 0 HAS_VCCPD_POWER_RAIL 1 HAS_VERTICAL_MIGRATION_SUPPORT 1 HAS_VIEWDRAW_SYMBOL_SUPPORT 0 HAS_VIO_SUPPORT 1 HAS_VIRTUAL_DEVICES 0 HAS_WYSIWYG_DFFEAS_SUPPORT 1 HAS_XIBISO_WRITER_SUPPORT 1 IFP_USE_LEGACY_IO_CHECKER 0 INCREMENTAL_DESIGN_SUPPORTS_COMPATIBLE_CONSTRAINTS 1 INSTALLED 0 INTERNAL_POF_SUPPORT_ENABLED 0 INTERNAL_USE_ONLY 0 ISSUE_MILITARY_TEMPERATURE_WARNING 0 IS_CONFIG_ROM 0 IS_DEFAULT_FAMILY 0 IS_HARDCOPY_FAMILY 0 IS_HBGA_PACKAGE 0 IS_HIGH_CURRENT_PART 0 IS_LOW_POWER_PART 0 IS_SDM_ONLY_PACKAGE 0 LVDS_IO 1 M10K_MEMORY 0 M144K_MEMORY 1 M20K_MEMORY 0 M4K_MEMORY 0 M512_MEMORY 0 M9K_MEMORY 1 MLAB_MEMORY 1 MRAM_MEMORY 0 NOT_LISTED 0 NOT_MIGRATABLE 0 NO_FITTER_DELAY_CACHE_GENERATED 0 NO_PIN_OUT 0 NO_POF 0 NO_RPE_SUPPORT 0 NO_SUPPORT_FOR_LOGICLOCK_CONTENT_BACK_ANNOTATION 1 NO_SUPPORT_FOR_STA_CLOCK_UNCERTAINTY_CHECK 0 NO_TDC_SUPPORT 0 POSTFIT_BAK_DATABASE_EXPORT_ENABLED 1 POSTMAP_BAK_DATABASE_EXPORT_ENABLED 1 PROGRAMMER_SUPPORT 1 QFIT_IN_DEVELOPMENT 0 QMAP_IN_DEVELOPMENT 0 RAM_LOGICAL_NAME_CHECKING_IN_CUT_ENABLED 1 REPORTS_METASTABILITY_MTBF 1 REQUIRES_INSTALLATION_PATCH 0 REQUIRES_LIST_OF_TEMPERATURE_AND_VOLTAGE_OPERATING_CONDITIONS 1 RESERVES_SIGNAL_PROBE_PINS 0 RESOLVE_MAX_FANOUT_EARLY 1 RESOLVE_MAX_FANOUT_LATE 0 RESPECTS_FIXED_SIZED_LOCKED_LOCATION_LOGICLOCK 1 RESTRICTED_USER_SELECTION 0 RISEFALL_SUPPORT_IS_HIDDEN 0 SHOW_HIDDEN_FAMILY_IN_PROGRAMMER 0 STRICT_TIMING_DB_CHECKS 0 SUPPORTS_ADDITIONAL_OPTIONS_FOR_UNUSED_IO 1 SUPPORTS_CRC 1 SUPPORTS_DIFFERENTIAL_AIOT_BOARD_TRACE_MODEL 1 SUPPORTS_DSP_BALANCING_BACK_ANNOTATION 0 SUPPORTS_GENERATION_OF_EARLY_POWER_ESTIMATOR_FILE 1 SUPPORTS_GLOBAL_SIGNAL_BACK_ANNOTATION 1 SUPPORTS_MAC_CHAIN_OUT_ADDER 1 SUPPORTS_RAM_PACKING_BACK_ANNOTATION 0 SUPPORTS_REG_PACKING_BACK_ANNOTATION 0 SUPPORTS_SIGNALPROBE_REGISTER_PIPELINING 1 SUPPORTS_SINGLE_ENDED_AIOT_BOARD_TRACE_MODEL 1 SUPPORTS_USER_MANUAL_LOGIC_DUPLICATION 1 TMV_RUN_CUSTOMIZABLE_VIEWER 1 TMV_RUN_INTERNAL_DETAILS 1 TMV_RUN_INTERNAL_DETAILS_ON_IO 0 TMV_RUN_INTERNAL_DETAILS_ON_IOBUF 1 TMV_RUN_INTERNAL_DETAILS_ON_LCELL 0 TMV_RUN_INTERNAL_DETAILS_ON_LRAM 0 TRANSCEIVER_3G_BLOCK 1 TRANSCEIVER_6G_BLOCK 1 USES_ACV_FOR_FLED 1 USES_ADB_FOR_BACK_ANNOTATION 1 USES_ALTERA_LNSIM 0 USES_ASIC_ROUTING_POWER_CALCULATOR 0 USES_DATA_DRIVEN_PLL_COMPUTATION_UTIL 1 USES_DEV 1 USES_ICP_FOR_ECO_FITTER 0 USES_LIBERTY_TIMING 0 USES_POWER_SIGNAL_ACTIVITIES 1 USES_THIRD_GENERATION_TIMING_MODELS_TIS 1 USES_U2B2_TIMING_MODELS 0 USE_ADVANCED_IO_POWER_BY_DEFAULT 1 USE_ADVANCED_IO_TIMING_BY_DEFAULT 1 USE_BASE_FAMILY_DDB_PATH 0 USE_OCT_AUTO_CALIBRATION 0 USE_RELAX_IO_ASSIGNMENT_RULES 0 USE_RISEFALL_ONLY 1 USE_SEPARATE_LIST_FOR_TECH_MIGRATION 1 USE_SINGLE_COMPILER_PASS_PLL_MIF_FILE_WRITER 1 USE_TITAN_IO_BASED_IO_REGISTER_PACKER_UTIL 1 USING_28NM_OR_OLDER_TIMING_METHODOLOGY 1 WYSIWYG_BUS_WIDTH_CHECKING_IN_CUT_ENABLED 1</parameter>
+ </module>
+ <module
+   kind="altera_avalon_pio"
+   version="13.1"
+   enabled="1"
+   name="hdmi_tx_reset_n">
+  <parameter name="bitClearingEdgeCapReg" value="false" />
+  <parameter name="bitModifyingOutReg" value="false" />
+  <parameter name="captureEdge" value="false" />
+  <parameter name="direction" value="Output" />
+  <parameter name="edgeType" value="RISING" />
+  <parameter name="generateIRQ" value="false" />
+  <parameter name="irqType" value="LEVEL" />
+  <parameter name="resetValue" value="0" />
+  <parameter name="simDoTestBenchWiring" value="false" />
+  <parameter name="simDrivenValue" value="0" />
+  <parameter name="width" value="1" />
+  <parameter name="clockRate" value="100000000" />
+ </module>
+ <module kind="altera_avalon_pio" version="13.1" enabled="1" name="Switches">
+  <parameter name="bitClearingEdgeCapReg" value="false" />
+  <parameter name="bitModifyingOutReg" value="false" />
+  <parameter name="captureEdge" value="false" />
+  <parameter name="direction" value="Input" />
+  <parameter name="edgeType" value="RISING" />
+  <parameter name="generateIRQ" value="false" />
+  <parameter name="irqType" value="LEVEL" />
+  <parameter name="resetValue" value="0" />
+  <parameter name="simDoTestBenchWiring" value="false" />
+  <parameter name="simDrivenValue" value="0" />
+  <parameter name="width" value="16" />
+  <parameter name="clockRate" value="100000000" />
+ </module>
+ <module kind="i2c_avalon" version="1.0" enabled="1" name="i2c_avalon_1">
+  <parameter name="AUTO_CLOCK_CLOCK_RATE" value="50000000" />
+ </module>
+ <module
+   kind="altera_avalon_mm_bridge"
+   version="13.1"
+   enabled="1"
+   name="peripheral_bridge_narrow">
+  <parameter name="DATA_WIDTH" value="32" />
+  <parameter name="SYMBOL_WIDTH" value="8" />
+  <parameter name="ADDRESS_WIDTH" value="30" />
+  <parameter name="ADDRESS_UNITS" value="SYMBOLS" />
+  <parameter name="MAX_BURST_SIZE" value="1" />
+  <parameter name="MAX_PENDING_RESPONSES" value="1" />
+  <parameter name="LINEWRAPBURSTS" value="0" />
+  <parameter name="PIPELINE_COMMAND" value="1" />
+  <parameter name="PIPELINE_RESPONSE" value="1" />
+  <parameter name="AUTO_CLK_CLOCK_RATE" value="100000000" />
+  <parameter name="AUTO_DEVICE_FAMILY" value="Stratix IV" />
+ </module>
+ <module kind="clock_source" version="13.1" enabled="1" name="clk_100">
+  <parameter name="clockFrequency" value="100000000" />
+  <parameter name="clockFrequencyKnown" value="true" />
+  <parameter name="inputClockFrequency" value="0" />
+  <parameter name="resetSynchronousEdges" value="NONE" />
+ </module>
+ <module
+   kind="FanControl50MHz"
+   version="1.0"
+   enabled="1"
+   name="FanControl50MHz_0">
+  <parameter name="AUTO_CLOCKRESET_CLOCK_RATE" value="27000000" />
+ </module>
+ <module kind="altera_avalon_fifo" version="13.1" enabled="1" name="tx_fifo1">
+  <parameter name="avalonMMAvalonMMDataWidth" value="32" />
+  <parameter name="avalonMMAvalonSTDataWidth" value="32" />
+  <parameter name="bitsPerSymbol" value="8" />
+  <parameter name="channelWidth" value="0" />
+  <parameter name="errorWidth" value="1" />
+  <parameter name="fifoDepth" value="16" />
+  <parameter name="fifoInputInterfaceOptions" value="AVALONMM_WRITE" />
+  <parameter name="fifoOutputInterfaceOptions" value="AVALONST_SOURCE" />
+  <parameter name="showHiddenFeatures" value="false" />
+  <parameter name="singleClockMode" value="true" />
+  <parameter name="singleResetMode" value="false" />
+  <parameter name="symbolsPerBeat" value="4" />
+  <parameter name="useBackpressure" value="true" />
+  <parameter name="useIRQ" value="true" />
+  <parameter name="usePacket" value="true" />
+  <parameter name="useReadControl" value="false" />
+  <parameter name="useRegister" value="false" />
+  <parameter name="useWriteControl" value="true" />
+  <parameter name="deviceFamilyString" value="Stratix IV" />
+ </module>
+ <module kind="altera_avalon_fifo" version="13.1" enabled="1" name="rx_fifo1">
+  <parameter name="avalonMMAvalonMMDataWidth" value="32" />
+  <parameter name="avalonMMAvalonSTDataWidth" value="32" />
+  <parameter name="bitsPerSymbol" value="8" />
+  <parameter name="channelWidth" value="0" />
+  <parameter name="errorWidth" value="6" />
+  <parameter name="fifoDepth" value="16" />
+  <parameter name="fifoInputInterfaceOptions" value="AVALONST_SINK" />
+  <parameter name="fifoOutputInterfaceOptions" value="AVALONMM_READ" />
+  <parameter name="showHiddenFeatures" value="false" />
+  <parameter name="singleClockMode" value="false" />
+  <parameter name="singleResetMode" value="false" />
+  <parameter name="symbolsPerBeat" value="4" />
+  <parameter name="useBackpressure" value="true" />
+  <parameter name="useIRQ" value="true" />
+  <parameter name="usePacket" value="true" />
+  <parameter name="useReadControl" value="true" />
+  <parameter name="useRegister" value="false" />
+  <parameter name="useWriteControl" value="false" />
+  <parameter name="deviceFamilyString" value="Stratix IV" />
+ </module>
+ <module kind="timing_adapter" version="13.1" enabled="1" name="tx_timing1">
+  <parameter name="generationLanguage" value="VERILOG" />
+  <parameter name="inBitsPerSymbol" value="8" />
+  <parameter name="inChannelWidth" value="0" />
+  <parameter name="inErrorDescriptor" value="" />
+  <parameter name="inErrorWidth" value="1" />
+  <parameter name="inMaxChannel" value="0" />
+  <parameter name="inReadyLatency" value="1" />
+  <parameter name="inSymbolsPerBeat" value="4" />
+  <parameter name="inUseEmpty" value="false" />
+  <parameter name="inUseEmptyPort" value="YES" />
+  <parameter name="inUsePackets" value="true" />
+  <parameter name="inUseReady" value="true" />
+  <parameter name="inUseValid" value="true" />
+  <parameter name="moduleName" value="" />
+  <parameter name="outReadyLatency" value="0" />
+  <parameter name="outUseReady" value="true" />
+  <parameter name="outUseValid" value="true" />
+ </module>
+ <module kind="timing_adapter" version="13.1" enabled="1" name="rx_timing1">
+  <parameter name="generationLanguage" value="VERILOG" />
+  <parameter name="inBitsPerSymbol" value="8" />
+  <parameter name="inChannelWidth" value="0" />
+  <parameter name="inErrorDescriptor" value="" />
+  <parameter name="inErrorWidth" value="6" />
+  <parameter name="inMaxChannel" value="0" />
+  <parameter name="inReadyLatency" value="0" />
+  <parameter name="inSymbolsPerBeat" value="4" />
+  <parameter name="inUseEmpty" value="false" />
+  <parameter name="inUseEmptyPort" value="YES" />
+  <parameter name="inUsePackets" value="true" />
+  <parameter name="inUseReady" value="true" />
+  <parameter name="inUseValid" value="true" />
+  <parameter name="moduleName" value="" />
+  <parameter name="outReadyLatency" value="1" />
+  <parameter name="outUseReady" value="true" />
+  <parameter name="outUseValid" value="true" />
+ </module>
+ <module kind="altera_eth_tse" version="13.1" enabled="1" name="tse_mac">
+  <parameter name="deviceFamilyName" value="Stratix IV" />
+  <parameter name="core_variation" value="MAC_PCS" />
+  <parameter name="ifGMII" value="MII_GMII" />
+  <parameter name="enable_use_internal_fifo" value="true" />
+  <parameter name="max_channels" value="1" />
+  <parameter name="use_misc_ports" value="true" />
+  <parameter name="transceiver_type" value="LVDS_IO" />
+  <parameter name="enable_hd_logic" value="true" />
+  <parameter name="enable_gmii_loopback" value="true" />
+  <parameter name="enable_sup_addr" value="true" />
+  <parameter name="stat_cnt_ena" value="true" />
+  <parameter name="ext_stat_cnt_ena" value="true" />
+  <parameter name="ena_hash" value="true" />
+  <parameter name="enable_shift16" value="true" />
+  <parameter name="enable_mac_flow_ctrl" value="true" />
+  <parameter name="enable_mac_vlan" value="true" />
+  <parameter name="enable_magic_detect" value="true" />
+  <parameter name="useMDIO" value="true" />
+  <parameter name="mdio_clk_div" value="40" />
+  <parameter name="enable_ena" value="32" />
+  <parameter name="eg_addr" value="11" />
+  <parameter name="ing_addr" value="11" />
+  <parameter name="phy_identifier" value="213975361" />
+  <parameter name="enable_sgmii" value="true" />
+  <parameter name="export_pwrdn" value="false" />
+  <parameter name="enable_alt_reconfig" value="false" />
+  <parameter name="starting_channel_number" value="0" />
+  <parameter name="phyip_pll_type" value="CMU" />
+  <parameter name="phyip_en_synce_support" value="false" />
+  <parameter name="phyip_pma_bonding_mode" value="x1" />
+  <parameter name="nf_phyip_rcfg_enable" value="false" />
+  <parameter name="enable_timestamping" value="false" />
+  <parameter name="enable_ptp_1step" value="false" />
+  <parameter name="tstamp_fp_width" value="4" />
+  <parameter name="AUTO_DEVICE" value="EP4SGX230KF40C2" />
+ </module>
+ <module kind="altera_eth_tse" version="13.1" enabled="1" name="tse_mac1">
+  <parameter name="deviceFamilyName" value="Stratix IV" />
+  <parameter name="core_variation" value="MAC_PCS" />
+  <parameter name="ifGMII" value="MII_GMII" />
+  <parameter name="enable_use_internal_fifo" value="true" />
+  <parameter name="max_channels" value="1" />
+  <parameter name="use_misc_ports" value="true" />
+  <parameter name="transceiver_type" value="LVDS_IO" />
+  <parameter name="enable_hd_logic" value="true" />
+  <parameter name="enable_gmii_loopback" value="true" />
+  <parameter name="enable_sup_addr" value="true" />
+  <parameter name="stat_cnt_ena" value="true" />
+  <parameter name="ext_stat_cnt_ena" value="true" />
+  <parameter name="ena_hash" value="true" />
+  <parameter name="enable_shift16" value="true" />
+  <parameter name="enable_mac_flow_ctrl" value="true" />
+  <parameter name="enable_mac_vlan" value="true" />
+  <parameter name="enable_magic_detect" value="true" />
+  <parameter name="useMDIO" value="true" />
+  <parameter name="mdio_clk_div" value="40" />
+  <parameter name="enable_ena" value="32" />
+  <parameter name="eg_addr" value="11" />
+  <parameter name="ing_addr" value="11" />
+  <parameter name="phy_identifier" value="213975361" />
+  <parameter name="enable_sgmii" value="true" />
+  <parameter name="export_pwrdn" value="false" />
+  <parameter name="enable_alt_reconfig" value="false" />
+  <parameter name="starting_channel_number" value="0" />
+  <parameter name="phyip_pll_type" value="CMU" />
+  <parameter name="phyip_en_synce_support" value="false" />
+  <parameter name="phyip_pma_bonding_mode" value="x1" />
+  <parameter name="nf_phyip_rcfg_enable" value="false" />
+  <parameter name="enable_timestamping" value="false" />
+  <parameter name="enable_ptp_1step" value="false" />
+  <parameter name="tstamp_fp_width" value="4" />
+  <parameter name="AUTO_DEVICE" value="EP4SGX230KF40C2" />
+ </module>
+ <module kind="clock_source" version="13.1" enabled="1" name="clk_125">
+  <parameter name="clockFrequency" value="125000000" />
+  <parameter name="clockFrequencyKnown" value="true" />
+  <parameter name="inputClockFrequency" value="0" />
+  <parameter name="resetSynchronousEdges" value="NONE" />
+ </module>
+ <module
+   kind="altera_avalon_onchip_memory2"
+   version="13.1"
+   enabled="1"
+   name="flattened_device_tree">
+  <parameter name="allowInSystemMemoryContentEditor" value="false" />
+  <parameter name="blockType" value="AUTO" />
+  <parameter name="dataWidth" value="32" />
+  <parameter name="dualPort" value="false" />
+  <parameter name="initMemContent" value="true" />
+  <parameter name="initializationFileName" value="dtb.hex" />
+  <parameter name="instanceID" value="NONE" />
+  <parameter name="memorySize" value="8192" />
+  <parameter name="readDuringWriteMode" value="DONT_CARE" />
+  <parameter name="simAllowMRAMContentsFile" value="false" />
+  <parameter name="simMemInitOnlyFilename" value="0" />
+  <parameter name="singleClockOperation" value="false" />
+  <parameter name="slave1Latency" value="2" />
+  <parameter name="slave2Latency" value="1" />
+  <parameter name="useNonDefaultInitFile" value="true" />
+  <parameter name="useShallowMemBlocks" value="false" />
+  <parameter name="writable" value="false" />
+  <parameter name="ecc_enabled" value="false" />
+  <parameter name="autoInitializationFileName">$${FILENAME}_flattened_device_tree</parameter>
+  <parameter name="deviceFamily" value="Stratix IV" />
+  <parameter name="deviceFeatures">ADDRESS_STALL 1 ADVANCED_INFO 0 ANY_QFP 0 CELL_LEVEL_BACK_ANNOTATION_DISABLED 0 COMPILER_SUPPORT 1 DSP 1 DSP_SHIFTER_BLOCK 1 DUMP_ASM_LAB_BITS_FOR_POWER 1 EMUL 0 ENABLE_ADVANCED_IO_ANALYSIS_GUI_FEATURES 1 ENABLE_PIN_PLANNER 0 ENGINEERING_SAMPLE 0 EPCS 1 ESB 0 FAKE1 0 FAKE2 0 FAKE3 0 FAMILY_LEVEL_INSTALLATION_ONLY 1 FASTEST 0 FINAL_TIMING_MODEL 0 FITTER_USE_FALLING_EDGE_DELAY 1 GENERATE_DC_ON_CURRENT_WARNING_FOR_INTERNAL_CLAMPING_DIODE 1 HARDCOPY 0 HAS_18_BIT_MULTS 1 HAS_ACE_SUPPORT 1 HAS_ACTIVE_PARALLEL_FLASH_SUPPORT 0 HAS_ADJUSTABLE_OUTPUT_IO_TIMING_MEAS_POINT 1 HAS_ADVANCED_IO_INVERTED_CORNER 1 HAS_ADVANCED_IO_POWER_SUPPORT 1 HAS_ADVANCED_IO_TIMING_SUPPORT 1 HAS_ALM_SUPPORT 1 HAS_ATOM_AND_ROUTING_POWER_MODELED_TOGETHER 0 HAS_AUTO_DERIVE_CLOCK_UNCERTAINTY_SUPPORT 1 HAS_AUTO_FIT_SUPPORT 1 HAS_BALANCED_OPT_TECHNIQUE_SUPPORT 1 HAS_BENEFICIAL_SKEW_SUPPORT 1 HAS_BITLEVEL_DRIVE_STRENGTH_CONTROL 1 HAS_BSDL_FILE_GENERATION 1 HAS_CDB_RE_NETWORK_PRESERVATION_SUPPORT 0 HAS_CGA_SUPPORT 1 HAS_CHECK_NETLIST_SUPPORT 1 HAS_CLOCK_REGION_CHECKER_ENABLED 1 HAS_CORE_JUNCTION_TEMP_DERATING 0 HAS_CROSSTALK_SUPPORT 0 HAS_CUSTOM_REGION_SUPPORT 1 HAS_DAP_JTAG_FROM_HPS 0 HAS_DATA_DRIVEN_ACVQ_HSSI_SUPPORT 0 HAS_DDB_FDI_SUPPORT 0 HAS_DESIGN_ANALYZER_SUPPORT 1 HAS_DETAILED_IO_RAIL_POWER_MODEL 1 HAS_DETAILED_LEIM_STATIC_POWER_MODEL 0 HAS_DETAILED_LE_POWER_MODEL 1 HAS_DETAILED_ROUTING_MUX_STATIC_POWER_MODEL 0 HAS_DETAILED_THERMAL_CIRCUIT_PARAMETER_SUPPORT 1 HAS_DEVICE_MIGRATION_SUPPORT 1 HAS_DIAGONAL_MIGRATION_SUPPORT 0 HAS_EMIF_TOOLKIT_SUPPORT 1 HAS_ERROR_DETECTION_SUPPORT 0 HAS_FAMILY_VARIANT_MIGRATION_SUPPORT 0 HAS_FANOUT_FREE_NODE_SUPPORT 1 HAS_FAST_FIT_SUPPORT 1 HAS_FITTER_EARLY_TIMING_ESTIMATE_SUPPORT 1 HAS_FITTER_ECO_SUPPORT 1 HAS_FIT_NETLIST_OPT_RETIME_SUPPORT 1 HAS_FIT_NETLIST_OPT_SUPPORT 1 HAS_FORMAL_VERIFICATION_SUPPORT 1 HAS_FPGA_XCHANGE_SUPPORT 1 HAS_FSAC_LUTRAM_REGISTER_PACKING_SUPPORT 0 HAS_FULL_DAT_MIN_TIMING_SUPPORT 1 HAS_FULL_INCREMENTAL_DESIGN_SUPPORT 1 HAS_FUNCTIONAL_SIMULATION_SUPPORT 1 HAS_FUNCTIONAL_VERILOG_SIMULATION_SUPPORT 0 HAS_FUNCTIONAL_VHDL_SIMULATION_SUPPORT 0 HAS_GLITCH_FILTERING_SUPPORT 1 HAS_HARDCOPYII_SUPPORT 0 HAS_HC_READY_SUPPORT 1 HAS_HIGH_SPEED_LOW_POWER_TILE_SUPPORT 1 HAS_HOLD_TIME_AVOIDANCE_ACROSS_CLOCK_SPINE_SUPPORT 1 HAS_HSPICE_WRITER_SUPPORT 1 HAS_HSSI_POWER_CALCULATOR 1 HAS_IBISO_WRITER_SUPPORT 0 HAS_ICD_DATA_IP 0 HAS_INCREMENTAL_DAT_SUPPORT 1 HAS_INCREMENTAL_SYNTHESIS_SUPPORT 1 HAS_INTERFACE_PLANNER_SUPPORT 0 HAS_IO_ASSIGNMENT_ANALYSIS_SUPPORT 1 HAS_IO_DECODER 1 HAS_IO_PLACEMENT_OPTIMIZATION_SUPPORT 1 HAS_IO_SMART_RECOMPILE_SUPPORT 0 HAS_JITTER_SUPPORT 1 HAS_JTAG_SLD_HUB_SUPPORT 1 HAS_LIMITED_TCL_FITTER_SUPPORT 0 HAS_LOGICAL_FLOORPLANNER_SUPPORT 0 HAS_LOGIC_LOCK_SUPPORT 1 HAS_MICROPROCESSOR 0 HAS_MIF_SMART_COMPILE_SUPPORT 1 HAS_MINMAX_TIMING_MODELING_SUPPORT 1 HAS_MIN_TIMING_ANALYSIS_SUPPORT 1 HAS_MUX_RESTRUCTURE_SUPPORT 1 HAS_NEW_HC_FLOW_SUPPORT 0 HAS_NEW_SERDES_MAX_RESOURCE_COUNT_REPORTING_SUPPORT 1 HAS_NEW_VPR_SUPPORT 1 HAS_NONSOCKET_TECHNOLOGY_MIGRATION_SUPPORT 1 HAS_NO_HARDBLOCK_PARTITION_SUPPORT 0 HAS_NO_JTAG_USERCODE_SUPPORT 0 HAS_OPERATING_SETTINGS_AND_CONDITIONS_REPORTING_SUPPORT 1 HAS_PAD_LOCATION_ASSIGNMENT_SUPPORT 0 HAS_PARTIAL_RECONFIG_SUPPORT 0 HAS_PASSIVE_PARALLEL_SUPPORT 0 HAS_PHYSICAL_NETLIST_OUTPUT 0 HAS_PHYSICAL_ROUTING_SUPPORT 1 HAS_PIN_SPECIFIC_VOLTAGE_SUPPORT 1 HAS_PLDM_REF_SUPPORT 1 HAS_POWER_BINNING_LIMITS_DATA 0 HAS_POWER_ESTIMATION_SUPPORT 1 HAS_PRELIMINARY_CLOCK_UNCERTAINTY_NUMBERS 0 HAS_PRE_FITTER_FPP_SUPPORT 0 HAS_PRE_FITTER_LUTRAM_NETLIST_CHECKER_ENABLED 1 HAS_PVA_SUPPORT 1 HAS_RAPID_RECOMPILE_SUPPORT 0 HAS_RCF_SUPPORT 1 HAS_RCF_SUPPORT_FOR_DEBUGGING 0 HAS_RED_BLACK_SEPARATION_SUPPORT 0 HAS_RE_LEVEL_TIMING_GRAPH_SUPPORT 1 HAS_RISEFALL_DELAY_SUPPORT 1 HAS_SIGNAL_PROBE_SUPPORT 1 HAS_SIGNAL_TAP_SUPPORT 1 HAS_SIMULATOR_SUPPORT 0 HAS_SPLIT_IO_SUPPORT 1 HAS_SPLIT_LC_SUPPORT 1 HAS_STRICT_PRESERVATION_SUPPORT 0 HAS_SYNTH_FSYN_NETLIST_OPT_SUPPORT 1 HAS_SYNTH_NETLIST_OPT_RETIME_SUPPORT 1 HAS_SYNTH_NETLIST_OPT_SUPPORT 1 HAS_TCL_FITTER_SUPPORT 0 HAS_TECHNOLOGY_MIGRATION_SUPPORT 1 HAS_TEMPLATED_REGISTER_PACKING_SUPPORT 1 HAS_TIME_BORROWING_SUPPORT 0 HAS_TIMING_DRIVEN_SYNTHESIS_SUPPORT 1 HAS_TIMING_INFO_SUPPORT 1 HAS_TIMING_OPERATING_CONDITIONS 1 HAS_TIMING_SIMULATION_SUPPORT 1 HAS_TITAN_BASED_MAC_REGISTER_PACKER_SUPPORT 1 HAS_U2B2_SUPPORT 0 HAS_USER_HIGH_SPEED_LOW_POWER_TILE_SUPPORT 1 HAS_USE_FITTER_INFO_SUPPORT 0 HAS_VCCPD_POWER_RAIL 1 HAS_VERTICAL_MIGRATION_SUPPORT 1 HAS_VIEWDRAW_SYMBOL_SUPPORT 0 HAS_VIO_SUPPORT 1 HAS_VIRTUAL_DEVICES 0 HAS_WYSIWYG_DFFEAS_SUPPORT 1 HAS_XIBISO_WRITER_SUPPORT 1 IFP_USE_LEGACY_IO_CHECKER 0 INCREMENTAL_DESIGN_SUPPORTS_COMPATIBLE_CONSTRAINTS 1 INSTALLED 0 INTERNAL_POF_SUPPORT_ENABLED 0 INTERNAL_USE_ONLY 0 ISSUE_MILITARY_TEMPERATURE_WARNING 0 IS_CONFIG_ROM 0 IS_DEFAULT_FAMILY 0 IS_HARDCOPY_FAMILY 0 IS_HBGA_PACKAGE 0 IS_HIGH_CURRENT_PART 0 IS_LOW_POWER_PART 0 IS_SDM_ONLY_PACKAGE 0 LVDS_IO 1 M10K_MEMORY 0 M144K_MEMORY 1 M20K_MEMORY 0 M4K_MEMORY 0 M512_MEMORY 0 M9K_MEMORY 1 MLAB_MEMORY 1 MRAM_MEMORY 0 NOT_LISTED 0 NOT_MIGRATABLE 0 NO_FITTER_DELAY_CACHE_GENERATED 0 NO_PIN_OUT 0 NO_POF 0 NO_RPE_SUPPORT 0 NO_SUPPORT_FOR_LOGICLOCK_CONTENT_BACK_ANNOTATION 1 NO_SUPPORT_FOR_STA_CLOCK_UNCERTAINTY_CHECK 0 NO_TDC_SUPPORT 0 POSTFIT_BAK_DATABASE_EXPORT_ENABLED 1 POSTMAP_BAK_DATABASE_EXPORT_ENABLED 1 PROGRAMMER_SUPPORT 1 QFIT_IN_DEVELOPMENT 0 QMAP_IN_DEVELOPMENT 0 RAM_LOGICAL_NAME_CHECKING_IN_CUT_ENABLED 1 REPORTS_METASTABILITY_MTBF 1 REQUIRES_INSTALLATION_PATCH 0 REQUIRES_LIST_OF_TEMPERATURE_AND_VOLTAGE_OPERATING_CONDITIONS 1 RESERVES_SIGNAL_PROBE_PINS 0 RESOLVE_MAX_FANOUT_EARLY 1 RESOLVE_MAX_FANOUT_LATE 0 RESPECTS_FIXED_SIZED_LOCKED_LOCATION_LOGICLOCK 1 RESTRICTED_USER_SELECTION 0 RISEFALL_SUPPORT_IS_HIDDEN 0 SHOW_HIDDEN_FAMILY_IN_PROGRAMMER 0 STRICT_TIMING_DB_CHECKS 0 SUPPORTS_ADDITIONAL_OPTIONS_FOR_UNUSED_IO 1 SUPPORTS_CRC 1 SUPPORTS_DIFFERENTIAL_AIOT_BOARD_TRACE_MODEL 1 SUPPORTS_DSP_BALANCING_BACK_ANNOTATION 0 SUPPORTS_GENERATION_OF_EARLY_POWER_ESTIMATOR_FILE 1 SUPPORTS_GLOBAL_SIGNAL_BACK_ANNOTATION 1 SUPPORTS_MAC_CHAIN_OUT_ADDER 1 SUPPORTS_RAM_PACKING_BACK_ANNOTATION 0 SUPPORTS_REG_PACKING_BACK_ANNOTATION 0 SUPPORTS_SIGNALPROBE_REGISTER_PIPELINING 1 SUPPORTS_SINGLE_ENDED_AIOT_BOARD_TRACE_MODEL 1 SUPPORTS_USER_MANUAL_LOGIC_DUPLICATION 1 TMV_RUN_CUSTOMIZABLE_VIEWER 1 TMV_RUN_INTERNAL_DETAILS 1 TMV_RUN_INTERNAL_DETAILS_ON_IO 0 TMV_RUN_INTERNAL_DETAILS_ON_IOBUF 1 TMV_RUN_INTERNAL_DETAILS_ON_LCELL 0 TMV_RUN_INTERNAL_DETAILS_ON_LRAM 0 TRANSCEIVER_3G_BLOCK 1 TRANSCEIVER_6G_BLOCK 1 USES_ACV_FOR_FLED 1 USES_ADB_FOR_BACK_ANNOTATION 1 USES_ALTERA_LNSIM 0 USES_ASIC_ROUTING_POWER_CALCULATOR 0 USES_DATA_DRIVEN_PLL_COMPUTATION_UTIL 1 USES_DEV 1 USES_ICP_FOR_ECO_FITTER 0 USES_LIBERTY_TIMING 0 USES_POWER_SIGNAL_ACTIVITIES 1 USES_THIRD_GENERATION_TIMING_MODELS_TIS 1 USES_U2B2_TIMING_MODELS 0 USE_ADVANCED_IO_POWER_BY_DEFAULT 1 USE_ADVANCED_IO_TIMING_BY_DEFAULT 1 USE_BASE_FAMILY_DDB_PATH 0 USE_OCT_AUTO_CALIBRATION 0 USE_RELAX_IO_ASSIGNMENT_RULES 0 USE_RISEFALL_ONLY 1 USE_SEPARATE_LIST_FOR_TECH_MIGRATION 1 USE_SINGLE_COMPILER_PASS_PLL_MIF_FILE_WRITER 1 USE_TITAN_IO_BASED_IO_REGISTER_PACKER_UTIL 1 USING_28NM_OR_OLDER_TIMING_METHODOLOGY 1 WYSIWYG_BUS_WIDTH_CHECKING_IN_CUT_ENABLED 1</parameter>
+ </module>
+ <module kind="USB1761Bridge" version="1.0" enabled="1" name="USB1761Bridge">
+  <parameter name="AUTO_CLOCKRESET_CLOCK_RATE" value="100000000" />
+ </module>
+ <module
+   kind="PixelStreamHDMI"
+   version="1.0"
+   enabled="1"
+   name="PixelStreamHDMI_0">
+  <parameter name="AUTO_CLOCKRESET_CLOCK_RATE" value="0" />
+  <parameter name="AUTO_VIDEO_CLOCK_RATE" value="200" />
+ </module>
+ <module kind="ReconfigPLL" version="1.0" enabled="1" name="ReconfigPLL_0">
+  <parameter name="AUTO_CLOCK_AVS_CLOCK_RATE" value="50000000" />
+  <parameter name="AUTO_CLOCK_REF_PIN_CLOCK_RATE" value="0" />
+ </module>
+ <module
+   kind="altera_clock_bridge"
+   version="13.1"
+   enabled="1"
+   name="clock_bridge_0">
+  <parameter name="DERIVED_CLOCK_RATE" value="200" />
+  <parameter name="EXPLICIT_CLOCK_RATE" value="0" />
+  <parameter name="NUM_CLOCK_OUTPUTS" value="1" />
+ </module>
+ <module
+   kind="altera_clock_bridge"
+   version="13.1"
+   enabled="1"
+   name="clock_bridge_1">
+  <parameter name="DERIVED_CLOCK_RATE" value="0" />
+  <parameter name="EXPLICIT_CLOCK_RATE" value="0" />
+  <parameter name="NUM_CLOCK_OUTPUTS" value="1" />
+ </module>
+ <module
+   kind="altera_avalon_mm_clock_crossing_bridge"
+   version="13.1"
+   enabled="1"
+   name="bridge_wide">
+  <parameter name="DATA_WIDTH" value="256" />
+  <parameter name="SYMBOL_WIDTH" value="8" />
+  <parameter name="ADDRESS_WIDTH" value="30" />
+  <parameter name="ADDRESS_UNITS" value="SYMBOLS" />
+  <parameter name="MAX_BURST_SIZE" value="8" />
+  <parameter name="COMMAND_FIFO_DEPTH" value="4" />
+  <parameter name="RESPONSE_FIFO_DEPTH" value="16" />
+  <parameter name="MASTER_SYNC_DEPTH" value="2" />
+  <parameter name="SLAVE_SYNC_DEPTH" value="2" />
+  <parameter name="AUTO_M0_CLK_CLOCK_RATE" value="100000000" />
+  <parameter name="AUTO_S0_CLK_CLOCK_RATE" value="100000000" />
+  <parameter name="AUTO_DEVICE_FAMILY" value="Stratix IV" />
+ </module>
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="displayFeed.in_clk_reset" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="display_clk.clk"
+   end="displayFeed.out_clk" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="displayFeed.out_clk_reset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="terminal_uart.reset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="debug_uart.reset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="data_uart.reset" />
+ <connection kind="reset" version="13.1" start="clk_50.clk_reset" end="LEDs.reset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="transmit_fifo.reset_in" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="receive_fifo.reset_in" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="receive_fifo.reset_out" />
+ <connection
+   kind="avalon_streaming"
+   version="13.1"
+   start="transmit_fifo.out"
+   end="transmit_adapter.in" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="transmit_adapter.reset" />
+ <connection
+   kind="avalon_streaming"
+   version="13.1"
+   start="receive_adapter.out"
+   end="receive_fifo.in" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="receive_adapter.reset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="versionRom.reset1" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="hdmi_tx_reset_n.reset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="Switches.reset" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="receive_adapter.clk" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="transmit_adapter.clk" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="receive_fifo.clk_in" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="transmit_fifo.clk_in" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="i2c_avalon_1.clock_reset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="peripheral_bridge_narrow.reset" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="terminal_uart.avalon_jtag_slave">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f000000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="debug_uart.avalon_jtag_slave">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f001000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="data_uart.avalon_jtag_slave">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f002000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="LEDs.s1">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f006000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="transmit_fifo.in">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f007400" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="transmit_fifo.in_csr">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f007420" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="receive_fifo.out">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f007500" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="receive_fifo.out_csr">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f007520" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="versionRom.s1">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f00a000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="hdmi_tx_reset_n.s1">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f00b080" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="Switches.s1">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f009000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="i2c_avalon_1.avalon_slave">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f00b000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="peripheral_bridge_narrow.clk" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="displayFeed.in_clk" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="terminal_uart.clk" />
+ <connection kind="clock" version="13.1" start="clk_100.clk" end="debug_uart.clk" />
+ <connection kind="clock" version="13.1" start="clk_100.clk" end="data_uart.clk" />
+ <connection kind="clock" version="13.1" start="clk_100.clk" end="LEDs.clk" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="receive_fifo.clk_out" />
+ <connection kind="clock" version="13.1" start="clk_100.clk" end="Switches.clk" />
+ <connection kind="clock" version="13.1" start="clk_100.clk" end="versionRom.clk1" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="hdmi_tx_reset_n.clk" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="FanControl50MHz_0.s0">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f00c000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="FanControl50MHz_0.clockreset_reset" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="display_clk.clk"
+   end="FanControl50MHz_0.clockreset" />
+ <connection kind="clock" version="13.1" start="clk_50.clk" end="rx_timing1.clk" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="rx_timing1.reset" />
+ <connection kind="clock" version="13.1" start="clk_50.clk" end="tx_timing1.clk" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="tx_timing1.reset" />
+ <connection
+   kind="avalon_streaming"
+   version="13.1"
+   start="tx_fifo1.out"
+   end="tx_timing1.in" />
+ <connection kind="clock" version="13.1" start="clk_50.clk" end="rx_fifo1.clk_in" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="rx_fifo1.reset_in" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="rx_fifo1.clk_out" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="rx_fifo1.reset_out" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="rx_fifo1.out">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f005500" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="rx_fifo1.out_csr">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f005520" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection kind="clock" version="13.1" start="clk_50.clk" end="tx_fifo1.clk_in" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="tx_fifo1.reset_in" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="tx_fifo1.in">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f005400" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="tx_fifo1.in_csr">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f005420" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon_streaming"
+   version="13.1"
+   start="tse_mac.receive"
+   end="receive_adapter.in" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="tse_mac.receive_clock_connection" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="tse_mac.transmit_clock_connection" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="tse_mac.control_port">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f007000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="tse_mac.control_port_clock_connection" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="tse_mac.reset_connection" />
+ <connection
+   kind="avalon_streaming"
+   version="13.1"
+   start="tx_timing1.out"
+   end="tse_mac1.transmit" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="tse_mac1.receive_clock_connection" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="tse_mac1.transmit_clock_connection" />
+ <connection
+   kind="avalon_streaming"
+   version="13.1"
+   start="tse_mac1.receive"
+   end="rx_timing1.in" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="tse_mac1.control_port">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f005000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="tse_mac1.control_port_clock_connection" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="tse_mac1.reset_connection" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_125.clk"
+   end="tse_mac1.pcs_ref_clk_clock_connection" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_125.clk"
+   end="tse_mac.pcs_ref_clk_clock_connection" />
+ <connection
+   kind="avalon_streaming"
+   version="13.1"
+   start="transmit_adapter.out"
+   end="tse_mac.transmit" />
+ <connection
+   kind="avalon_streaming"
+   version="13.1"
+   start="rx_timing1.out"
+   end="rx_fifo1.in" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="i2c_avalon_1.clock" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="flattened_device_tree.reset1" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="flattened_device_tree.s1">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f010000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="flattened_device_tree.clk1" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="USB1761Bridge.clockreset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="USB1761Bridge.clockreset_reset" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="USB1761Bridge.s0">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f100000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="PixelStreamHDMI_0.slave_parameters">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f00d000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="clock"
+   version="13.1"
+   start="ReconfigPLL_0.clock_reconfig_source"
+   end="PixelStreamHDMI_0.video" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="peripheral_bridge_narrow.m0"
+   end="ReconfigPLL_0.avalon_slave">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x3f00e000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="ReconfigPLL_0.clock_avs_reset" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="ReconfigPLL_0.clock_reconfig_source"
+   end="clock_bridge_0.in_clk" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_50.clk"
+   end="ReconfigPLL_0.clock_avs" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="PixelStreamHDMI_0.clockreset_reset" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clock_bridge_1.out_clk"
+   end="PixelStreamHDMI_0.clockreset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="bridge_wide.s0_reset" />
+ <connection
+   kind="reset"
+   version="13.1"
+   start="clk_50.clk_reset"
+   end="bridge_wide.m0_reset" />
+ <connection
+   kind="avalon"
+   version="13.1"
+   start="bridge_wide.m0"
+   end="peripheral_bridge_narrow.s0">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="bridge_wide.m0_clk" />
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_100.clk"
+   end="bridge_wide.s0_clk" />
+ <interconnectRequirement for="$system" name="qsys_mm.clockCrossingAdapter" value="AUTO" />
+ <interconnectRequirement for="$system" name="qsys_mm.maxAdditionalLatency" value="2" />
+</system>

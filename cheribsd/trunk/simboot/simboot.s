@@ -53,57 +53,36 @@ start:
 		or	$at, $at, 0xe0
 		mtc0	$at, $12
 
-                dmfc0   $t0, $15            # load processor ID register, d prevents sign extension
-                srl     $t0, 24             # shift down thread id
-
-		# SPIN OTHER CORE >>
-		#core_other:
-		#mfc0   $t0, $15, 6
-		#srl    $t1, $t0, 16
-		#daddu  $t1, $t1, 1
-		#andi   $t0, $t0, 0xFFFF
-		#bnez   $t0, core_other
-		#nop
-		# SPIN OTHER CORE <<
-
-		dmfc0   $t0, $15, 7
-		srl     $t8, $t0, 16
-		daddu   $t8, $t8, 1
-		andi    $t0, $t0, 0xFFFF
-		beqz    $t8, multi_core
+switch_cached:
+		dla	$t0, get_corethread_id
+		dli	$t1, 0x9800000000000000
+		or	$t0, $t0, $t1
+		jr	$t0
 		nop
 
-multi_threaded:
-                bnez    $t0, not_thread_zero
-                nop
+#
+# Get an ID in range [0, num cores * num threads)  which combines the current
+# core and threadID i.e. a unique identifier for this hw thread in the whole
+# system. ID is current core ID * num threads + current thread ID
+#
+get_corethread_id:
+		mfc0  $t0, $15          # prid register
+		and   $t0, $t0, 0xff00  # Mask processor ID
+		xor   $t1, $t1, 0x8900  # ID for gxemul
+		beq   $t0, $t1, core_zero # done if on gxemul
+		li    $v0, 0            # one core on gxemul (delay)
+		dmfc0 $t0, $15, 6       # t0 = core ID / max core
+		and   $v0, $t0, 0xffff  # v0 = current core ID
+		dmfc0 $t0, $15, 7       # t0 = thread ID / num threads
+		srl   $v1, $t0, 16      # v1 = max thread ID
+		add   $v1, 1            # v1 = num threads
+		and   $t0, $t0, 0xffff  # t0 = thread ID
+		mul   $v0, $v0, $v1     # v0 = current core * num threads
+		add   $v0, $t0          # v0 = current core * num threads + thread ID
+		bnez  $v0, not_core_zero
+		nop
 
-multi_core:
-		mfc0    $t0, $15, 6
-		srl     $t1, $t0, 16
-		daddu   $t1, $t1, 1
-		andi    $t0, $t0, 0xFFFF
-                bnez    $t0, not_core_zero
-                nop
-
-                # Initialise the spin table below the kernel entry address at  0x100000.
-                # The layout of an entry is:
-                # 64-byte entry_addr
-		# 64-byte argument
-		# 64-byte rsvd1/pir (not used)
-		# 64 byte rsvd2 (to pad to 256 bits)
-		
-                dla $t0, __spin_table_top__
-                li  $t1, 1
-                li  $t2, NUM_STES-1
-init_spin_table:
-                dsub $t0, 32
-                sd   $t1, 0($t0)
-                sd   $0,  8($t0)
-                sd   $0, 16($t0)
-                sd   $0, 24($t0)        
-                bne  $t2, $0, init_spin_table
-                sub  $t2, 1
-        
+core_zero:
 		# Explicitly clear most registers.  $sp, $fp, and $ra aren't
 		# cleared as they are part of our initialised stack.
 		dli	$at, 0
@@ -147,61 +126,59 @@ init_spin_table:
 		jr	$at
 		nop
 
+
 not_core_zero:
-                # switch to cached execution -- if we don't we will
-                # slow down the other cores with our uncached accesses
-                dla  $t1, not_core_zero_cached
-                dli  $t2, 0x9800000000000000
-                or   $t1,$t2
-                jr   $t1
-                nop
-                
-not_core_zero_cached:
-                #  $t0 has core ID -- compute address of spin table entry
-                sll  $t0, 5              # STEs are 32-byte aligned
-                dla  $t1, __spin_table_top__
-                dsub $t1, $t0            # t1 == &ste
-                li   $t2, 1
-1:
-                ld   $t0, 0($t1)         # get entry_addr
-        .rept 100
-                nop                      # nops to avoid ll/sc live lock caused by repeatedly replacing cacheline
-        .endr
-                beq  $t0, $t2, 1b        # loop while entry_addr == 1
-                ld   $a0, 8($t1)         # load argument (branch delay!)
-                jr   $t0                 # jump to entry_addr
-                nop
- 
+		# Initialise the spin table for this core/thread below the kernel entry address at 0x100000.
+		# We assume that by the time core 0 gets around to writing an entry_addr for the other cores,
+		# they will each have initialised their spin table entries. This is likely as core 0 has a
+		# a lot of work to do (trigger loop, relocate kernel, boot kernel...)
+		# The layout of an entry is:
+		# 64-byte entry_addr (initialised to 1 meaining invalid/keep spinning)
+		# 64-byte argument
+		# 64-byte rsvd1/pir (not used)
+		# 64 byte rsvd2 (to pad to 256 bits)
 
-not_thread_zero:
-                # switch to cached execution -- if we don't we will
-                # slow down the other threads with our uncached accesses
-                dla  $t1, not_thread_zero_cached
-                dli  $t2, 0x9800000000000000
-                or   $t1,$t2
-                jr   $t1
-                nop
-                
-not_thread_zero_cached:
-                #  $t0 has thread ID -- compute address of spin table entry
-                sll  $t0, 5              # STEs are 32-byte aligned
-                dla  $t1, __spin_table_top__
-                dsub $t1, $t0            # t1 == &ste
-                li   $t2, 1
-1:
-                ld   $t0, 0($t1)         # get entry_addr
-        .rept 100
-                nop                      # nops to avoid ll/sc live lock caused by repeatedly replacing cacheline
-        .endr
-                beq  $t0, $t2, 1b        # loop while entry_addr == 1
-                ld   $a0, 8($t1)         # load argument (branch delay!)
-                jr   $t0                 # jump to entry_addr
-                nop
-        
-		.end start
+		# Compute offset for spin table entry (note that core 0 does not have an entry)
+		sll  $t0, $v0, 5
 
-		.data
+		dla  $t1, __spin_table_top__
+		dsub $t0, $t1, $t0 # t0 = address of spin table entry for this core/thread
 
+		li   $t1, 1
+		sd   $t1, 0($t0)
+		sd   $0,  8($t0)
+		sd   $0, 16($t0)
+		sd   $0, 24($t0)
+
+		# On CPUs with a relaxed memory model, we want the above
+		# writes to the spin table to become visible to other cores.
+		# A sync instruction will probably work on typical
+		# implementations (and multicore BERI1 has sequentially
+		# consistent memory), but the MIPS ISA definition of sync
+		# does not appear to guarantee that it will work.
+		sync
+
+spin_table_loop:
+.rept 100
+		# nops prevent us from pumelling a small number of cachlines,
+		# thereby potentially disrupting ll/sc on other cores
+		nop
+.endr
+		ld   $t2, 0($t0)         # get entry_addr
+		beq  $t1, $t2, spin_table_loop # loop while entry_addr == 1
+		nop
+
+		# On CPU's with a relaxed memory model, we want any reads
+		# that happen after here (e.g. the kernel on core N reading its
+		# variables) to happen after any writes before the write that
+		# kicked the spin table (e.g. the kernel on core 0 initializing
+		# variables). So we should have a sync here.
+		sync
+		jr   $t2                 # jump to entry_addr
+		ld   $a0, 8($t0)         # load argument (branch delay)
+.end start
+
+.data
 		# Provide empty argument and environmental variable arrays
 arg:		.dword	0x0000000000000000
 env:		.dword	0x0000000000000000

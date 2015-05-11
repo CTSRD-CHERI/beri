@@ -68,9 +68,9 @@ test:		.ent test
 		nop			# branch-delay slot
 
                 # Make $c1 a template capability for a user-defined type
-		# whose otype is equal to the address of sandbox.
-		dla      $t0, sandbox
-		csettype $c1, $c0, $t0
+		# whose otype is 0x1234
+		dli	 $t0, 0x1234
+		csetoffset $c1, $c0, $t0
 
                 # Make $c2 a data capability for the array at address data
 		dla      $t0, data
@@ -84,12 +84,14 @@ test:		.ent test
 		dli      $t0, 0xd
 		candperm $c2, $c2, $t0
 
-		# Seal data capability $c2 to the otype of $c1, and store
+		# Seal data capability $c2 to the offset of $c1, and store
 		# result in $c3.
-                csealdata $c3, $c2, $c1
+                cseal	 $c3, $c2, $c1
 
 		# Make $c4 a code capability for sandbox
-		csealcode $c4, $c1
+		dla	 $t0, sandbox
+		csetoffset $c4, $c0, $t0
+		cseal	 $c4, $c4, $c1
 
 		# $a2 will be set to 1 if the normal trap handler is called,
 		# 2 if the ccall trap handler is called.

@@ -1,0 +1,12 @@
+# Config file for BERI/CHERI image builds
+# Customize and install as Makefile.conf
+HOME?=		/home/bed22
+ROOTDIR?=	${HOME}/cheribsd-root
+SRCDIR?=	${HOME}/cheribsd
+#
+# NOTE WELL:
+#
+# The bitfile here is a binary file derived from an SOF file using the
+# script <ctsrd-repo>/cherilibs/trunk/tools/sof2bin.sh
+#
+BITFILE=	${HOME}/20131025-cheri-de4-bitfile-jdw57.bin.bz2

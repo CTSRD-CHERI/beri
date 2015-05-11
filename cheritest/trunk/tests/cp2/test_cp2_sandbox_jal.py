@@ -42,6 +42,6 @@ class test_cp2_sandbox_jal(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_sandbox_jal_2(self):
         '''Test jal sets $ra correctly in a sandbox'''
-        self.assertRegisterEqual(self.MIPS.a4, 0x10,
+        self.assertRegisterEqual(self.MIPS.a4, 0xc,
             "jal did not set $ra correctly in a sandbox")
 

@@ -1,7 +1,7 @@
 /*-
  * Copyright (c) 2011-2012 Jonathan Woodruff
  * Copyright (c) 2011-2013 SRI International
- * Copyright (c) 2012-2013 Robert M. Norton
+ * Copyright (c) 2012-2014 Robert M. Norton
  * Copyright (c) 2014 Alexandre Joannou
  * All rights reserved.
  *
@@ -366,9 +366,6 @@ endinterface
 interface DCache;
   method ActionValue#(Exception)           req(ThreadID thread,
                                                ThreadState ts,
-                                               `ifdef CAP   
-                                               Bool fromCap,
-                                               `endif
                                                VirtualMemRequest request);
   method ActionValue#(Exception)           commit(Bool commit); // Only call if req returns Ex_None
   method ActionValue#(CheriMemResponse)    resp();              // Only call if req returns Ex_None, regardless of commit return value
@@ -420,7 +417,7 @@ function CheriMemRequest virtualToPhyMemReq(VirtualMemRequest vr);
     return req;
 endfunction
 
-typedef MemoryRequest#(Address,UInt#(TLog#(TMul#(2,CORE_COUNT))),256) VirtualMemRequest;
+typedef MemoryRequest#(Address,CheriMasterID, CheriTransactionID, 256) VirtualMemRequest;
 
 typedef enum {
     Read, Write, Cache
@@ -431,7 +428,7 @@ typedef struct{
   Bool    isSigned;
   Bool    negateUnaligned;
   MemCmd       cmd;
-  AccessSize    sz;                
+  AccessSize    sz;
   Bit#(8) byteMask;
   Bit#(3)   offset;
   Bit#(2)     word;

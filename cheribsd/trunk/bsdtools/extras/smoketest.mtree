@@ -1,0 +1,2 @@
+./etc/fstab type=file uname=root gname=wheel mode=644 contents=./etc/fstab.mdroot
+./etc/rc type=file uname=root gname=wheel mode=755 contents=./etc/rc.smoketest

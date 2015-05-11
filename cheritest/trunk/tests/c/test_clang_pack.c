@@ -44,9 +44,27 @@ static volatile struct packed_s x;
 
 void check_struct()
 {
+/*
+ * This test has been disabled by ifdef'ing out the assertions.
+ * 
+ * This test should work with the upstream clang/LLVM for MIPS, because
+ * that compiler will use the special instructions for unaligned accesses.
+ *
+ * The CHERI-modified clang, on the other hand, does not use the unaligned
+ * load/store instructions, and instead expects the load to be emulated by
+ * the operating system. However, this test runs on bare metal and there is
+ * no o[erating system to emulate the unaligned access, so it will fail on
+ * a standard MIPS CPU, CHERI2, and the formal model.
+ *
+ * CHERI1 has an oprion to allow unaligned accesses as long as they lie
+ * within a single cache line, so this test might work on CHERI1.
+ */
+
+#if 0
   assert(x.a == 0x00);
   assert(x.b == 0x01020304);
   assert(x.c == 0x05);
+#endif
 }
 
 int test(void)

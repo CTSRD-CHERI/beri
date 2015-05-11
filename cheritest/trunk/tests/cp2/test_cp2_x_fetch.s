@@ -46,7 +46,7 @@ limit:
 		nop
 		dli	$a0, 2
 
-		cjr     $ra($c24)
+		cjr     $c24
 		# branch delay slot
 		nop
 
@@ -74,16 +74,16 @@ test:		.ent test
 		dla     $t0, limit
 		csetlen $c1, $c0, $t0
 		dla     $t0, sandbox
-		cjalr   $t0($c1)
-		# branch delay slot
-		nop
+		csetoffset $c1, $c1, $t0
+		cjalr   $c24, $c1
+		nop			# Branch delay slot
 finally:
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		nop			# Branch delay slot
 		.end	test
 
 		.ent bev0_handler

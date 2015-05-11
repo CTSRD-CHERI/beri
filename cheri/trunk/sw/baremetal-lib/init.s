@@ -4,7 +4,7 @@
 # Copyright (c) 2011 Robert N. M. Watson
 # Copyright (c) 2011 Simon W. Moore
 # Copyright (c) 2011 Wojciech A. Koszek
-# Copyright (c) 2013 Theo Markettos
+# Copyright (c) 2013 A. Theodore Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -45,16 +45,44 @@
 .set nobopt
 .set noat
 
-    mfc0 $k0, $12
-    li $k1, 0xF0000000
-    or $k0, $k0, $k1
-    mtc0 $k0, $12
-		dla $sp, __sp			# Setup stack to the address configured in the linker script.
-						# ld(1) takes care of inserting additional instructions
-						# before startMain gets going in order to make sp = __sp
+		#
+		# On a multithreaded or multicore CPU, spin all cores/threads
+		# apart from core/thread 0.
+		#
+
+		dmfc0 $k0, $15, 6
+		andi $k0, $k0, 0xffff
+spin_core:
+		bnez $k0, spin_core
+		nop
+
+		dmfc0 $k0, $15, 7
+		andi $k0, $k0, 0xffff
+spin_thread:
+		bnez $k0, spin_thread
+		nop
+
+		#
+		# Enable all coprocessors
+		#
+
+		mfc0 $k0, $12		# CP0 Status
+		li $k1, 0xF0000000
+		or $k0, $k0, $k1
+		mtc0 $k0, $12
+
+		#
+		# Setup stack to the address configured in the linker script.
+		# ld(1) takes care of inserting additional instructions
+		# before startMain gets going in order to make sp = __sp
+		#
+
+		dla $sp, __sp			
+
 		#
 		# Set up exception handler
 		#
+
 		jal	bev_clear
 		nop
 		dla	$a0, common_handler
@@ -78,7 +106,7 @@ startMain:
 		jr	$k0
 		nop
 runcached:
-    dla $t9, main   # llvm requires the invoked address to be in $t9
+		dla $t9, main   # llvm requires the invoked address to be in $t9
 		jal $t9
 		nop
 		mtc0 $at, $23

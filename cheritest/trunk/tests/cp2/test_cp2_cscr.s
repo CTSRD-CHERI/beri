@@ -37,7 +37,7 @@
 #
 # XXXRW: The spec is possibly unclear on what order the dwords within a
 # capability are written to memory.  I have assumed that the order of fields
-# sequentially increasing dwords in memory is uperms, otype, base, length.
+# sequentially increasing dwords in memory is uperms, offset, base, length.
 #
 
 		.global test
@@ -48,11 +48,11 @@ test:		.ent test
 		daddu	$fp, $sp, 32
 
 		#
-		# Tweak capability type field so that we can tell if type and
-		# base are in the right order.
+		# Tweak capability offset field so that we can tell if offset
+		# and base are in the right order.
 		#
 		dli	$t2, 0x1
-		csettype	$c2, $c2, $t2
+		csetoffset	$c2, $c2, $t2
 
 		#
 		# Set the permissions field so we can tell if it is stored

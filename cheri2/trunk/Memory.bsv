@@ -44,7 +44,6 @@ import FIFO::*;
 import FIFOF::*;
 import RegFile::*;
 import SpecialFIFOs::*;
-import ConfigReg::*;
 import GetPut::*;
 import ClientServer::*;
 import MasterSlave::*;
@@ -52,6 +51,7 @@ import Connectable::*;
 
 
 import Vector::*;
+import BuildVector::*;
 import FShow::*;
 
 import Library::*;
@@ -96,8 +96,6 @@ endfunction
 typedef struct {
    Bool     valid;
    Bit#(24)   tag; // XXX rmn30: should define in terms of PABTIS
-   Bool      link;
-   ThreadID linkedBy;
    `ifdef CAP
    Bool    memTag;
    `endif
@@ -138,7 +136,7 @@ module mkDCache#(Memory dmemPort, TLB tlb, MemInvalidate imemInval)(CHERITypes::
   Reg#(DWayIdx)               nextVictim <- mkReg(0);
 
   // rmn30 ZZZ would be nice not to hard code cache size
-  function initialTag(idx)             =  DCache_tag{valid: False, tag:? , link: ?, linkedBy: ?
+  function initialTag(idx)             =  DCache_tag{valid: False, tag:?
      `ifdef CAP
      , memTag: ?
      `endif
@@ -147,12 +145,10 @@ module mkDCache#(Memory dmemPort, TLB tlb, MemInvalidate imemInval)(CHERITypes::
   function bramFromInitBram(ib)        =  ib.bram;
   Vector#(DWays, Bram#(Bit#(7), DCache_tag)) tag_brams = map(bramFromInitBram, initBrams);
   Vector#(DWays, Bram#(Bit#(7), Bit#(256)))  data_brams <- replicateM(mkBram);
+  Vector#(NumThreads, Reg#(Maybe#(PAddress)))   llAddrs <- replicateM(mkReg(Invalid));
 
   method ActionValue#(Exception) req(ThreadID thread,
                                      ThreadState ts,
-                                     `ifdef CAP
-                                     Bool fromCap,
-                                     `endif
                                      VirtualMemRequest request);
     // Is this a write? For this purpose we treat Cache operations as
     // reads because they shouldn't lead to TLB Mod exceptions.
@@ -169,9 +165,6 @@ module mkDCache#(Memory dmemPort, TLB tlb, MemInvalidate imemInval)(CHERITypes::
         tlb.lookups[1].req(TLBRequest {thread: thread,
                                        ts: ts,
                                        write: isWrite,
-`ifdef CAP
-                                       capop: fromCap,
-`endif
                                        addr: unpack(pack(request.addr))});
         dmem_reqQ.enq(tuple3(thread, ts, request));
 
@@ -190,6 +183,11 @@ module mkDCache#(Memory dmemPort, TLB tlb, MemInvalidate imemInval)(CHERITypes::
     TLBResponse tlbResp <- tlb.lookups[1].resp;
     // Indexed CACHE ops cannot throw TLB exceptions, so ignore them.
     let tlbEx   = req.operation matches tagged CacheOp .cop &&& cop.indexed ? Ex_None : tlbResp.exception;
+`ifdef CAP
+    // Throw an exception on an attempt to store a valid capability to a page with nostorecap set.
+    let tlbStoreCapEx = req.operation matches tagged Write .wop &&& tlbResp.nostorecap && wop.data.cap == vec(True) ? Ex_CoProcess2 : Ex_None;
+    tlbEx = joinException(tlbEx, tlbStoreCapEx);
+`endif
     let commitFinal = committing && (tlbEx == Ex_None);
     req.addr    = unpack(pack(tlbResp.addr));
     let cached  = tlbResp.cache == CA_CACHED; // XXX rmn30 need to support other cache modes
@@ -217,14 +215,43 @@ module mkDCache#(Memory dmemPort, TLB tlb, MemInvalidate imemInval)(CHERITypes::
     // Always treat ll as a miss so that it updates the tags and passes through to next level.
     let ll = req.operation matches tagged Read .rop &&& rop.linked ? True : False;
     let loadHit  = load && cached && cacheHit && ! ll;
+    // Was the request a store?
+    let store    = req.operation matches tagged Write .* ? True : False;
     // Was the request a store conditional?
     let sc       = req.operation matches tagged Write .wop &&& wop.conditional ? True : False;
     // Was the request a store conditional which failed?
-    let scFailed = sc && !( ts.llBit && cached && cacheHit && tag.link && (thread == tag.linkedBy));
+    let llAddrMatch = llAddrs[thread] matches tagged Valid .addr &&& addr == req.addr ? True : False;
+    let scFailed = sc && !( ts.llBit && cached && llAddrMatch);
     // Was the request a Cache operation for either L1 cache? If so we don't need to pass through the request.
     let isL1CacheOp = req.operation matches tagged CacheOp .cop &&& (cop.cache == DCache || cop.cache == ICache) ? True : False;
-    // Something to put in the response queue.
 
+    // Update the llAddr register
+    if (commitFinal && ll)
+      begin
+        // Store llAddr for load linked
+        llAddrs[thread] <= Valid (req.addr);
+      end
+    else if (commitFinal && store && !scFailed)
+      begin
+        // Invalidate matching llAddrs on store.  NB we must not
+        // invalidate for sc fail as this could lead to making no
+        // forward progress. We do invalidate on sc success -- even
+        // for the thread which did the sc. This means that only one
+        // sc can be performed per ll i.e. For sequence ll, sc, sc the
+        // second sc will fail. Not clear whether this is OK by mips
+        // spec, but probably doesn't matter as it wouldn't be very
+        // useful in cached memory.
+	function Maybe#(PAddress) updateLLAddr(Maybe#(PAddress) mpa);
+	  let llAddrMatch = mpa matches tagged Valid .addr &&& addr == req.addr ? True : False;
+	  if (llAddrMatch)
+	    return Invalid;
+	  else
+	    return mpa;
+	endfunction
+	writeVReg(llAddrs, map(updateLLAddr, readVReg(llAddrs)));
+      end
+
+    // Something to put in the response queue.
     CheriMemResponse hitRsp = defaultValue;
     hitRsp.operation = tagged Read {
         last: True,
@@ -287,18 +314,30 @@ module mkDCache#(Memory dmemPort, TLB tlb, MemInvalidate imemInval)(CHERITypes::
       pack(idx) : mFirstInvalidIdx matches tagged Valid .idx2 ?
       pack(idx2) : nextVictim;
     nextVictim <= nextVictim + 1;
-
-    dmem_respQ.enq(tuple7(thread, newReq, va, response, commitFinal, cacheHit, way));
+`ifdef CAP
+    // Squash the tag on loads from pages with the noloadcap bit set
+    Bool squashTag = tlbResp.noloadcap;
+`else
+    Bool squashTag = ?;
+`endif
+    dmem_respQ.enq(tuple8(thread, newReq, va, response, commitFinal, cacheHit, way, squashTag));
     return tlbEx;
   endmethod
 
   method ActionValue#(CheriMemResponse) resp();
-    match { .thread, .req, .va, .m_Resp, .committing, .cacheHit, .way}  <- popFIFO(dmem_respQ);
+    match { .thread, .req, .va, .m_Resp, .committing, .cacheHit, .way, .squashTag}  <- popFIFO(dmem_respQ);
     let load       = req.operation matches tagged Read .* ? True : False;
     let idx        = pack(req.addr)[11:5];
     let loadCached = req.operation matches tagged Read .rop &&& ! rop.uncached ? True : False;
     // Get response (either from memory or from above).
     let memresp <- fromMaybeAV(dmemPort.resp(), m_Resp);
+`ifdef CAP
+    // Overwrite the capability tag with 0 for loads from pages with noloadcap set
+    //  -- all this to change a single field (hooray for tagged unions)!
+    if (squashTag)
+        memresp.operation = (memresp.operation) matches tagged Read .rop &&& True ? 
+        tagged Read {data: Data { cap: vec(False), data: rop.data.data}, last: rop.last} : memresp.operation;
+`endif
     if (committing && !isValid(m_Resp))
       begin
         // This means anything which caused a memory request i.e. a
@@ -318,9 +357,7 @@ module mkDCache#(Memory dmemPort, TLB tlb, MemInvalidate imemInval)(CHERITypes::
                memTag: memresp.operation matches tagged Read .rop &&& pack(rop.data.cap) != 0 ? True : False,
                `endif
                valid: loadCached,
-               tag: pack(req.addr)[35:12],
-               link: req.operation matches tagged Read .rop &&& rop.linked ? True : False,
-               linkedBy: thread
+               tag: pack(req.addr)[35:12]
                };
             let tags = tag_brams[way];
             tags.write(idx, tag);
@@ -337,7 +374,14 @@ module mkDCache#(Memory dmemPort, TLB tlb, MemInvalidate imemInval)(CHERITypes::
               // Must be L1 Data, invalidate all ways
               // ZZZ rmn30 should check cacheOp.index and only invalidate on hit.
               function Action invalidateWay(Bram#(Bit#(7),DCache_tag) tb);
-                return tb.write(pack(req.addr)[11:5], DCache_tag{valid:False, tag:?});
+                return tb.write(pack(req.addr)[11:5], 
+                   DCache_tag{
+                      valid:False, 
+                      `ifdef CAP
+                      memTag: ?,
+                      `endif
+                      tag:?
+                   });
               endfunction
               mapM_(invalidateWay, tag_brams);
             end
@@ -393,9 +437,6 @@ module mkDMem#(DCache cache)(DMem);
     match {.respdata, .calcEx, .request} <- mc.calcMEMReq(op, a, v); // rmn30 not really Action
     let ex <- (calcEx == Ex_None) ? cache.req(thread,
                                               ts,
-                                              `ifdef CAP
-                                              False,
-                                              `endif
                                               request) : toAV(calcEx);
     if (ex == Ex_None)
       q.enq(tuple2(respdata, v));
@@ -522,9 +563,6 @@ module mkIMem#(Memory imemPort, TLB tlb)(IMem);
         tlb.lookups[0].req(TLBRequest {thread: thread,
                                        ts: ts,
                                        write: False,
-`ifdef CAP
-                                       capop: False,
-`endif
                                        addr: a});
         let idx = a[11:5];
         function tbReadReq(tb) = tb.readReq(idx);
@@ -636,26 +674,30 @@ endinterface
 
 (* synthesize, options="-aggressive-conditions" *)
 module mkMemServer(MemoryServer);
+  `ifdef NOL2
   let lsQ <- mkFIFO();
+  `endif
   `ifndef VERIFY
-  let reqQ <- mkBypassFIFOF();
-  let respQ <- mkBypassFIFOF();
+  let reqQ <- mkFIFOF();
+  let respQ <- mkFIFOF();
   `else
   let reqQ <- mkSizedFIFOF(1);
   let respQ <- mkSizedFIFOF(1);
   `endif
+  Reg#(CheriTransactionID) nextTransactionID <- mkRegU;
 
   interface Memory mem;
     method Action req(CheriMemRequest request);
-
       CheriMemRequest ereq = request;
+      ereq.transactionID = nextTransactionID;
+      nextTransactionID <= nextTransactionID + 1;
       // internal memories on little endian, so we reverse order
       // (but note that 64-bit words within the line must be stored
       // in reverse order so that this does the right thing)
       if(request.operation matches tagged Write .wop) begin
         ereq.operation = tagged Write {
           uncached: wop.uncached,
-          conditional: wop.conditional,
+          conditional: False, /// XXX L2 is broken so don't attempt sc (handled by L1)
           byteEnable: unpack(reverseBits(pack(wop.byteEnable))),
           data : Data {
             `ifdef CAP
@@ -666,39 +708,37 @@ module mkMemServer(MemoryServer);
           last: wop.last
         };
       end
-      debug2("memserv", $display("MEMSERV: ", fshow(request)));
+      debug2("memserv", $display("MEMSERV: ", fshow(ereq)));
 
-      let load = request.operation matches tagged Read .* ? True : False;
-      let cacheop = request.operation matches tagged CacheOp .* ? True : False;
-      lsQ.enq(tuple2(load, cacheop));
       `ifdef NOL2
       // The tag cache cannot handle cache requests.
+      let cacheop = request.operation matches tagged CacheOp .* ? True : False;
+      lsQ.enq(cacheop);
       if (!cacheop)
-      `endif
         begin
           reqQ.enq(ereq);
         end
+      `else
+      reqQ.enq(ereq);
+      `endif
     endmethod
 
     method ActionValue#(CheriMemResponse) resp();
-      match {.load, .cacheop} <- popFIFO(lsQ);
       CheriMemResponse response = ?;
-  
-      // The L2 does not give write responses but the tag cache does!
       // The tag cache cannot handle cache requests.
 `ifdef NOL2
+      let cacheop <- popFIFO(lsQ);
       if (!cacheop)
         response <- popFIFOF(respQ);
 `else
-      if (load)
-        response <- popFIFOF(respQ);
+      response <- popFIFOF(respQ);
 `endif
-
-      if (load)
-        begin
-          CheriMemResponse newResponse = response;
-          if (response.operation matches tagged Read .rop) begin
-            newResponse.operation = tagged Read {
+      debug2("memserv", $display("MEMSERV: ", fshow(response)));
+      case (response.operation) matches 
+        tagged Read .rop:
+          begin
+            // reverse byte order as per above
+            response.operation = tagged Read {
               data: Data {
                 `ifdef CAP
                 cap: rop.data.cap,
@@ -707,27 +747,26 @@ module mkMemServer(MemoryServer);
               },
               last: rop.last
             };
-          end else dynamicAssert(False, "Read response expected");
-          debug2("memserv", $display("MEMSERV: ", fshow(newResponse)));
-          return newResponse;
-      end
-      else begin
-        // In cheri2 writes and cache operations need a response.
-        // Only the data part is used -- it indicates conditional store
-        // success/failure (currently always success).
-        CheriMemResponse memResp = defaultValue;
-        memResp.operation = tagged Read {
-            data: Data {
-             `ifdef CAP
-             cap: ?,
-             `endif
-             data: pack(Vector::replicate(64'b1)) // for SC success
+          end
+        tagged SC .scSuccess:
+          dynamicAssert(False, "XXX SC response not handled yet");
+        default:
+        begin
+          // In cheri2 writes and cache operations need a response.
+          // Only the data part is used -- it indicates conditional store
+          // success/failure (currently always success).
+          response.operation = tagged Read {
+             data: Data {
+                `ifdef CAP
+                cap: ?,
+                `endif
+                data: pack(Vector::replicate(64'b1)) // for SC success
             },
-            last: True
-        };
-        debug2("memserv", $display("MEMSERV: ", fshow(memResp)));
-        return memResp;
-      end
+             last: True
+          };
+        end
+      endcase
+      return response;
     endmethod
   endinterface
   interface Master master;

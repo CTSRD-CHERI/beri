@@ -180,7 +180,7 @@ module mkFanControl50MHz(FanControl);
   
   Reg#(Bit#(19))       timer <- mkReg(0);     // determines temperature sensor polling interval, etc.
   Reg#(Bit#(8))     fanSpeed <- mkReg(~0);    // fan pulse-width modulator (PWM) value
-  Reg#(Bool)      fanPowerOn <- mkReg(False);
+  Reg#(Bool)      fanPowerOn <- mkReg(True);
   Reg#(Int#(8))  currentTemp <- mkReg(127);
   Reg#(Bool)   runTempSensor <- mkReg(False);
   Reg#(Bool) done_metastable <- mkReg(False);

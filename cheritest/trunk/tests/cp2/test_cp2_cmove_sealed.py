@@ -29,16 +29,27 @@ from beritest_tools import BaseBERITestCase
 from nose.plugins.attrib import attr
 
 #
-# Test that cmove can copy a capability register whose unsealed bit is cleared
+# Test that cmove can copy a capability register whose sealed bit is set
 #
 
 class test_cp2_cmove_sealed(BaseBERITestCase):
     @attr('capabilities')
-    def test_cp2_cmove_sealed_1(self):
-        '''Test that cmove copied unsealed bit'''
-        self.assertRegisterEqual(self.MIPS.a0, 0, "cmove failed to copy unsealed bit")
+    def test_cp2_cmove_sealed_sealed(self):
+        '''Test that cmove copied sealed bit'''
+        self.assertRegisterEqual(self.MIPS.a0, 1, "cmove failed to copy sealed bit")
 
     @attr('capabilities')
-    def test_cp2_cmove_sealed_2(self):
+    def test_cp2_cmove_sealed_base(self):
         '''Test that cmove copied the base field'''
-        self.assertRegisterEqual(self.MIPS.a1, 0x100, "cmove failed to copy base when tag bit was unset")
+        self.assertRegisterEqual(self.MIPS.a1, 0x100, "cmove failed to copy base when sealed bit was set")
+
+    @attr('capabilities')
+    def test_cp2_cmove_sealed_len(self):
+        '''Test that cmove copied the len field'''
+        self.assertRegisterEqual(self.MIPS.a2, 8, "cmove failed to copy len when sealed bit was set")
+
+    @attr('capabilities')
+    def test_cp2_cmove_sealed_otype(self):
+        '''Test that cmove copied the otype field'''
+        self.assertRegisterEqual(self.MIPS.a3, 0x1234, "cmove failed to copy otype when sealed bit was set")
+

@@ -270,7 +270,7 @@ dram_dev_init(pism_device_t *dev)
 	case DRAM_TYPE_MMAP:
 		switch (dev->pd_perms & fetch_store_perms) {
 		case (PISM_PERM_ALLOW_FETCH | PISM_PERM_ALLOW_STORE):
-			open_flags = O_RDWR;
+			open_flags = cow_flag ? O_RDONLY : O_RDWR;
 			if (dev->pd_perms & PISM_PERM_ALLOW_CREATE) {
 				open_flags |= O_CREAT;
 			}
@@ -307,7 +307,7 @@ dram_dev_init(pism_device_t *dev)
 			assert(dev->pd_perms & PISM_PERM_ALLOW_STORE);
 			// Create and store should have been set together.
 			if (ftruncate(fd, length) < 0) {
-				warn("%s: failed to truncate file to size %X",
+				warn("%s: failed to truncate file to size %lX",
 					__func__, length);
 			}
 		} else {

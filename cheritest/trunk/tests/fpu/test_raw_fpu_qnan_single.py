@@ -45,7 +45,7 @@ class test_raw_fpu_qnan_single(BaseBERITestCase):
 #
     def test_raw_fpu_qnan_single_2(self):
         '''Test single precision add of QNaN'''
-	self.assertRegisterEqual(self.MIPS.a0 & 0xff800000, 0x7f800000, "add.s did not return QNaN")
+	self.assertRegisterMaskEqual(self.MIPS.a0, 0xff800000, 0x7f800000, "add.s did not return QNaN")
 
     @attr('floatechonan')
     def test_raw_fpu_qnan_single_3(self):
@@ -54,7 +54,7 @@ class test_raw_fpu_qnan_single(BaseBERITestCase):
 
     def test_raw_fpu_qnan_single_4(self):
         '''Test single precision subtract of QNaN'''
-	self.assertRegisterEqual(self.MIPS.a1 & 0xff800000, 0x7f800000, "sub.s did not return QNaN")
+	self.assertRegisterMaskEqual(self.MIPS.a1, 0xff800000, 0x7f800000, "sub.s did not return QNaN")
 
     @attr('floatechonan')
     def test_raw_fpu_qnan_single_5(self):
@@ -63,7 +63,7 @@ class test_raw_fpu_qnan_single(BaseBERITestCase):
 
     def test_raw_fpu_qnan_single_6(self):
         '''Test single precision multiply of QNaN'''
-	self.assertRegisterEqual(self.MIPS.a2 & 0xff800000, 0x7f800000, "mul.s did not return QNaN")
+	self.assertRegisterMaskEqual(self.MIPS.a2, 0xff800000, 0x7f800000, "mul.s did not return QNaN")
 
     @attr('floatechonan')
     def test_raw_fpu_qnan_single_7(self):
@@ -72,6 +72,6 @@ class test_raw_fpu_qnan_single(BaseBERITestCase):
 
     def test_raw_fpu_qnan_single_8(self):
         '''Test single precision divide of QNaN'''
-	self.assertRegisterEqual(self.MIPS.a3 & 0xff800000, 0x7f800000, "div.s did not return QNaN")
+	self.assertRegisterMaskEqual(self.MIPS.a3, 0xff800000, 0x7f800000, "div.s did not return QNaN")
 
 

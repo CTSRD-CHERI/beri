@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# $FreeBSD$
+#
+
+# PROVIDE: demoagentd
+# REQUIRE: NETWORK
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="demoagentd"
+
+load_rc_config $name
+
+command="/usr/sbin/demoagentd"
+
+run_rc_command "$1"

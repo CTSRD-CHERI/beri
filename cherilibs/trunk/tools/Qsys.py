@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright (c) 2014 Theo Markettos
+# Copyright (c) 2014 A. Theodore Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of

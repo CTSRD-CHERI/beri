@@ -30,7 +30,7 @@ from nose.plugins.attrib import attr
 
 class test_raw_fpu_cvt(BaseBERITestCase):
     def test_convert_rounding_mode(self):
-        self.assertRegisterEqual(self.MIPS.s7 & 0x3, 0, "FP rounding mode is not round to nearest even")
+        self.assertRegisterMaskEqual(self.MIPS.s7, 0x3, 0, "FP rounding mode is not round to nearest even")
 
     def test_convert_word_to_single(self):
         '''Test we can convert words to single floating point'''
@@ -42,8 +42,8 @@ class test_raw_fpu_cvt(BaseBERITestCase):
     def test_convert_double_to_single(self):
         '''Test we can convert doubles to singles'''
         self.assertRegisterEqual(self.MIPS.s0, 0x3F800000, "Didn't convert 1 from double.")
-        self.assertRegisterEqual(self.MIPS.s1 & 0xfffffffe, 0x3e2aaaaa, "Didn't convert 1/6 from double.")
-        self.assertRegisterEqual(self.MIPS.s1 & 0x1, 1, "Didn't round to nearest when converting from double to single.")
+        self.assertRegisterMaskEqual(self.MIPS.s1, 0xfffffffe, 0x3e2aaaaa, "Didn't convert 1/6 from double.")
+        self.assertRegisterMaskEqual(self.MIPS.s1, 0x1, 1, "Didn't round to nearest when converting from double to single.")
         self.assertRegisterEqual(self.MIPS.s2, 0xffffffffc36aa188, "Didn't convert -234.6311 from double")
         self.assertRegisterEqual(self.MIPS.s3, 0x4f0c0474, "Didn't convert large number from double.")
 

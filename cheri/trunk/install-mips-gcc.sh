@@ -29,30 +29,51 @@
 # Install the MIPS C compiler packages that are part of the Emdebian
 # distribution.
 
-echo "Adding Emdebian to your system repositories"
-echo "deb http://www.emdebian.org/debian/ squeeze main" > /etc/apt/sources.list.d/emdebian.list
-echo "deb http://ftp.us.debian.org/debian/ squeeze main" >> /etc/apt/sources.list.d/emdebian.list
+echo "This script will install a MIPS compiler on your Debian/Ubuntu system."
+echo "It adds the Debian/squeeze and Emdebian repositories to your system to do this."
+echo "It will try to prevent Debian packages overriding your system packages, but"
+echo "may not be 100% successful."
+echo
+echo "This script should be run as root"
+echo
 
-echo "'Pinning' to minimize packages installed from Emdebian"
+while true; do
+    read -p "Do you want to continue? Y/n: " yn
+    case $yn in
+        [Yy]* ) install_me="Y"; break;;
+        [Nn]* ) install_me="N"; break;;
+        * ) echo "Please answer yes or no.";;
+    esac
+done        
+
+if [ "$install_me" = "N" ] ; then
+  echo "*** Not installing."
+else
+
+  echo "*** Adding Emdebian to your system repositories"
+  echo "deb http://www.emdebian.org/debian/ squeeze main" > /etc/apt/sources.list.d/emdebian.list
+  echo "deb http://ftp.us.debian.org/debian/ squeeze main" >> /etc/apt/sources.list.d/emdebian.list
+
+  echo "*** 'Pinning' to minimize packages installed from Emdebian"
+  echo "*** You may need to adjust the configuration in /etc/apt/preferences.d/emdebian"
+  cat << EOF > /etc/apt/preferences.d/emdebian
 # Prevent the Debian 'squeeze' distro from overriding any system packages
-cat << EOF > /etc/apt/preferences.d/emdebian
 Package: *
-Pin: release a=trusty
-Pin-Priority: 700
+Pin: release n=squeeze
+Pin-Priority: 10
 
 Package: *
-Pin: release a=precise
-Pin-Priority: 660
-
-Package: libgmp3c2
-Pin: release a=squeeze
-Pin-Priority: 600
+Pin: release n=*
+Pin-Priority: 500
 EOF
 
-echo "Installing Debian and Emdebian package signing keys"
-apt-get install debian-archive-keyring emdebian-archive-keyring
-echo "Updating package list"
-apt-get update
-echo "Installing Emdebian MIPS GCC"
-apt-get install gcc-4.4-mips-linux-gnu
+  echo "*** Installing Debian and Emdebian package signing keys"
+  apt-get install debian-archive-keyring emdebian-archive-keyring
+  ln -s /usr/share/keyrings/debian-archive-keyring.gpg /etc/apt/trusted.gpg.d/
+  echo "*** Updating package list"
+  apt-get update
+  echo "*** Installing Emdebian MIPS GCC"
+  apt-get install gcc-4.4-mips-linux-gnu
 
+  echo "*** All done."
+fi

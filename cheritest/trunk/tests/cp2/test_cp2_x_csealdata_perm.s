@@ -31,11 +31,8 @@
 .set noat
 
 #
-# Test that csealdata raises an exception if it doesn't have Permit_Seal
+# Test that cseal raises an exception if it doesn't have Permit_Seal
 #
-
-sandbox:
-		creturn
 
 		.global test
 test:		.ent test
@@ -68,9 +65,8 @@ test:		.ent test
 		dli      $t0, 0x5
 		candperm $c1, $c1, $t0
 
-		dla      $t0, sandbox
-		cmove    $c2, $c0
-		csettype $c2, $c2, $t0
+		dla      $t0, 0x1234
+		csetoffset $c2, $c0, $t0
 
 		#
 		# Remove Permit_Seal permission from $c2
@@ -78,9 +74,11 @@ test:		.ent test
 
 		dli $t0, 0x17f
 		candperm $c2, $c2, $t0
-		csealdata $c1, $c1, $c2 # This should raise an exception
 
-		cgetunsealed $a0, $c1
+		cseal	 $c1, $c1, $c2 # This should raise an exception
+
+		cgetsealed $a0, $c1
+		cgettype $a1, $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

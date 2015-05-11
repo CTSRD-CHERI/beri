@@ -56,6 +56,10 @@ import ConfigReg::*;
 
 `ifdef CAP
   import CapCop::*;
+  `define USECAP 1
+`elsif CAP128
+  import CapCop128::*;
+  `define USECAP 1
 `endif
 
 
@@ -95,17 +99,16 @@ endfunction
 typedef enum {Init, Run} ExecuteState deriving (Bits, Eq);
 
 module mkExecute#(
-  ForwardingPipelinedRegFileIfc#(MIPSReg) rf,
+  MIPSRegFileIfc rf,
   WritebackIfc writeback,
   CP0Ifc cp0,
   CoProIfc cop1,
-  `ifdef CAP
+  `ifdef USECAP
     CapCopIfc capCop,
   `endif
-  CoProIfc cop3,
   FIFO#(ControlTokenT) inQ
 )(PipeStageIfc);
-  FIFO#(ControlTokenT)        outQ <- mkFIFO;
+  FIFO#(ControlTokenT)        outQ <- mkLFIFO;
   MulDivIfc                    mul <- mkMulDiv;
   Reg#(MIPSReg)                 hi <- mkReg(64'b0);
   Reg#(MIPSReg)                 lo <- mkReg(64'b0);
@@ -190,7 +193,7 @@ module mkExecute#(
     debug(displayControlToken(er));
 
     Bool cap = False;
-    `ifdef CAP
+    `ifdef USECAP
       CapReq capReq = CapReq{
         offset: unpack(er.opA),
         pc: di.pc,
@@ -212,25 +215,24 @@ module mkExecute#(
     if (cr1.valid && er.exception == None)
         er.exception = cr1.exception;
     `endif
-    CoProResponse cr3 <- cop3.getCoProResponse(CoProVals{opA: er.opA, opB: er.opB});
 
     // Calculate the architectural PC from the absolute virtual address
     // PC that we generally use. We will need this if we link or
     // write the PC into any architecturally visible register.
     er.archPc = er.pc;
-    `ifdef CAP
+    `ifdef USECAP
       er.archPc = capCop.getArchPc(er.pc, er.epoch);
     `endif
     if (di.mem != None) begin
       case(di.alu)
         Add: begin
           calcResult = opA + opB;
-          `ifdef CAP
+          `ifdef USECAP
             capReq.offset = unpack(calcResult[63:0]);
             capVal <- capCop.getCapResponse(capReq);
           `endif
         end
-        `ifdef CAP
+        `ifdef USECAP
           Cap: begin
             capReq.offset = unpack(er.opB);
             capVal <- capCop.getCapResponse(capReq);
@@ -238,7 +240,7 @@ module mkExecute#(
           end
         `endif
         default: begin
-          `ifdef CAP
+          `ifdef USECAP
             capReq.offset = unpack(er.opB);
             capVal <- capCop.getCapResponse(capReq);
           `endif
@@ -246,7 +248,7 @@ module mkExecute#(
         end
       endcase
 
-      `ifdef CAP
+      `ifdef USECAP
         er.opA = capVal.data;
         if (capVal.valid) begin
           if (er.exception == None || capVal.exception == ICAP) begin
@@ -264,7 +266,7 @@ module mkExecute#(
         if (di.storeDatasrc == CoPro1 && cr1.valid) begin
           er.storeData = tagged DoubleWord cr1.data;
         end
-        `ifdef CAP
+        `ifdef USECAP
           else if (di.storeDatasrc == CoPro2) begin
             er.storeData = capVal.storeData;
           end
@@ -282,11 +284,13 @@ module mkExecute#(
       Int#(65) intA = unpack(signedA);
       Int#(65) intB = unpack(signedB);
 
-      `ifdef CAP
+      `ifdef USECAP
         capReq.offset = unpack(er.opB);
         capVal <- capCop.getCapResponse(capReq);
         if (capVal.valid) begin
-          if (er.exception == None || capVal.exception == ICAP) begin
+          if (er.exception == None 
+              || (er.exception == CAPCALL &&  capVal.exception != None)
+              || capVal.exception == ICAP) begin
             er.exception = capVal.exception;
           end
         end
@@ -304,7 +308,7 @@ module mkExecute#(
               LTZ: return (intA < 0);
               GTZ: return (intA > 0);
               GEZ: return (intA >= 0);
-              `ifdef CAP
+              `ifdef USECAP
                 CapTag: return (capVal.data == 1);
               `endif
             endcase) begin
@@ -349,7 +353,7 @@ module mkExecute#(
               end
             end
         `endif
-        `ifdef CAP
+        `ifdef USECAP
           tagged Coprocessor .ci: begin
             //if (ci.cOp == CCall)
             er.opB = capVal.data;
@@ -367,10 +371,12 @@ module mkExecute#(
       Bit#(65) signedB = signExtend(opB[63:0]);
       Int#(65) intA = unpack(signedA);
       Int#(65) intB = unpack(signedB);
-      `ifdef CAP
+      `ifdef USECAP
         capVal <- capCop.getCapResponse(capReq);
         if (capVal.valid) begin
-          if (er.exception == None || capVal.exception == ICAP) begin
+          if (er.exception == None 
+              || (er.exception == CAPCALL &&  capVal.exception != None)
+              || capVal.exception == ICAP) begin
             er.exception = capVal.exception;
           end
         end
@@ -448,16 +454,6 @@ module mkExecute#(
             end
           end
         end
-        Cop3: begin
-          if (cr3.valid) begin
-            calcResult = signExtend(cr3.data);
-          end else begin
-            er.writeDest = None;
-          end
-          if (er.exception == None) begin
-            er.exception = cr3.exception;
-          end
-        end
         FHi: begin
           calcResult = signExtend(hi);
         end
@@ -487,12 +483,11 @@ module mkExecute#(
           if (di.alu == MOVN) test = !test;
           if (test) begin
             calcResult = opA;
-            er.writeDest = RegFile;
           end else begin
             er.writeDest = None;
           end
         end
-        `ifdef CAP
+        `ifdef USECAP
           Cap: begin
             calcResult = signExtend(capVal.data);
           end
@@ -729,6 +724,11 @@ module mkMulDiv(MulDivIfc);
           Div: begin      // If this is a divide...
             Bit#(64) divisor = pack(a);
             Bit#(64) dividend = pack(b);
+            if (divisor==0) begin
+              dividend=0;
+              aNeg = False;
+              bNeg = False;
+            end
 
             DivideIntermediateT divJob = ?;
             divJob.count = 64;

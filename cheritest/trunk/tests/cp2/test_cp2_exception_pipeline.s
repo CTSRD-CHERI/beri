@@ -74,10 +74,10 @@ test:		.ent test
 		syscall 0
 		candperm	$c4, $c4, $t2  # not executed
 
-		# Test csettype
+		# Test csetoffset
 		dli	$t3, 0x100
 		syscall 0
-		csettype	$c5, $c5, $t3  # not executed
+		csetoffset	$c5, $c5, $t3  # not executed
 
 		# Create a test capability for loading and storing
 		dla		$t0, data
@@ -87,7 +87,7 @@ test:		.ent test
 		dli		$t0, 0x1ff
 		candperm	$c6, $c6, $t0
 		dli		$t0, 0
-		csettype	$c6, $c6, $t0
+		csetoffset	$c6, $c6, $t0
 		
 		# Test cscr
 		dla	$t0, data

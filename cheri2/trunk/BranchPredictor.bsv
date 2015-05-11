@@ -59,16 +59,40 @@ endinterface
 // ndave: YYY We should do at least 2-bit prediction + BTB
 
 `ifndef VERIFY2
-// Simplified branch "predictor" with almost identical behaviour to
-// the original.  Much easier to understand and takes one extra cycle
-// on branch miss/exception but avoids critical path from exe/wb to
-// fetch.
+// This is all a bit confusing. Here's how it works: 
+//
+// Fetch calls getPrediction to get the address of the next
+// instruction to fetch along with the next two predicted instructions
+// and an epoch used for handling mispredictions.
+//
+// Execute checks the instruction epoch against the 'current' epoch
+// and drops it if they don't match, unless the instruction is a
+// branch delay slot (see Proc.bsv).
+//
+// Execute checks the result of branch instructions against the
+// predicted nextNextPC and calls resolveBranchMiss if they do not
+// match. This sets nextNextPC to the branch dest. and increments
+// nextEpoch so that execution will begin from the new PC after nextPC
+// is fetched (this may be the branch delay so we can't set nextPC
+// directly). resolveBranchMiss is not called in branch delay slots as
+// we do not want to overwrite nextNextPC which may still contain the
+// destination of the branch. There should be no branch miss anyway as
+// delay slots cannot contain branches (behaviour undefined).
+//
+// On exception writeback calls takeException to reset PC and epochs,
+// then flushes the pipeline. Similarly for setPC from the debug unit
+// except that the pipeline should be flushed already.
+// 
 module mkBranchPredictor#(Reg#(Address) pc)(BranchPredictor);
-   Reg#(Address) nextPC     <- mkReg(64'h9000000040000000);
-   Reg#(Epoch)   epoch      <- mkReg(0); // doesn't matter how it's initialized
-
+   // PC of next instruction to execute ('current' PC)
+   EHR#(2, Address) nextPC     <- mkEHR(64'h9000000040000000);
+   // Epoch of nextPC
+   EHR#(2, Epoch)   epoch      <- mkEHR(0); // doesn't matter how it's initialized
+   // PC of instruction to execute after nextPC
    EHR#(3, Address) nextNextPC <- mkEHR(64'h9000000040000004);
-   EHR#(3, Epoch)   nextEpoch  <- mkEHR(0); // epoch of next inst
+   // Epoch of nextNextPC, also 'current epoch'.
+   EHR#(3, Epoch)   nextEpoch  <- mkEHR(0);
+   // Signal to suppress resolveBranchMiss on exception.
    EHR#(2, Bool)    exception  <- mkEHR(False);
 
    // epoch, pc, pred next PC, pred next next PC
@@ -76,10 +100,11 @@ module mkBranchPredictor#(Reg#(Address) pc)(BranchPredictor);
       // The "prediction".
       nextNextPC[2] <= nextNextPC[2] + 4;
 
-      nextPC <= nextNextPC[2];
-      epoch  <= nextEpoch[2];
+      nextPC[1] <= nextNextPC[2];
+      epoch[1]  <= nextEpoch[2];
       exception[1] <= False;
-      return tuple4(epoch, nextPC, nextPC + 4, nextPC + 8);
+      // This implementation does no actual prediction.
+      return tuple4(epoch[1], nextPC[1], nextPC[1] + 4, nextPC[1] + 8);
    endmethod
 
    method Epoch           curEpoch();
@@ -96,17 +121,27 @@ module mkBranchPredictor#(Reg#(Address) pc)(BranchPredictor);
 
    method Action     takeException(Address epc);
       exception[0]  <= True;
-      nextPC        <= epc;
-      nextNextPC[0] <= epc + 4;
+
+      // We avoid writing nextPC and epoch here which eliminates a
+      // nasty forwarding path from writeback to fetch. However it
+      // means one more dropped instruction leading to a potential
+      // problem with capability jumps because we will fetch an
+      // instruction from the old PC via the new PCC which could
+      // generate a bad address which hangs the AXI bus. The TLB
+      // should detect and suppress the bad address but this is not
+      // guaranteed...
+
+      //nextPC[0]     <= epc;
+      //epoch[0]      <= nextEpoch[0] + 1;
+      nextNextPC[0] <= epc;
       nextEpoch[0]  <= nextEpoch[0] + 1;
-      epoch         <= nextEpoch[0] + 1;
    endmethod
 
    method Action debug_setPC(Address newPC);
-     nextPC <= newPC;
-     epoch  <= epoch + 1;
+     nextPC[1]     <= newPC;
+     epoch[1]      <= epoch[1] + 1;
      nextNextPC[2] <= newPC + 4;
-     nextEpoch[2]  <= epoch + 1;
+     nextEpoch[2]  <= epoch[1] + 1;
    endmethod
 endmodule
 

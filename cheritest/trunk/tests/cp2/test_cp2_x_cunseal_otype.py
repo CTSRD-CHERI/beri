@@ -36,7 +36,7 @@ class test_cp2_x_cunseal_otype(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_x_cunseal_otype_1(self):
         '''Test cunseal did not unseal with the wrong otype'''
-        self.assertRegisterEqual(self.MIPS.a0, 0,
+        self.assertRegisterEqual(self.MIPS.a0, 1,
             "cunseal unsealed with the wrong otype")
 
     @attr('capabilities')

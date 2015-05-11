@@ -44,7 +44,7 @@ test:		.ent test
 
 		dli	$a0, 2
 
-		cgetunsealed $a0, $c2
+		cgetsealed $a0, $c2
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

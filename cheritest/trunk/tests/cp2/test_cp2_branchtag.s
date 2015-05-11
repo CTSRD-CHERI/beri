@@ -1,6 +1,6 @@
 #-
 # Copyright (c) 2012 Michael Roe
-# Copyright (c) 2013 David Chisnall
+# Copyright (c) 2013 David T. Chisnall
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of

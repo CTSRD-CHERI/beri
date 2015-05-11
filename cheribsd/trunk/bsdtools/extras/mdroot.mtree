@@ -1,0 +1,8 @@
+./etc/crontab type=file uname=root gname=wheel mode=755
+./etc/fstab type=file uname=root gname=wheel mode=644 contents=./etc/fstab.mdroot
+./etc/rc.d/LAST type=file uname=root gname=wheel mode=755
+./etc/rc.d/FIRST type=file uname=root gname=wheel mode=755
+./etc/rc.conf type=file uname=root gname=wheel mode=644
+./etc/ttys type=file uname=root gname=wheel mode=644 contents=./etc/ttys.demo
+./upgrades type=dir uname=root gname=wheel mode=755
+./home type=dir uname=root gname=wheel mode=755

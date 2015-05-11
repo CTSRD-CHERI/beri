@@ -60,15 +60,15 @@ class test_tlb_invalid_load(BaseBERITestCase):
 
     @attr('tlb')
     def test_entryhi(self):
-        self.assertRegisterEqual(self.MIPS.s3, self.MIPS.a4 & 0xfffff000, "Wrong EntryHi")
+        self.assertRegisterMaskEqual(self.MIPS.a4, 0xfffff000, self.MIPS.s3, "Wrong EntryHi")
 
     @attr('tlb')
     def test_status(self):
-        self.assertRegisterEqual(self.MIPS.s4 & 2, 2, "Wrong EXL")
+        self.assertRegisterMaskEqual(self.MIPS.s4, 2, 2, "Wrong EXL")
 
     @attr('tlb')
     def test_cause(self):
-        self.assertRegisterEqual(self.MIPS.s5 & 0x7c, 0x8, "Wrong Exception Code")
+        self.assertRegisterMaskEqual(self.MIPS.s5, 0x7c, 0x8, "Wrong Exception Code")
 
     @attr('tlb')
     def test_epc(self):

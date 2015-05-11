@@ -1,7 +1,7 @@
 #-
 # Copyright (c) 2011 Robert N. M. Watson
 # Copyright (c) 2012 Jonathan Woodruff
-# Copyright (c) 2012 Robert M. Norton        
+# Copyright (c) 2012 Robert M. Norton
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of

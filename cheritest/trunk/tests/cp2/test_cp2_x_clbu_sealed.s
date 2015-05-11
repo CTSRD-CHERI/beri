@@ -34,12 +34,6 @@
 # Test that clbur raises an exception if the capability is sealed.
 #
 
-# sandbox isn't actually called in this test - but its address is used
-# as an identifier for a type.
-
-sandbox:
-		creturn
-
 		.global test
 test:		.ent test
 		daddu 	$sp, $sp, -32
@@ -78,11 +72,10 @@ test:		.ent test
 		# Seal $c1
 		#
 
-		dla     $t1, sandbox
-		cmove   $c2, $c0
-		csettype $c2, $c2, $t1
+		dli	$t1, 0x1234
+		csetoffset $c2, $c0, $t1
 
-		csealdata $c1, $c1, $c2
+		cseal	$c1, $c1, $c2
 
 		#
 		# Try to read using the sealed capability

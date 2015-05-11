@@ -38,8 +38,8 @@
 
 import RegFile::*;
 import FIFO::*;
-import ConfigReg::*;
 import Vector::*;
+import ConfigReg::*;
 
 import MIPS :: * ;
 import CHERITypes :: * ;
@@ -66,12 +66,20 @@ interface RegisterFile;
 endinterface
 
 module mkRegisterFile(RegisterFile);
+`ifndef VERIFY
+  // We use ConfigRegs here as the write first reg introduces an
+  // unneeded forwarding path which is very bad for timing.
+  Vector#(NumThreads, Reg#(Value)) pcRegs <- replicateM(mkConfigReg(64'h9000000040000000));
+  Vector#(NumThreads, Reg#(Value)) hiRegs <- replicateM(mkConfigReg(0));
+  Vector#(NumThreads, Reg#(Value)) loRegs <- replicateM(mkConfigReg(0));
+`else
   Vector#(NumThreads, Reg#(Value)) pcRegs <- replicateM(mkReg_WriteFirst(tagged Valid 64'h9000000040000000));
   Vector#(NumThreads, Reg#(Value)) hiRegs <- replicateM(mkReg_WriteFirst(tagged Valid 0));
   Vector#(NumThreads, Reg#(Value)) loRegs <- replicateM(mkReg_WriteFirst(tagged Valid 0));
+`endif
 
-  Bram#(Tuple2#(ThreadID,RegName), Value) regFileA <- mkBram;
-  Bram#(Tuple2#(ThreadID,RegName), Value) regFileB <- mkBram;
+  Bram#(Tuple2#(ThreadID,RegName), Value) regFileA <- mkBramNoWriteForward;
+  Bram#(Tuple2#(ThreadID,RegName), Value) regFileB <- mkBramNoWriteForward;
   FIFO#(Bool)                             isZeroA  <- mkFIFO();
   FIFO#(Bool)                             isZeroB  <- mkFIFO();
 
@@ -96,6 +104,8 @@ module mkRegisterFile(RegisterFile);
     let resp <- regFileB.readResp;
     return (isZero) ? 0 : resp;
   endmethod
+
+
 
   method Action write(ThreadID id, RegName rn, Value v);
     if(rn != 0)

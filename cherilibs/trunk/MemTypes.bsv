@@ -10,7 +10,7 @@
  * Copyright (c) 2013 Simon W. Moore
  * Copyright (c) 2013 Alan A. Mujumdar
  * Copyright (c) 2014 Colin Rothwell
- * Copyright (c) 2014 Alexandre Joannou
+ * Copyright (c) 2014-2015 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -63,45 +63,65 @@ typedef 8 MaxNoOfFlits;
   typedef struct {  
     Vector#(TMul#(CORE_COUNT,2), Bool) sharers;
     CheriPhyAddr addr;
-  } InvalidateCache deriving (Bits, Eq); 
+  } InvalidateCache deriving (Bits, Eq, FShow); 
 `endif
 // XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX
 
 import Vector :: *;
 import DefaultValue :: *;
 import Interconnect :: *;
+import MasterSlave :: *;
 
 // physical byte address type
+// CR: width is the TOTAL width of the type; this type is a clever way to allow byte
+// slicing from Alexendre.
 typedef struct {
     Bit#(TSub#(width,TLog#(bytePerLine)))   lineNumber;
     Bit#(TLog#(bytePerLine))                byteOffset;
 } PhyByteAddress#(numeric type width, numeric type bytePerLine) deriving (Bits, Eq, Bounded, FShow);
 
-// physical address for cheri
-// cache lines are 256 bits wide (32 bytes per line)
-typedef PhyByteAddress#(40,32) CheriPhyAddr;
+typedef Bit#(TLog#(bytePerLine)) PhyByteOffset#(numeric type bytePerLine);
+typedef Bit#(TAdd#(TLog#(bytePerLine),3)) PhyBitOffset#(numeric type bytePerLine);
 
-// TransactionId used to identify one transaction amongst
-// several outstanding for a given Master
-typedef Bit#(TLog#(MaxTransactions)) TransactionId;
+
+// physical address for cheri
+`ifdef MEM128
+  typedef PhyByteAddress#(40,16) CheriPhyAddr;
+  typedef PhyByteOffset#(16) CheriPhyByteOffset;
+  typedef PhyBitOffset#(16)  CheriPhyBitOffset;
+  BytesPerFlit cheriBusBytes = BYTE_16;
+`elsif MEM64
+  typedef PhyByteAddress#(40,8) CheriPhyAddr;
+  typedef PhyByteOffset#(8) CheriPhyByteOffset;
+  typedef PhyBitOffset#(8)  CheriPhyBitOffset;
+  BytesPerFlit cheriBusBytes = BYTE_8;
+`else
+  typedef PhyByteAddress#(40,32) CheriPhyAddr;
+  typedef PhyByteOffset#(32) CheriPhyByteOffset;
+  typedef PhyBitOffset#(32)  CheriPhyBitOffset;
+  BytesPerFlit cheriBusBytes = BYTE_32;
+`endif
+typedef PhyByteAddress#(40,8) CheriPeriphAddr;
 
 // bytes per flit
 typedef enum {
-    BYTE_1,     //    8 bits
-    BYTE_2,     //   16 bits
-    BYTE_4,     //   32 bits
-    BYTE_8,     //   64 bits
-    BYTE_16,    //  128 bits
-    BYTE_32,    //  256 bits
-    BYTE_64,    //  512 bits
-    BYTE_128    // 1024 bits
+    BYTE_1      = 0,  //    8 bits
+    BYTE_2      = 1,  //   16 bits
+    BYTE_4      = 2,  //   32 bits
+    BYTE_8      = 3,  //   64 bits
+    BYTE_16     = 4,  //  128 bits
+    BYTE_32     = 5,  //  256 bits
+    BYTE_64     = 6,  //  512 bits
+    BYTE_128    = 7   // 1024 bits
 } BytesPerFlit deriving (Bits, Eq, Bounded, FShow);
 
 // Data type
 typedef struct {
     `ifdef CAP
-    // is this line a capability
-    Vector#(TDiv#(width,256),Bool) cap;
+      // is this line a capability
+      Vector#(TDiv#(width,256),Bool) cap;
+    `elsif CAP128
+      Vector#(TDiv#(width,128),Bool) cap;
     `endif
     // actual data
     Bit#(width) data;
@@ -126,6 +146,7 @@ typedef enum {
     Write, //XXX
 // here only as a temporary fix for migration to the new format
     StoreConditional, //XXX
+    CacheLoadTag,
     CacheNop
 } CacheInst deriving (Bits, Eq, FShow);
 
@@ -166,7 +187,7 @@ typedef struct {
     // transaction ID field used to identify a unique transaction amongst
     // several outstanding transactions
     // XXX THIS FIELD HAS TO BE MIRRORED BY THE SLAVE XXX
-    TransactionId transactionID;
+    transactionid_t transactionID;
     // operation to be performed by the request
     union tagged {
         // read operation
@@ -195,30 +216,30 @@ typedef struct {
         // for a cache operation
         CacheOperation CacheOp;
     } operation;
-} MemoryRequest#(type addr_t, type masterid_t, numeric type data_width) deriving (Bits);
+} MemoryRequest#(type addr_t, type masterid_t, type transactionid_t, numeric type data_width) deriving (Bits);
 
-instance DefaultValue#(MemoryRequest#(a,b,c))
-    provisos(Bits#(a,a_),Bits#(b,b_));
-    function MemoryRequest#(a,b,c) defaultValue =
+instance DefaultValue#(MemoryRequest#(a,b,c,d))
+    provisos(Bits#(a,a_),Bits#(b,b_),Bits#(c,c_));
+    function MemoryRequest#(a,b,c,d) defaultValue =
         MemoryRequest {
             addr:           unpack(0),
             masterID:       unpack(0),
-            transactionID:  0,
+            transactionID:  unpack(0),
             operation:      tagged CacheOp defaultValue
         };
 endinstance
 
-instance Routable#(MemoryRequest#(a,b,c), r_width)
+instance Routable#(MemoryRequest#(a,b,c,d), r_width)
     provisos(Bits#(a,r_width));
-    function UInt#(r_width) getRoutingField (MemoryRequest#(a,b,c) req) =
+    function UInt#(r_width) getRoutingField (MemoryRequest#(a,b,c,d) req) =
         unpack(pack(req.addr));
-    function Bool getLastField (MemoryRequest#(a,b,c) req) =
+    function Bool getLastField (MemoryRequest#(a,b,c,d) req) =
     req.operation matches tagged Write .wop ? wop.last : True;
 endinstance
 
-instance FShow#(MemoryRequest#(a,b,c))
-    provisos (FShow#(a),Bits#(a,a_),Bits#(b,b_));
-    function Fmt fshow(MemoryRequest#(a,b,c) req);
+instance FShow#(MemoryRequest#(a,b,c,d))
+    provisos (FShow#(a),Bits#(a,a_),Bits#(b,b_),Bits#(c,c_));
+    function Fmt fshow(MemoryRequest#(a,b,c,d) req);
         case (req.operation) matches
             tagged Read .rop: return (
                 $format("Read MemoryRequest - ") +
@@ -255,7 +276,19 @@ instance FShow#(MemoryRequest#(a,b,c))
     endfunction
 endinstance
 
-typedef MemoryRequest#(CheriPhyAddr,UInt#(TLog#(TMul#(2,CORE_COUNT))),256) CheriMemRequest;
+typedef Bit#(4) CheriMasterID;
+typedef Bit#(4) CheriTransactionID;
+
+`ifdef MEM64
+  typedef 64 CheriDataWidth;
+`elsif MEM128
+  typedef 128 CheriDataWidth;
+`else
+  typedef 256 CheriDataWidth;
+`endif
+typedef Data#(CheriDataWidth) CheriData;
+typedef MemoryRequest#(CheriPhyAddr,CheriMasterID,CheriTransactionID,CheriDataWidth) CheriMemRequest;
+typedef MemoryRequest#(CheriPeriphAddr,CheriMasterID,CheriTransactionID,64)  CheriMemRequest64;
 
 //////////////////////////////////
 // cheri memory response format //
@@ -268,7 +301,7 @@ typedef struct {
     // transaction ID field used to identify a unique transaction amongst
     // several outstanding transactions
     // XXX THIS FIELD HAS TO BE MIRRORED BY THE SLAVE XXX
-    TransactionId transactionID;
+    transactionid_t transactionID;
     // error being returned
     Error error;
     // content of the response
@@ -284,30 +317,30 @@ typedef struct {
         // True for a success
         Bool SC;
     } operation;
-} MemoryResponse#(type masterid_t, numeric type data_width) deriving (Bits);
+} MemoryResponse#(type masterid_t, type transactionid_t, numeric type data_width) deriving (Bits);
 
-instance DefaultValue#(MemoryResponse#(a,b))
-    provisos(Bits#(a,a_));
-    function MemoryResponse#(a,b) defaultValue =
+instance DefaultValue#(MemoryResponse#(a,b,c))
+    provisos(Bits#(a,a_),Bits#(b,b_));
+    function MemoryResponse#(a,b,c) defaultValue =
         MemoryResponse {
             masterID:       unpack(0),
-            transactionID:  0,
+            transactionID:  unpack(0),
             error:          NoError,
             operation:      tagged Write
         };
 endinstance
 
-instance Routable#(MemoryResponse#(a,b), r_width)
+instance Routable#(MemoryResponse#(a,b,c), r_width)
     provisos(Bits#(a,r_width));
-    function UInt#(r_width) getRoutingField (MemoryResponse#(a,b) rsp) =
+    function UInt#(r_width) getRoutingField (MemoryResponse#(a,b,c) rsp) =
         unpack(pack(rsp.masterID));
-    function Bool getLastField (MemoryResponse#(a,b) rsp) =
+    function Bool getLastField (MemoryResponse#(a,b,c) rsp) =
     rsp.operation matches tagged Read .rop ? rop.last : True;
 endinstance
 
-instance FShow#(MemoryResponse#(a,b))
-    provisos(Bits#(a,a_));
-    function Fmt fshow(MemoryResponse#(a,b) rsp);
+instance FShow#(MemoryResponse#(a,b,c))
+    provisos(Bits#(a,a_),Bits#(b,b_));
+    function Fmt fshow(MemoryResponse#(a,b,c) rsp);
         case (rsp.operation) matches
             tagged Read .rop: return (
                 $format("Read MemoryResponse - ") +
@@ -337,4 +370,11 @@ instance FShow#(MemoryResponse#(a,b))
     endfunction
 endinstance
 
-typedef MemoryResponse#(UInt#(TLog#(TMul#(2,CORE_COUNT))),256) CheriMemResponse;
+typedef MemoryResponse#(CheriMasterID,CheriTransactionID,CheriDataWidth) CheriMemResponse;
+typedef MemoryResponse#(CheriMasterID,CheriTransactionID,64)  CheriMemResponse64;
+
+typedef Slave#(CheriMemRequest64, CheriMemResponse64)   CheriPeriphSlave;
+typedef Slave#(CheriMemRequest, CheriMemResponse)       CheriSlave;
+
+typedef Master#(CheriMemRequest64, CheriMemResponse64)  CheriPeriphMaster;
+typedef Master#(CheriMemRequest, CheriMemResponse)      CheriMaster;

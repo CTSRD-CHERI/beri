@@ -36,4 +36,4 @@ class test_cp2_getunsealed(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_getunsealed1(self):
         '''Test that cgetunsealed returns correct initial value'''
-        self.assertRegisterEqual(self.MIPS.a0, 1, "cgetunsealed returns incorrect initial value")
+        self.assertRegisterEqual(self.MIPS.a0, 0, "cgetsealed returns incorrect initial value")

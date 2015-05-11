@@ -60,6 +60,11 @@ test:		.ent test
 		bnez	$t1, L1			# If we're not thread zero
 		nop	# branch delay slot
 		
+		dmfc0	$t0, $15, 6		# Core Id ...
+		andi	$t1, $t0, 0xffff	# ... in bottom 16 bits
+		bnez	$t1, L1			# If we're not core zero
+		nop				# Branch delay slot
+
 		jal	other_threads_go
 		nop	# branch delay slot
 

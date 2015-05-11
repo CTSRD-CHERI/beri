@@ -51,11 +51,11 @@ test:		.ent test
         
 		# Load values into c2
 		dli		$t0, 0x5
-		csettype	$c2, $c2, $t0
+		csetoffset	$c2, $c2, $t0
 		dli		$t0, 0x100
 		cincbase	$c2, $c2, $t0
 		dli		$t0, 0x200
-		csetlen	$c2, $c2, $t0
+		csetlen		$c2, $c2, $t0
 		dli		$t0, 0xff
 		candperm	$c2, $c2, $t0
 
@@ -69,7 +69,7 @@ dest:
 
 		# Extract values
 		cgetperm	$a0, $c3
-		cgettype	$a1, $c3
+		cgetoffset	$a1, $c3
 		cgetbase	$a2, $c3
 		cgetlen 	$a3, $c3
 

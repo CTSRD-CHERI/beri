@@ -45,9 +45,9 @@ class test_cp2_cfromptr(BaseBERITestCase):
         self.assertRegisterEqual(self.MIPS.a2, 0xfffffffffffffffb, "cfromptr did not set the length field correctly")
 
     @attr('capabilities')
-    def test_cp2_cfromptr_type(self):
-        '''Test that cfromptr of a non-NULL pointer sets the type field'''
-        self.assertRegisterEqual(self.MIPS.a3, 0, "cfromptr did not set the type field correctly")
+    def test_cp2_cfromptr_offset(self):
+        '''Test that cfromptr of a non-NULL pointer sets the offset field'''
+        self.assertRegisterEqual(self.MIPS.a3, 0, "cfromptr did not set the offset field correctly")
 
     @attr('capabilities')
     def test_cp2_cfromptr_tag(self):
@@ -56,6 +56,11 @@ class test_cp2_cfromptr(BaseBERITestCase):
 
     @attr('capabilities')
     def test_cp2_cfromptr_unsealed(self):
-        '''Test that cfromptr of a non-NULL pointer sets the unsealed bit'''
-        self.assertRegisterEqual(self.MIPS.a5, 1, "cfromptr did not set the unsealed bit")
+        '''Test that cfromptr of a non-NULL pointer clears the sealed bit'''
+        self.assertRegisterEqual(self.MIPS.a5, 0, "cfromptr did not clear the sealed bit")
+
+    @attr('capabilities')
+    def test_cp2_cfromptr_type(self):
+        '''Test that cfromptr of a non-NULL pointer clears the type field'''
+        self.assertRegisterEqual(self.MIPS.a6, 0, "cfromptr did not clear the type field")
 

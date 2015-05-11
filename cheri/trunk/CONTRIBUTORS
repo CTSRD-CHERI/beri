@@ -17,15 +17,20 @@ the CHERI1 processor implementation (in rough order of earliest contribution):
   Michael Roe
   Bjoern A. Zeeb
   Philip Withnall
-  Theo Markettos
+  A. Theodore Markettos
   David T. Chisnall
   Colin Rothwell
   Alan A. Mujumdar
   Alex Horsman
   Alexandre Joannou
+  Paul J. Fox
+  Matthew Naylor
+  Benjamin Thorner
+  Philip Withnall
 
 We gratefully acknowledge the following institutional contributors:
 
   University of Cambridge
   SRI International
   BERI Open Systems C.I.C.
+  Bluespec, Inc.

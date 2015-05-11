@@ -34,11 +34,13 @@ from nose.plugins.attrib import attr
 
 class test_cp2_getsettype(BaseBERITestCase):
     @attr('capabilities')
+    @attr('csettype')
     def test_cp2_gettype1(self):
         '''Test that cgettype returns correct initial value'''
         self.assertRegisterEqual(self.MIPS.a0, 0, "cgettype returns incorrect initial value")
 
     @attr('capabilities')
+    @attr('csettype')
     def test_cp2_gettype2(self):
         '''Test that cgettype returns correct value after csettype'''
         self.assertRegisterEqual(self.MIPS.a1, 100, "cgettype returns incorrect value after csettype")

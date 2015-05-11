@@ -53,6 +53,7 @@ static void	device_finish(void);
 static void	load_module(const char *path);
 void		yyerror(const char *s);
 int		yywrap(void);
+int		yylex(void);
 
 static bool			 ifenv;
 static struct pism_device	*curpd;

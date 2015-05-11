@@ -2,6 +2,7 @@
  * Copyright (c) 2013 Jonathan Woodruff
  * Copyright (c) 2013 Robert M. Norton
  * Copyright (c) 2013 Colin Rothwell
+ * Copyright (c) 2014, 2015 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -38,7 +39,6 @@
 `define BERI_ROM_MASK        40'hFFFF0000
 `define BLUE_BUS_BASE        40'h7F800000
 `define BLUE_BUS_MASK        40'h7F800000
-
 
 // Base addresses (in bytes) of peripherals, relative to BLUE_BUS_BASE
 // And width of each peripheral in terms of number of bits of address space (bytes)

@@ -1,6 +1,7 @@
 /*-
 * Copyright (c) 2014 Colin Rothwell
 * Copyright (c) 2014 Alexandre Joannou
+* Copyright (c) 2015 Paul J. Fox
 * All rights reserved.
 *
 * This software was developed by SRI International and the University of
@@ -63,11 +64,11 @@ module mkTopSimAxi(Empty);
 
     let matchMemAddr = pismAddrMatch(PISM_BUS_MEMORY);
 
-    CheriRdSlaveXActor pismMemoryRdXActor <- mkAxiRdSlave(False, matchMemAddr);
+    CheriRdSlaveXActor pismMemoryRdXActor <- mkAxiRdSlave(True, matchMemAddr);
     mkConnection(topAxi.read_master, pismMemoryRdXActor.fabric.bus);
     mkConnection(pismMemory.read, pismMemoryRdXActor.tlm);
 
-    CheriWrSlaveXActor pismMemoryWrXActor <- mkAxiWrSlave(False, matchMemAddr);
+    CheriWrSlaveXActor pismMemoryWrXActor <- mkAxiWrSlave(True, matchMemAddr);
     mkConnection(topAxi.write_master, pismMemoryWrXActor.fabric.bus);
     mkConnection(pismMemory.write, pismMemoryWrXActor.tlm);
 
@@ -88,7 +89,7 @@ module mkTopSimAxi(Empty);
 
     for (Integer i=0; i<internal_core_count; i=i+1) begin
         let debug_current = ?;
-	if (i == 0)
+	      if (i == 0)
             debug_current = DEBUG_STREAM_0;
         else if (i == 1)
             debug_current = DEBUG_STREAM_1;
@@ -169,6 +170,16 @@ module mkTopSimAxi(Empty);
             endrule
         end
     `endif
+
+    `ifdef RMA
+	// These aren't connected yet, but need to be there to avoid errors related to the lower-level interfaces
+        // not being connected
+        AvalonStreamSourceIfc#(Bit#(76)) source <- mkPut2AvalonStreamSource;
+        AvalonStreamSinkIfc#(Bit#(76)) sink <- mkAvalonStreamSink2Get;
+        
+        mkConnectionStreamPhysical(topAxi.networkRx, sink.physical);
+        mkConnectionStreamPhysical(source.physical, topAxi.networkTx);
+    `endif
 endmodule
 
 typedef enum {
@@ -181,15 +192,23 @@ typedef enum {
     PISM
 } ResponseSource deriving (Bits, Eq, FShow);
 
-function Tuple2#(CheriTLMAddr, Bit#(32)) byteEnFromBurstSize(
+function Tuple3#(CheriTLMAddr, Bit#(32), Bit#(5)) byteEnFromBurstSize(
         CheriTLMAddr inAddr, TLMBSize burstSize);
 
-    let unshiftedBE = truncate(beForBurstSize(burstSize));
-    let lineAddressMask = '1 << 5;
-    let lineAddress = inAddr & lineAddressMask;
-    let partOffset = inAddr & ~lineAddressMask;
-    let shiftedBE = unshiftedBE << partOffset;
-    return tuple2(lineAddress, shiftedBE);
+    Bit#(32) unshiftedBE = truncate(beForBurstSize(burstSize));
+    CheriTLMAddr lineAddressMask = '1 << 5;
+    CheriTLMAddr lineAddress = inAddr & lineAddressMask;
+    Bit#(5) partOffset = truncate(inAddr & ~lineAddressMask);
+    Bit#(32) shiftedBE = unshiftedBE << partOffset;
+    // Force alignment of offset which will be used for write data and byte enables.
+    `ifdef MEM64
+      partOffset[2:0] = 0;
+    `elsif MEM128
+      partOffset[3:0] = 0;
+    `else
+      partOffset = 0;
+    `endif
+    return tuple3(lineAddress, shiftedBE, partOffset);
 endfunction
 
 typedef union tagged {
@@ -209,64 +228,122 @@ module mkPISMTLM#(PismBus bus)(CheriTLMReadWriteRecv);
     // Data from PISM not attached to RESP
     FIFOF#(CheriTLMResp) incompleteResps <- mkBypassFIFOF();
     // Ready to return
-    FIFOF#(CheriTLMResp) completeResps <- mkBypassFIFOF();
+    FIFOF#(CheriTLMResp) completeResps <- mkSizedFIFOF(16);
+    
+    Reg#(UInt#(TLog#(MemTypes::MaxNoOfFlits)))   flit <- mkReg(0);
 
     function MightFail#(PismData) translateReq(CheriTLMReq tlmReq);
         if (tlmReq matches tagged Descriptor .tlmDesc) begin
             if (tlmDesc.command == UNKNOWN) begin
                 let msg = "TLM Command fed to PISM is unknown.";
-                return tagged Fail debug2("cTrace", $display(msg));
+                return tagged Fail debug2("simaxi", $display(msg));
             end
             else if (tlmDesc.b_size == BITS512 ||
                      tlmDesc.b_size == BITS1024) begin
                 let msg = "Attempting to read more than a line from PISM.";
-                return tagged Fail debug2("cTrace", $display(msg));
+                return tagged Fail debug2("simaxi", $display(msg));
             end
             else begin
-                match {.calcAddr, .calcBE} =
+                match {.calcAddr, .calcBE, .byteShift} =
                     byteEnFromBurstSize(tlmDesc.addr, tlmDesc.b_size);
-                let byteEnable = (case (tlmDesc.byte_enable) matches
-                    tagged Specify .be: be;
-                    tagged Calculate: calcBE;
+                Bit#(32) byteEnable = (case (tlmDesc.byte_enable) matches
+                    tagged Specify .be: return zeroExtend(be)<<byteShift;
+                    tagged Calculate:   return calcBE;
                 endcase);
                 let isWrite = (tlmDesc.command == WRITE);
-                return tagged Success (PismData {
-                    addr: zeroExtend(calcAddr),
-                    data: tlmDesc.data,
-                    byteenable: byteEnable,
-                    write: zeroExtend(pack(isWrite)),
-                    pad1: ?
-                });
+                PismData ret = PismData {
+                        addr: zeroExtend(calcAddr),
+                        data: zeroExtend(tlmDesc.data),
+                        byteenable: zeroExtend(byteEnable),
+                        write: zeroExtend(pack(isWrite)),
+                        pad1: ?
+                    };
+                ret.data = ret.data << {byteShift, 3'b0};
+                return tagged Success ret;
             end
         end
         else begin // Not a descriptor
             let msg = "Can't burst read/write PISM";
-            return tagged Fail debug2("cTrace", $display(msg));
+            return tagged Fail debug2("simaxi", $display(msg));
         end
     endfunction
 
     rule translateReqAndPrepareResp;
-        let req <- popFIFOF(tlmRequests);
+        let req  = tlmRequests.first();
+        debug2("simaxi", $display("Input request: ", fshow(req)));
         let resp = tlmResponseFromRequest(req);
-        let fail = False;
+        if (req matches tagged Descriptor .td) begin
+          debug2("simaxi", $display("burst length:%x", td.b_length));
+          let newTd = td;
+          CheriPhyByteOffset space = 0;
+          newTd.addr = td.addr + zeroExtend({pack(flit),space});
+           // Stash shift amount for read response.
+          `ifdef MEM64
+            resp.data = zeroExtend(newTd.addr[4:3]);
+          `elsif MEM128
+            resp.data = zeroExtend({newTd.addr[4],1'b0});
+          `else
+            resp.data = 0;
+          `endif
+          req = tagged Descriptor newTd;
+        end
+        let fail = True;
         case (translateReq(req)) matches
             tagged Success .pr: begin
                 if (pism_addr_valid(bus, pr)) begin
-                    pismRequests.enq(pr);
+                    PismData prs = pr;
+                    debug2("simaxi", $displayh(fshow(prs), prs.addr));
+                    /*
+                    Bit#(5) byteOffset = truncate(prs.addr);
+                    prs.addr = prs.addr & signExtend(6'h20); // Force alignment for PISM.
+                    // Calculate rotate amount for request or response data and stash it in data field.
+                    Bit#(2) doubleWordOffset = truncateLSB(byteOffset);
+                    
+                    // Shift Data
+                    Vector#(4, Bit#(64)) dataVec = unpack(prs.data);
+                    Vector#(4, Bit#(64)) newDataVec = ?;
+                    for (Integer i=0; i<4; i=i+1) newDataVec[doubleWordOffset+fromInteger(i)] = dataVec[i];
+                    prs.data = pack(newDataVec);
+                    // Shift ByteEnable
+                    Vector#(4, Bit#(8)) beVec = unpack(prs.byteenable);
+                    Vector#(4, Bit#(8)) newBeVec = ?;
+                    for (Integer i=0; i<4; i=i+1) newBeVec[doubleWordOffset+fromInteger(i)] = beVec[i];
+                    prs.byteenable = pack(newBeVec);*/
+                    pismRequests.enq(prs);
+                    //debug2("simaxi", $display("doubleWordOffset=%d ", doubleWordOffset, fshow(prs), prs.addr));
+                    Bit#(3) burstSize = 0;
+                    if (req matches tagged Descriptor .td)
+                      burstSize = truncate(pack(td.b_length));
+                    if (pack(flit) == burstSize) begin
+                      debug2("simaxi", $display("last flit==%x burstSize==%x", flit, burstSize));
+                      tlmRequests.deq();
+                      flit <= 0;
+                      resp.is_last = True;
+                    end else begin
+                      debug2("simaxi", $display("next flit==%x burstSize==%x", flit, burstSize));
+                      flit <= flit + 1;
+                      resp.is_last = False;
+                    end
+                    fail = False;
                 end
                 else begin
-                    debug2("cTrace", $write("Invalid PISM Address for "));
-                    debug2("cTrace", $displayh(fshow(bus), pr.addr));
+                    debug2("simaxi", $write("Invalid PISM Address for "));
+                    debug2("simaxi", $displayh(fshow(bus), pr.addr));
                     fail = True;
+                    tlmRequests.deq();
                 end
             end
             tagged Fail .act: begin
                 act();
                 fail = True;
+                tlmRequests.deq();
+            end
+            default: begin
+              tlmRequests.deq();
             end
         endcase
         if (fail) begin
-            debug2("cTrace", $display("Bad request: ", fshow(req)));
+            debug2("simaxi", $display("Bad request: ", fshow(req)));
             resp.status = ERROR;
         end
         incompleteResps.enq(resp);
@@ -275,15 +352,13 @@ module mkPISMTLM#(PismBus bus)(CheriTLMReadWriteRecv);
     rule putReq (pismRequests.notEmpty());
         if (pism_request_ready(bus, pismRequests.first)) begin
             let pr <- popFIFOF(pismRequests);
-            debug2("tlm", $display("%t: Putting ", $time, fshow(pr)));
+            debug2("simaxi", $display("%t: Putting to PISM", $time, fshow(pr)));
             pism_request_put(bus, pr);
         end
     endrule
 
     rule completeErrorResp (incompleteResps.first.status == ERROR);
         let resp <- popFIFOF(incompleteResps);
-        debug2("tlm", $display("%t: Completing PISM error response: ", $time,
-            fshow(resp)));
         completeResps.enq(resp);
     endrule
 
@@ -292,7 +367,6 @@ module mkPISMTLM#(PismBus bus)(CheriTLMReadWriteRecv);
             incompleteResps.first.command == WRITE
         );
 
-        debug2("tlm", $display("%t: Completing PISM write response.", $time));
         let resp <- popFIFOF(incompleteResps);
         completeResps.enq(resp);
     endrule
@@ -302,13 +376,18 @@ module mkPISMTLM#(PismBus bus)(CheriTLMReadWriteRecv);
             incompleteResps.first.command == READ &&
             pism_response_ready(bus)
         );
-
         Bit#(512) pismBitResp <- pism_response_get(bus);
         PismData pismResp = unpack(pismBitResp);
         let resp <- popFIFOF(incompleteResps);
-        debug2("tlm", $display("%t: Completing PISM read response: ", $time,
+        Vector#(4, Bit#(64)) dataVec = unpack(pismResp.data);
+        // Rotate the array so that the target words are at the bottom.
+        Bit#(2) idx = unpack(truncate(resp.data));
+        for (Integer i=0; i<4; i=i+1) dataVec[i] = dataVec[idx+fromInteger(i)];
+        resp.data = truncate(pack(dataVec));
+        debug2("simaxi", $display("%t: Completing PISM read response: Rotate amount = %x ", $time,
+            idx, fshow(dataVec), fshow(pismResp)));
+        debug2("simaxi", $display("%t: Completing PISM read response: ", $time,
             fshow(resp)));
-        resp.data = pismResp.data;
         completeResps.enq(resp);
     endrule
 
@@ -322,7 +401,7 @@ module mkPISMTLM#(PismBus bus)(CheriTLMReadWriteRecv);
         let msg = "Trying to return unknown response! ";
         dynamicAssert(False, msg);
         let resp <- popFIFOF(incompleteResps);
-        debug2("cTrace", $display("!!! ", msg, resp));
+        debug2("simaxi", $display("!!! ", msg, resp));
     endrule
 
     interface CheriTLMRecv read;
@@ -332,7 +411,7 @@ module mkPISMTLM#(PismBus bus)(CheriTLMReadWriteRecv);
                     if (completeResps.first.command == READ);
 
                 let resp <- popFIFOF(completeResps);
-                debug2("tlm", $display("%t: Returning complete PISM read resp: ",
+                debug2("simaxi", $display("%t: Returning complete PISM read resp: ",
                     $time, fshow(resp)));
                 return resp;
             endmethod
@@ -344,9 +423,8 @@ module mkPISMTLM#(PismBus bus)(CheriTLMReadWriteRecv);
         interface Get tx;
             method ActionValue#(CheriTLMResp) get
                     if (completeResps.first.command == WRITE);
-
                 let resp <- popFIFOF(completeResps);
-                debug2("tlm", $display("%t: Returning complete PISM write resp: ",
+                debug2("simaxi", $display("%t: Returning complete PISM write resp: ",
                     $time, fshow(resp)));
                 return resp;
             endmethod

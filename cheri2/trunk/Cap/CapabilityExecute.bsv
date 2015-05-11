@@ -50,6 +50,7 @@ typedef struct{
   Bool               storeOp;
   Bool               loadOp;
   Address            memAddr;
+  Maybe#(Address)    mNewPC;
   } CapExeResult deriving(Bits, Eq);
 
 interface CapExecute;
@@ -77,13 +78,14 @@ function ActionValue#(CapExeResult) capExecFN(
     Value                          rv = exeResult;
     Bool                         ctag = False;
     Capability                    crv = invalidCap;
-    Exception            newException = Ex_None;
+    Maybe#(Exception)    newException = Invalid;
     CapCause              newCapCause = defaultCapCause;
     
     Address                   memAddr = ?;
     Bool                       loadOp = False;
     Bool                      storeOp = False;
     Address                    offset = signExtend(imm);
+    Maybe#(Address)            mNewPC = Invalid;
 	
     let causeA = invalidCapAccess(pcc, op.cA);
     let causeB = invalidCapAccess(pcc, op.cB);
@@ -96,7 +98,10 @@ function ActionValue#(CapExeResult) capExecFN(
     let sealCauseB    = sealViolation(cB, op.cB);
     let mTagSealCauseA= isValid(tagCauseA) ? tagCauseA : sealCauseA; // specially for csc
     let mTagSealCause = firstValid(Vector::cons(tagCauseA, Vector::cons(tagCauseB, Vector::cons(sealCauseA, Vector::cons(sealCauseB, Vector::nil)))));
-    
+
+    Value offsetcA = cA.cursor - cA.base;
+    Value offsetcB = cB.cursor - cB.base;
+
     if (mAccessCause matches tagged Valid .cause)
       newCapCause = cause;
     else case (op.op)
@@ -109,48 +114,40 @@ function ActionValue#(CapExeResult) capExecFN(
           begin 
             match {.nt, .ncrv, .nrv} = case (mfc_op) matches
               CCP_MFC_GetPerms   : return tuple3(False, ?, zeroExtend(pack(cA.perms)));
-              CCP_MFC_GetType    : return tuple3(False, ?, cA.oType_eaddr);
+              CCP_MFC_GetType    : return tuple3(False, ?, zeroExtend(cA.otype));
               CCP_MFC_GetBase    : return tuple3(False, ?, cA.base);
               CCP_MFC_GetLength  : return tuple3(False, ?, cA.length);
               CCP_MFC_GetCause   : return tuple3(False, ?, zeroExtend(pack(capCause)));
               CCP_MFC_GetTag     : return tuple3(False, ?, zeroExtend(pack(validA)));
-              CCP_MFC_GetUnsealed: return tuple3(False, ?, zeroExtend(pack(cA.unsealed)));
-              CCP_MFC_GetPCC     : return tuple3(True, pcc, pc);
+              CCP_MFC_GetSealed  : return tuple3(False, ?, zeroExtend(pack(cA.sealed)));
+              CCP_MFC_GetPCC     : begin
+                                     let pccResult = pcc;
+                                     pccResult.cursor = pc + pcc.base;
+                                     return tuple3(True, pccResult, pc);
+                                   end
             endcase;
             ctag = nt;
             crv  = ncrv;
             rv   = nrv;
           end
       end
-      CapOp_SealCode:
-      begin //a is cs
+      CapOp_Seal:
+      begin //a is cs, b is ct XXX rmn30 order of tagseal checks
+        let newType = cB.cursor;
         if (mTagSealCause matches tagged Valid .cause)
           newCapCause = cause;
-        else if (!cA.perms.permit_seal)
-          newCapCause = capException(ExC_PermitSealViolation, op.cA);
-        else if (!cA.perms.permit_execute)
-          newCapCause = capException(ExC_PermitExecuteViolation, op.cA);
-        else // do work
-          begin 
-            ctag = True;
-            crv = cA;
-            crv.unsealed = False;
-          end
-      end
-      CapOp_SealData:
-      begin //a is cs, b is ct XXX rmn30 order of tagseal checks
-        if (mTagSealCause matches tagged Valid .cause)
-          newCapCause = cause;        
         else if (!cB.perms.permit_seal)
           newCapCause = capException(ExC_PermitSealViolation, op.cB);
-        else if (cA.perms.permit_execute)
-          newCapCause = capException(ExC_PermitExecuteViolation, op.cA);
+        else if (offsetcB >= cB.length)
+          newCapCause = capException(ExC_LengthViolation, op.cB);
+        else if (newType >= 64'h1000000) // type must be less than 24 bits
+          newCapCause = capException(ExC_LengthViolation, op.cB);
         else // do work
           begin 
             ctag = True;
             crv = cA;
-            crv.unsealed = False;
-            crv.oType_eaddr = cB.oType_eaddr;
+            crv.sealed = True;
+            crv.otype = truncate(newType);
           end
       end
       CapOp_Unseal:
@@ -159,11 +156,13 @@ function ActionValue#(CapExeResult) capExecFN(
           newCapCause = capException(ExC_TagViolation, op.cA);
         else if (!validB)
           newCapCause = capException(ExC_TagViolation, op.cB);        
-        else if (cA.unsealed)// is sealed
+        else if (!cA.sealed)
           newCapCause = capException(ExC_SealViolation, op.cA);
-        else if (!cB.unsealed)
+        else if (cB.sealed)
           newCapCause = capException(ExC_SealViolation, op.cB);
-        else if (cA.oType_eaddr != cB.oType_eaddr)
+        else if (offsetcB >= cB.length)
+          newCapCause = capException(ExC_LengthViolation, op.cB);
+        else if (zeroExtend(cA.otype) != cB.cursor)
           newCapCause = capException(ExC_TypeViolation, op.cB);
         else if (!cB.perms.permit_seal)
           newCapCause = capException(ExC_PermitSealViolation, op.cB);
@@ -171,13 +170,15 @@ function ActionValue#(CapExeResult) capExecFN(
           begin        
             ctag = True;
             crv = cA;
-            crv.unsealed = True;
+            crv.sealed = False;
+            crv.otype = 0;
             crv.perms.non_ephemeral = cA.perms.non_ephemeral && cB.perms.non_ephemeral;
           end
       end
       CapOp_MTC:
       begin
-        case (unpack(imm[2:0])) 
+        CCP_MTC_Op mtc_op = unpack(imm[2:0]);
+        case (mtc_op)
           CCP_MTC_AndPerms: begin // andperm
                if (mTagSealCause matches tagged Valid .cause)
                  newCapCause = cause;        
@@ -189,54 +190,25 @@ function ActionValue#(CapExeResult) capExecFN(
                  end
              end
           CCP_MTC_SetType: begin // settype (dest = cd, cA = ca)
+               CType newType = truncate(vA);
                if (mTagSealCause matches tagged Valid .cause)
                  newCapCause = cause;
                else if (!cA.perms.permit_set_type)
                  newCapCause = capException(ExC_PermitSetTypeViolation, op.cA);
+               else if (zeroExtend(newType) != vA) // check that vA is not too big for type field
+                 newCapCause = capException(ExC_PermitSetTypeViolation, op.cA);
                else if (vA >= cA.length)
-                 newCapCause = capException(ExC_LengthViolation, op.cA);   
+                 newCapCause = capException(ExC_LengthViolation, op.cA);
                else if (cA.base + vA < cA.base)
                  newCapCause = capException(ExC_LengthViolation, op.cA);
-               else 
-                 begin 
+               else
+                 begin
                    ctag = True;
                    crv = cA;
-                   crv.oType_eaddr = cA.base + vA;
+                   crv.otype = newType;
                    crv.perms.permit_seal = True;
                  end
            end
-          CCP_MTC_IncBase: begin // incbase
-               if(vA != 0 &&& mTagSealCause matches tagged Valid .cause)
-                 newCapCause = cause;
-               else if (vA > cA.length)
-                 newCapCause = capException(ExC_LengthViolation, op.cA);
-               else
-                 begin 
-                   ctag = validA;
-                   crv = cA;
-                   crv.base   = cA.base + vA;
-                   crv.length = cA.length - vA;                
-                 end
-             end
-          CCP_MTC_FromPtr: begin // CFromPtr
-               if (vA == 0) // null pointer case
-                 begin
-                   match {.ct, .cr} = nullTaggedCap;
-                   ctag = ct;
-                   crv  = cr;
-                 end
-               else if (mTagSealCause matches tagged Valid .cause)
-                 newCapCause = cause;
-               else if (vA > cA.length)
-                 newCapCause = capException(ExC_LengthViolation, op.cA);
-               else
-                 begin
-                   ctag = validA;
-                   crv = cA;
-                   crv.base   = cA.base + vA;
-                   crv.length = cA.length - vA;
-                 end
-             end
           CCP_MTC_SetLength: begin // setlen
                if (mTagSealCause matches tagged Valid .cause)
                  newCapCause = cause;
@@ -258,54 +230,73 @@ function ActionValue#(CapExeResult) capExecFN(
       end
       CapOp_CToPtr:
       begin
-        if (tagCauseA matches tagged Valid .cause)
+        if (tagCauseB matches tagged Valid .cause)
           newCapCause = cause;
-        else if (tagCauseB matches tagged Valid .cause)
-          newCapCause = cause;
-        else if (cA.length == 0)
+        else if (!validA)
           rv = 0;
-        else if (cA.base < cB.base)
-          newCapCause = capException(ExC_LengthViolation, op.cB);
-        else if (cA.base + cA.length > cB.base + cB.length)
-          newCapCause = capException(ExC_LengthViolation, op.cA);
         else
-          rv = cA.base - cB.base;
+          rv = cA.cursor - cB.base;
       end
       CapOp_SetCause: 
       begin
         if(!pcc.perms.access_EPCC) 
           begin
             newCapCause = capException(ExC_AccessEPCCViolation, Invalid);
-            newException = Ex_CoProcess2;
+            newException = Valid(Ex_CoProcess2);
           end
         else
-          newCapCause = CapCause{capex: vA[15:8], capregname: vA[7:0]};
+          begin
+            newCapCause = CapCause{capex: vA[15:8], capregname: vA[7:0]};
+            newException = Valid(Ex_None);
+          end
       end
       CapOp_CCall:
       begin
-        newCapCause = capException(ExC_CallTrap, op.cA);
-        newException = Ex_CP2Trap;
+        if (tagCauseA matches tagged Valid .cause)
+          newCapCause = cause;
+        else if (tagCauseB matches tagged Valid .cause)
+          newCapCause = cause;
+        else if (!cA.sealed)
+          newCapCause = capException(ExC_SealViolation, op.cA);
+        else if (!cB.sealed)
+          newCapCause = capException(ExC_SealViolation, op.cB);
+        else if (cA.otype != cB.otype)
+          newCapCause = capException(ExC_TypeViolation, op.cA);
+        else if (!cA.perms.permit_execute)
+          newCapCause = capException(ExC_PermitExecuteViolation, op.cA);
+        else if (cB.perms.permit_execute)
+          newCapCause = capException(ExC_PermitExecuteViolation, op.cB);
+        else if (offsetcA > cA.length)
+          newCapCause = capException(ExC_LengthViolation, op.cA);
+        else
+          begin
+            newCapCause = capException(ExC_CallTrap, op.cA);
+            newException = Valid(Ex_CP2Trap);
+          end
       end
       CapOp_CReturn:
       begin
         newCapCause = capException(ExC_ReturnTrap, Invalid);
-        newException = Ex_CP2Trap;        
+        newException = Valid(Ex_CP2Trap);
       end       
       CapOp_JR:
       begin 
-        let addr = cA.base + vA;
+        let newPC = offsetcA;
         if (mTagSealCause matches tagged Valid .cause)
           newCapCause = cause;
         else if (!cA.perms.permit_execute)
           newCapCause = capException(ExC_PermitExecuteViolation, op.cA);
         else if (!cA.perms.non_ephemeral)
           newCapCause = capException(ExC_NonEphermalViolation, op.cA);
-        else if (vA + 4 > cA.length)
+        else if (newPC + 4 > cA.length)
           newCapCause = capException(ExC_LengthViolation, op.cA);
-        else if (addr[1:0] != 2'b00)
-          newException = Ex_AddrErrLoad;
-        ctag = True;
-        crv  = cA; // target
+        else if (newPC[1:0] != 2'b00)
+          newException = Valid(Ex_AddrErrLoad);
+        else
+          begin
+            mNewPC = Valid(newPC);
+            crv = cA;
+          end
       end
       CapOp_Branch:
       begin
@@ -323,14 +314,17 @@ function ActionValue#(CapExeResult) capExecFN(
           newCapCause = cause;
         else if (!cA.perms.permit_store_cap)
           newCapCause = capException(ExC_PermitStoreCapViolation, op.cA);
-        else if (!cA.perms.permit_store_ephemeral_cap && !cB.perms.non_ephemeral)
+        else if (!cA.perms.permit_store_ephemeral_cap && validB && !cB.perms.non_ephemeral)
           newCapCause = capException(ExC_PermitStoreEphemeralCapViolation, op.cA);
         else if (!v)
           newCapCause = capException(ExC_LengthViolation, op.cA);
         else if (addr[4:0] != 5'b0)
-          newException = Ex_AddrErrStore;
+          newException = Valid(Ex_AddrErrStore);
         else
           begin // memory send
+            // this will not take effect unless TLB throws the exception
+            newCapCause = capException(ExC_TLBNoStoreCap, op.cB);
+            newException = Valid (Ex_None);
             storeOp = True;
             memAddr = addr;
             crv     = cB;
@@ -348,7 +342,7 @@ function ActionValue#(CapExeResult) capExecFN(
         else if (!v)
           newCapCause = capException(ExC_LengthViolation, op.cA);
         else if (addr[4:0] != 5'b0)
-          newException = Ex_AddrErrLoad;
+          newException = Valid(Ex_AddrErrLoad);
         else
           begin // memory send
             loadOp  = True;
@@ -398,24 +392,109 @@ function ActionValue#(CapExeResult) capExecFN(
                 newCapCause = cause;
               else if (tagCauseB matches tagged Valid .cause)
                 newCapCause = cause;
-              else if (cA.unsealed)
+              else if (!cA.sealed)
                 newCapCause = capException(ExC_SealViolation, op.cA);
-              else if (cB.unsealed)
+              else if (!cB.sealed)
                 newCapCause = capException(ExC_SealViolation, op.cB);
-              else if (cA.oType_eaddr != cB.oType_eaddr)
+              else if (cA.otype != cB.otype)
                 newCapCause = capException(ExC_TypeViolation, op.cA);
             end
         endcase
+      end
+      CapOp_CIncBase, CapOp_CIncBase2, CapOp_CFromPtr:
+      begin
+        // these are the same except for when vA = 0 and treatment of offset
+        ctag = validA;
+        crv = cA;
+        if (vA == 0) // Special cases for zero offset
+          begin
+            // For CIncBase[2] this is CMove so ignore exceptions
+            if (op.op == CapOp_CFromPtr)
+                   begin
+              // CFromPtr null pointer case
+                     match {.ct, .cr} = nullTaggedCap;
+                     ctag = ct;
+                     crv  = cr;
+                   end
+          end
+        else
+          begin
+            if(mTagSealCause matches tagged Valid .cause)
+              newCapCause = cause;
+            else if (vA > cA.length)
+              newCapCause = capException(ExC_LengthViolation, op.cA);
+            else
+              begin
+                crv.base   = cA.base + vA;
+                crv.length = cA.length - vA;
+                crv.cursor = case (op.op)
+                               CapOp_CIncBase:  return cA.cursor + vA; // keep cursor same relative to base
+                               CapOp_CIncBase2: return cA.cursor; // just leave cursor as is, possibly out of bounds
+                               CapOp_CFromPtr:  return crv.base;  // set cursor to zero relative to base
+                             endcase;
+              end
+          end
+      end
+      CapOp_CIncOffset:
+      begin
+        //NB no tag check
+        if (sealCauseA matches tagged Valid .cause &&& validA)
+          newCapCause = cause;
+        else
+          begin
+            ctag = validA;
+            crv = cA;
+            crv.cursor = cA.cursor + vA;
+          end
+      end
+      CapOp_CSetOffset:
+      begin
+        //NB no tag check
+        if (sealCauseA matches tagged Valid .cause &&& validA)
+          newCapCause = cause;
+        else
+          begin
+            ctag = validA;
+            crv = cA;
+            crv.cursor = cA.base + vA;
+          end
+      end
+      CapOp_CGetOffset:
+      begin
+        //NB no tag/seal checks
+        rv = offsetcA;
       end
       CapOp_Id: // default operation, carry through
       begin
         rv = exeResult;
       end
+      CapOp_CCompare: // CPtrCmp
+      begin
+        let addrA = cA.cursor;
+        let addrB = cB.cursor;
+        CCP_Compare_Op cmp = unpack(imm[2:0]);
+        // extend operands to 65 bits then do signed comparison
+        let extend = (cmp == CCP_COMPARE_LTU || cmp == CCP_COMPARE_LEU) ? zeroExtend : signExtend;
+        Int#(65) aSigned = unpack(extend(addrA));
+        Int#(65) bSigned = unpack(extend(addrB));
+        let lt = (!validA && validB) || ((validA == validB) && aSigned < bSigned);
+        let eq = (validA == validB) && (addrA == addrB);
+        rv = zeroExtend(pack(case (cmp)
+           CCP_COMPARE_EQ: return eq;
+           CCP_COMPARE_NE: return !eq;
+           CCP_COMPARE_LT, CCP_COMPARE_LTU: return lt;
+           CCP_COMPARE_LE, CCP_COMPARE_LEU: return lt || eq;
+           endcase));
+      end
     endcase 
     
     // If cap cause is set then throw a CoProcess2 exception unless
-    // some other exception is given or we are executing a set cause
-    let ex = (unpack(truncate(newCapCause.capex)) != ExC_None && newException == Ex_None && op.op != CapOp_SetCause) ? Ex_CoProcess2 : newException;
+    // some other exception is given. In the case of setcause or csc
+    // he other exception could be Ex_None -- this is so that we can
+    // pass through the cause until writeback where we decide whether
+    // to use it.
+    CapException newCapEx = unpack(truncate(newCapCause.capex));
+    let ex = newException matches tagged Valid .ex &&& True ? ex : (newCapEx != ExC_None ? Ex_CoProcess2 : Ex_None);
     debug2("capex", $display("CapExeResult: result: %h", rv, " tag:%b capResult: ", ctag, fshow(crv), " capCause: ", fshow(newCapCause)));
 
     return CapExeResult{
@@ -427,7 +506,8 @@ function ActionValue#(CapExeResult) capExecFN(
       capCause: newCapCause,
       storeOp: storeOp,
       loadOp:  loadOp,
-      memAddr: memAddr
+      memAddr: memAddr,
+      mNewPC: mNewPC
     };
   endactionvalue
 endfunction

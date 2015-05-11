@@ -37,7 +37,7 @@
  * 
  ******************************************************************************/
 
-import BRAMCore::*;
+import MEM::*;
 import StmtFSM::*;
 import ConfigReg::*;
 
@@ -57,15 +57,16 @@ module mkBRAMCircularBuffer(CircularBuffer#(log2size, element_type))
 
   ConfigReg#(Bit#(log2size))       headPtr <- mkConfigReg(0); // Next address to read.
   ConfigReg#(Bit#(log2size))       tailPtr <- mkConfigReg(0); // Next address to write.
-  BRAM_DUAL_PORT#(Bit#(log2size), element_type) bram <- mkBRAMCore2(valueOf(size), False);
+  MEM#(Bit#(log2size), element_type)  bram <- mkMEM();
   PulseWire                          doEnq <- mkPulseWire();
   PulseWire                          doDeq <- mkPulseWire();
   Reg#(Bool)                     readDelay <- mkReg(False);
+  Reg#(Bool)                          init <- mkReg(False);
   
   let full  = ((tailPtr + 1) == headPtr);
   let empty = (tailPtr == headPtr);
   
-  let isAlmostFull = (headPtr - tailPtr) < 32 && !empty;
+  let isAlmostFull = (headPtr - tailPtr) < 64 && !empty;
   
   let isNotEmpty = !empty && !readDelay;
   let isNotFull  = !full;
@@ -73,11 +74,16 @@ module mkBRAMCircularBuffer(CircularBuffer#(log2size, element_type))
   //rule debug; 
   //  $display("%d: tailPtr: %d, nextHead: %d delay: %d %s", $time, tailPtr, headPtr, readDelay, full ? "FULL" : (empty ? "EMPTY" : ""));
   //endrule
+  rule initialise(!init);
+    bram.read.put(?);
+    init <= True;
+  endrule
   
-  (* fire_when_enabled, no_implicit_conditions *)
-  rule incHead;
+  (* fire_when_enabled *)
+  rule incHead(init);
     let nextHead = (doDeq || (doEnq && full)) ? (headPtr + 1) : headPtr;
-    bram.b.put(False, nextHead, ?);
+    bram.read.put(nextHead);
+    let _unused <- bram.read.get();
     headPtr   <= nextHead;
     tailPtr   <= doEnq ? (tailPtr + 1) : tailPtr;
     // If we are empty then data will not be available until cycle
@@ -87,7 +93,7 @@ module mkBRAMCircularBuffer(CircularBuffer#(log2size, element_type))
   endrule
   
   method Action enq(element_type e);
-    bram.a.put(True, tailPtr, e);
+    bram.write(tailPtr, e);
     doEnq.send();
   endmethod
                                                            
@@ -96,7 +102,7 @@ module mkBRAMCircularBuffer(CircularBuffer#(log2size, element_type))
   endmethod
   
   method element_type first() if (isNotEmpty);
-    return bram.b.read();
+    return bram.read.peek();
   endmethod
   
   method notEmpty();

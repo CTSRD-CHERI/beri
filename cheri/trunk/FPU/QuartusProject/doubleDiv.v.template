@@ -1,0 +1,57 @@
+// megafunction wizard: %ALTFP_DIV%
+// GENERATION: STANDARD
+// VERSION: WM1.0
+// MODULE: altfp_div 
+
+//
+// Copyright (c) 2013 Colin Rothwell
+// All rights reserved.
+//
+// This software was developed by SRI International and the University of
+// Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+// ("CTSRD"), as part of the DARPA CRASH research programme.
+//
+// @BERI_LICENSE_HEADER_START@
+//
+// Licensed to BERI Open Systems C.I.C. (BERI) under one or more contributor
+// license agreements.  See the NOTICE file distributed with this work for
+// additional information regarding copyright ownership.  BERI licenses this
+// file to you under the BERI Hardware-Software License, Version 1.0 (the
+// "License"); you may not use this file except in compliance with the
+// License.  You may obtain a copy of the License at:
+//
+//   http://www.beri-open-systems.org/legal/license-1-0.txt
+//
+// Unless required by applicable law or agreed to in writing, Work distributed
+// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+// CONDITIONS OF ANY KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations under the License.
+//
+// @BERI_LICENSE_HEADER_END@
+//
+
+
+// Retrieval info: PRIVATE: INTENDED_DEVICE_FAMILY STRING "Stratix IV"
+// Retrieval info: PRIVATE: SYNTH_WRAPPER_GEN_POSTFIX STRING "0"
+// Retrieval info: LIBRARY: altera_mf altera_mf.altera_mf_components.all
+// Retrieval info: CONSTANT: DENORMAL_SUPPORT STRING "NO"
+// Retrieval info: CONSTANT: INTENDED_DEVICE_FAMILY STRING "Stratix IV"
+// Retrieval info: CONSTANT: OPTIMIZE STRING "AREA"
+// Retrieval info: CONSTANT: PIPELINE NUMERIC "10"
+// Retrieval info: CONSTANT: REDUCED_FUNCTIONALITY STRING "NO"
+// Retrieval info: CONSTANT: WIDTH_EXP NUMERIC "11"
+// Retrieval info: CONSTANT: WIDTH_MAN NUMERIC "52"
+// Retrieval info: USED_PORT: clock 0 0 0 0 INPUT NODEFVAL "clock"
+// Retrieval info: USED_PORT: dataa 0 0 64 0 INPUT NODEFVAL "dataa[63..0]"
+// Retrieval info: USED_PORT: datab 0 0 64 0 INPUT NODEFVAL "datab[63..0]"
+// Retrieval info: USED_PORT: result 0 0 64 0 OUTPUT NODEFVAL "result[63..0]"
+// Retrieval info: CONNECT: @clock 0 0 0 0 clock 0 0 0 0
+// Retrieval info: CONNECT: @dataa 0 0 64 0 dataa 0 0 64 0
+// Retrieval info: CONNECT: @datab 0 0 64 0 datab 0 0 64 0
+// Retrieval info: CONNECT: result 0 0 64 0 @result 0 0 64 0
+// Retrieval info: GEN_FILE: TYPE_NORMAL doubleDiv.v TRUE
+// Retrieval info: GEN_FILE: TYPE_NORMAL doubleDiv.inc FALSE
+// Retrieval info: GEN_FILE: TYPE_NORMAL doubleDiv.cmp FALSE
+// Retrieval info: GEN_FILE: TYPE_NORMAL doubleDiv.bsf FALSE
+// Retrieval info: GEN_FILE: TYPE_NORMAL doubleDiv_inst.v FALSE
+// Retrieval info: GEN_FILE: TYPE_NORMAL doubleDiv_bb.v FALSE

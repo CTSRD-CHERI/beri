@@ -52,6 +52,13 @@ test:		.ent test
 		nop	# Branch delay slot
 
 		#
+		# Clear the BEV flag
+		#
+
+		jal bev_clear
+		nop
+
+		#
 		# Set up exception handler
 		#
 

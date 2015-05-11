@@ -40,12 +40,10 @@ sandbox:
 		# Try to use KR1C ($c27) as a capability, without having
 		# the required permission in PCC.
 		#
-		dli     $a0, 0
-		cgetpcc  $a0($c27) # This should raise a C2E exception
+		cgetpcc  $c27	# This should raise a C2E exception
 
-		cjr     $ra($c24)
-		# branch delay slot
-		nop
+		cjr     $c24
+		nop		# branch delay slot
 
 		.global test
 test:		.ent test
@@ -82,17 +80,18 @@ test:		.ent test
 		dli     $t0, 0x1ff
 		candperm $c2, $c0, $t0
 		dla     $t0, sandbox
-		cjalr   $t0($c2)
-		# branch delay slot
-		nop
+		csetoffset $c2, $c2, $t0
+		cjalr   $c24, $c2
+		nop			# Branch delay slot
 
-		cgetlen $a1, $c27 # Should be 8
+		cgetoffset	$a0, $c27	# Should be 0
+		cgetlen $a1, $c27	# Should be 8
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		nop			# Branch-delay slot
 		.end	test
 
 		.ent bev0_handler

@@ -31,12 +31,8 @@
 .set noat
 
 #
-# Test can run instructions that don't load or store if c0.unsealed is not set.
+# Test can run instructions that don't load or store if c0.sealed is set.
 #
-
-sandbox:
-		creturn
-		nop	# Branch delay slot
 
 		.global test
 test:		.ent test
@@ -53,12 +49,11 @@ test:		.ent test
 
 		#
 		# Make $c2 a capability for a user-defined type whose id
-		# is the address of 'sandbox'.
+		# is 0x1234.
 		#
 
-		dla	$t0, sandbox
-		cmove   $c2, $c0
-		csettype $c2, $c0, $t0
+		dli $t0, 0x1234
+		csetoffset $c2, $c0, $t0
 
 		#
 		# Clear $a1 so we can tell if the cgetlen later on succeeds
@@ -68,13 +63,9 @@ test:		.ent test
 
 		#
 		# Seal $c0 with $c2
-		# Need to take away Permit_Execute permission before it
-		# can be sealed with csealdata.
 		#
 
-		dli $t0, 0x5
-		candperm $c3, $c0, $t0
-		csealdata $c0, $c3, $c2
+		cseal $c0, $c0, $c2
 
 		#
 		# Try a capability operation that doesn't use the sealed $c0

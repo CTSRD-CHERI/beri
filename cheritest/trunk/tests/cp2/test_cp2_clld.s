@@ -45,6 +45,7 @@ test:		.ent test
 		#
 		# Set up nop exception handler.
 		#
+
 		jal	bev_clear
 		nop
 		dla	$a0, bev0_handler
@@ -55,48 +56,31 @@ test:		.ent test
 		# Uninterrupted access; check to make sure the right value
 		# comes back.
 		#
-		cmove   $c1, $c0 # FIXME
+
 		dla	$t1, dword
 		clldr	$a0, $t1($c0)
 		cscdr	$a0, $t1($c0)
 		cldr	$a1, $t1($c0)
 
 		#
-		# Load the double word into another register between clldr and
-		# cscdr; this shouldn't cause the store to fail.
-		#
-		clldr	$a2, $t1($c0)
-		ld	$t0, 0($t1)
-		cscdr	$a2, $t1($c0)
-
-		#
 		# Check to make sure we are allowed to increment the loaded
 		# number, so we can do atomic arithmetic.
 		#
-		clldr	$a3, $t1($c0)
-		addiu	$a3, $a3, 1
-		cscdr	$a3, $t1($c0)
-		ld	$a4, 0($t1)
 
-		#
-		# Store to double word between clldr and cscdr; check to make
-		# sure that the cscdr not only returns failure, but doesn't
-		# store.
-		#
-		li	$t0, 1
-		clldr	$a5, $t1($c0)
-		sd	$a5, 0($t1)
-		cscdr	$t0, $t1($c0)
-		ld	$a6, 0($t1)
+		clldr	$a2, $t1($c0)
+		daddiu	$a2, $a2, 1
+		cscdr	$a2, $t1($c0)
+		ld	$a3, 0($t1)
 
 		#
 		# Trap between clldr and cscdr; check to make sure that the
 		# cscdr not only returns failure, but doesn't store.
 		# XXX : Where does it check that?
 		#
-		clldr	$a7, $t1($c0)
+
+		clldr	$a4, $t1($c0)
 		tnei	$zero, 1
-		cscdr	$a7, $t1($c0)
+		cscdr	$a4, $t1($c0)
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

@@ -83,7 +83,7 @@ test:		.ent test
 
                 # Calculate offset of 'cap1' from 'data'
                 dla     $a6, cap1
-                sub     $t0, $a6, $t1
+                dsub    $t0, $a6, $t1
 
 		#
 		# Reload from an unaligned address

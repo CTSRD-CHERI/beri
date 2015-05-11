@@ -1,6 +1,6 @@
 #-
 # Copyright (c) 2012 Robert M. Norton
-# Copyright (c) 2012 David Chisnall
+# Copyright (c) 2012 David T. Chisnall
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of

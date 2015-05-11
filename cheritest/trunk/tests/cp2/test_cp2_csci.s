@@ -42,11 +42,12 @@ test:		.ent test
 		daddu	$fp, $sp, 32
 
 		#
-		# Tweak capability type field so that we can tell if type and
-		# base are in the right order.
+		# Tweak capability offset field so that we can tell if base and
+		# offset are in the right order.
 		#
-		dli	$t0, 0x1
-		csettype	$c2, $c2, $t0
+
+		dli	$t0, 0x5
+		csetoffset $c2, $c2, $t0
 
 		#
 		# Set the permissions field so we can tell if it is stored

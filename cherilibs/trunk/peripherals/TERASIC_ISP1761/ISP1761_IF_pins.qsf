@@ -1,4 +1,3 @@
-# 3-port High-Speed USB OTG
 set_location_assignment PIN_AF16 -to OTG_D[0]
 set_instance_assignment -name IO_STANDARD "1.8 V" -to OTG_D[0]
 set_location_assignment PIN_AJ14 -to OTG_D[1]

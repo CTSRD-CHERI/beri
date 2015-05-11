@@ -47,5 +47,7 @@ SECTIONS
                 obj/parallel_sort.o(.text) }
     .bss    : { obj/main.o(.bss) }
     .data   : { obj/main.o(.data) }
+    _gp = ALIGN(16) + 0x7ff0;
+    .got : { *(.got.plt) *(.got) }
     .rodata : { obj/main.o(.rodata*) }
 }

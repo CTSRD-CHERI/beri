@@ -31,13 +31,8 @@
 .set noat
 
 #
-# Test cunseal with an ephemeral capability
+# Test cunseal with a local capability
 #
-
-# In this test, sandbox isn't actually called, but its address is used
-# as an otype.
-sandbox:
-		creturn
 
 		.global test
 test:		.ent test
@@ -46,26 +41,35 @@ test:		.ent test
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
-		cmove    $c1, $c0
-		dla      $t0, sandbox
-		csettype $c1, $c1, $t0
-		# Permissions Permit_Seal, Permit_Set_Type, Permit_Load,
-                # Permit_Execute, Non_Ephemeral
-		dli      $t0, 0x187
+		#
+		# Make $c1 a template capability for type 0x1234
+		#
+
+		dli	 $t0, 0x1234
+		csetoffset $c1, $c0, $t0
+
+		#
+		# Make c2 a sealed data capability
+		#
+
+		dla      $t0, data
+		cincbase $c2, $c0, $t0
+		dli	 $t0, 8
+		csetlen  $c2, $c2, $t0
+		dli	 $t0, 0x0d # Permit_Store, Permit_Load and Global
+		candperm $c2, $c2, $t0
+		cseal	 $c2, $c2, $c1
+
+		#
+		# Make $c1 local
+		#
+
+		dli      $t0, 0x80 # Permit_Seal (not Global)
 		candperm $c1, $c1, $t0
 
-		csealcode $c2, $c1
-
 		#
-		# Make $c1 ephemeral
-		# Permissions Permit_Set_Type and Permit_Seal
-		#
-		dli      $t0, 0x180
-		candperm $c1, $c1, $t0
-
-		#
-		# Unseal $c2 with an ephemeral capability
-		# Result in $c3 should also be ephemeral
+		# Unseal $c2 with a local capability
+		# Result in $c3 should also be local
 		#
                 cunseal  $c3, $c2, $c1
 
@@ -77,4 +81,9 @@ test:		.ent test
 		jr	$ra
 		nop			# branch-delay slot
 		.end	test
+
+                .data
+                .align  3
+data:           .dword  0x0123456789abcdef
+                .dword  0x0123456789abcdef
 

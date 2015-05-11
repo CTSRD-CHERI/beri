@@ -37,7 +37,7 @@ class test_cp2_x_csealdata_tag(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_x_csealdata_tag_1(self):
         '''Test csealdata did not seal with an untagged capability'''
-        self.assertRegisterEqual(self.MIPS.a0, 1,
+        self.assertRegisterEqual(self.MIPS.a0, 0,
             "csealdata sealed with an untagged capability")
 
     @attr('capabilities')

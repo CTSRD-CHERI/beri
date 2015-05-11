@@ -38,7 +38,13 @@ import SpecialFIFOs::*;
 import ConfigReg :: *;
 import Vector :: *;
 import FShow::*;
-
+`ifdef CAP
+  import CapCop::*;
+  `define USECAP 1
+`elsif CAP128
+  import CapCop128::*;
+  `define USECAP 1
+`endif
 import CircularBuffer::*;
 import TraceTypes::*;
 
@@ -49,11 +55,11 @@ typedef enum {Polling,
 } DebugState deriving (Bits, Eq, FShow);
 
 typedef enum{
-  Type, Length, Data
+  Type, Length, Data, Deliver
 } MsgBuildState deriving (Bits, Eq);
 
 TraceEntry defaultTraceEntry = TraceEntry {
-         version: 0,
+         entry_type: TraceType_Invalid,
          pc: 0,
          inst: 0,
          regVal1: 0,
@@ -65,6 +71,30 @@ TraceEntry defaultTraceEntry = TraceEntry {
          valid: True
       };
 
+`ifdef USECAP
+  function ShortCap cap2short(Capability long);
+    Bit#(32) otype = zeroExtend(getType(long));
+    return ShortCap{
+      isCapability: long.isCapability,
+      perms: ShortPerms{
+        //permit_seal: long.perms.permit_seal,
+        permit_store_ephemeral_cap: long.perms.permit_store_ephemeral_cap,
+        permit_store_cap: long.perms.permit_store_cap,
+        permit_load_cap: long.perms.permit_load_cap,
+        permit_store: long.perms.permit_store,
+        permit_load: long.perms.permit_load,
+        permit_execute: long.perms.permit_execute,
+        non_ephemeral: long.perms.non_ephemeral
+      },
+      sealed: long.sealed,
+      otype:  truncate(otype),
+      offset: word2short(getOffset(long)),
+      base: word2short(getBase(long)),
+      length: word2short(getLength(long))
+    };
+  endfunction
+`endif
+
 typedef enum {
   Null              = 8'h0,
   LoadInstruction   = 8'h69,            // "i"
@@ -74,9 +104,10 @@ typedef enum {
   LoadBreakPoint1   = 8'h31,            // "1"
   LoadBreakPoint2   = 8'h32,            // "2"
   LoadBreakPoint3   = 8'h33,            // "3"
+  BreakOnTraceFltr  = 8'h42,            // "B"
   LoadTraceFltr     = 8'h43,            // "C"
   LoadTraceFltrMask = 8'h4D,            // "M"
-  ExecuteInstruction= 8'h65,           // "e"
+  ExecuteInstruction= 8'h65,            // "e"
   ReportDest        = 8'h64,            // "d"
   PauseExecution    = 8'h70,            // "p"
   ResumeExecution   = 8'h72,            // "r"
@@ -94,6 +125,7 @@ typedef enum {
   LoadBreakPoint1Response   = 8'hB1,
   LoadBreakPoint2Response   = 8'hB2,
   LoadBreakPoint3Response   = 8'hB3,
+  BreakOnTraceFltrResponse  = 8'hC2,
   LoadTraceFltrResponse     = 8'hC3,
   LoadTraceFltrMaskResponse = 8'hCD,
   ExecuteInstructionResponse= 8'hE5,
@@ -172,7 +204,6 @@ module mkDebugConvert(DebugConvert);
   Reg#(MsgBuildState)   commandState  <- mkReg(Type);
   Reg#(UInt#(8))        commandCount  <- mkReg(0);
   Reg#(MessagePacket)   command       <- mkRegU;
-  FIFO#(MessagePacket)  commands      <- mkFIFO1; // Commands from the UART
   
   //Output translation State
   FIFO#(Bit#(8))        outChar       <- mkSizedFIFO(1024); // Size to fit M9K BRAMs
@@ -180,7 +211,7 @@ module mkDebugConvert(DebugConvert);
   Reg#(UInt#(8))        responseCount <- mkReg(0);
   FIFO#(MessagePacket)  responses     <- mkFIFO1;
 
-  rule getCommand;
+  rule getCommand(commandState != Deliver);
     MessagePacket newCmd = command;
     Bit#(8) char = inChar.first();
     inChar.deq();
@@ -202,8 +233,7 @@ module mkDebugConvert(DebugConvert);
       else
         begin
           newCmd.length = 0;
-          commandState <= Type;
-          commands.enq(newCmd);
+          commandState <= Deliver;
         end
       end
       Data: 
@@ -211,8 +241,7 @@ module mkDebugConvert(DebugConvert);
         newCmd.data[commandCount] = char;
         if (commandCount >= command.length - 1)
 	      begin
-          commandState <= Type;
-          commands.enq(newCmd);
+          commandState <= Deliver;
         end
         commandCount <= commandCount + 1;
       end
@@ -252,8 +281,24 @@ module mkDebugConvert(DebugConvert);
     endcase
   endrule
    
-  interface Server stream   = fifosToServer(inChar, outChar);
-  interface Client messages = fifosToClient(commands, responses);
+  interface Server stream = fifosToServer(inChar, outChar);
+  //interface Client messages = fifosToClient(commands, responses);
+  // client interface
+  interface Client messages;
+    interface Get request;
+      method ActionValue#(MessagePacket) get() if (commandState == Deliver);
+        commandState <= Type;
+        return command;
+      endmethod
+    endinterface
+
+    interface Put response;
+      method Action put(d);
+        responses.enq(d);
+      endmethod
+    endinterface
+  endinterface
+
 endmodule
 
 //=======================================================================
@@ -281,7 +326,8 @@ module mkDebug(DebugIfc);
   Reg#(MIPSReg)         opA           <- mkRegU;
   Reg#(MIPSReg)         opB           <- mkRegU;
   Vector#(4, Reg#(Maybe#(MIPSReg))) bp<- replicateM(mkConfigReg(Invalid));
-  FIFOF#(MessagePacket) bpReport      <- mkUGFIFOF;
+  FIFOF#(MessagePacket) bpReport      <- mkUGFIFOF1;
+  FIFOF#(MessagePacket) bpReport2     <- mkUGFIFOF1;
 
   Reg#(MIPSReg)                dest   <- mkRegU;
   Reg#(Bit#(32))        instruction   <- mkRegU;
@@ -303,11 +349,12 @@ module mkDebug(DebugIfc);
   Reg#(UInt#(3))          pipeCount   <- mkConfigReg(0);
   Reg#(MIPSReg)              mipsPC   <- mkConfigReg(0); // Last PC fetched in pipeline.
   
+  Reg#(Bool)          breakTraceCmp   <- mkConfigReg(False);
   Reg#(TraceEntry)         traceCmp   <- mkReg(defaultTraceEntry);
   Reg#(Bit#(256))      traceCmpMask   <- mkReg(pack(defaultTraceEntry));
   
   FIFO#(MessagePacket)   curCommand   <- mkFIFO1;
-  CircularBuffer#(12, TraceEntry) trace_buf <- mkBRAMCircularBuffer(); // 4095 entry circular buffer
+  CircularBuffer#(10, TraceEntry) trace_buf <- mkBRAMCircularBuffer(); // 4095 entry circular buffer
   Reg#(Bool)  deterministicCycleCount <- mkReg(False);
 
   (* descending_urgency = "reportBreakPoint, doCommands" *)
@@ -343,11 +390,15 @@ module mkDebug(DebugIfc);
         $display("DEBUG PACKET: ", fshow(com));
         TraceEntry te = unpack(newVal);
         $display("valid=%d, version=%d, ex=%d, reserved=%x, inst=%x, pc=%x, regVal1=%x, regVal2=%x",
-          te.valid, te.version, te.ex, te.reserved, te.inst, te.pc, te.regVal1, te.regVal2); 
+          te.valid, te.entry_type, te.ex, te.reserved, te.inst, te.pc, te.regVal1, te.regVal2); 
         $display("DEBUG RESPONSE: ", fshow(MessagePacket{op: responseCode(com.op), length: 8'b0, data: ?}));
         Bool error = (com.length != 32);
         if (!error) debugConvert.messages.response.put(MessagePacket{op: responseCode(com.op), length: 8'b0, data: ?});
                else debugConvert.messages.response.put(MessagePacket{op: InvalidInstruction  , length: 8'b0, data: ?});
+      end
+      BreakOnTraceFltr: begin
+        breakTraceCmp <= !breakTraceCmp;
+        debugConvert.messages.response.put(MessagePacket{op: BreakOnTraceFltrResponse, length: 8'b0, data: ?});
       end
       ExecuteInstruction: begin
         pauseWire <= True;
@@ -446,9 +497,15 @@ module mkDebug(DebugIfc);
     end
   endrule
 
-  rule reportBreakPoint(state == Polling && bpReport.notEmpty);
-    debugConvert.messages.response.put(bpReport.first);
-    bpReport.deq();
+  (* descending_urgency = "reportBreakPoint, unpipelinedStep" *)
+  rule reportBreakPoint(state == Polling && (bpReport.notEmpty||bpReport2.notEmpty));
+    if (bpReport.notEmpty) begin
+      debugConvert.messages.response.put(bpReport.first);
+      bpReport.deq();
+    end else begin
+      debugConvert.messages.response.put(bpReport2.first);
+      bpReport2.deq();
+    end
     pauseWire <= True;
     unPipeline <= False;
   endrule
@@ -549,12 +606,20 @@ module mkDebug(DebugIfc);
     mipsPC <= pc;
   endmethod
 
-  method Action putTraceEntry(TraceEntry te) if (trace_buf.notFull() || state!=StreamTrace);
+  method Action putTraceEntry(TraceEntry te);// if (trace_buf.notFull() || state!=StreamTrace);
     // Only enq the trace record if it matches the pattern and mask.
     // If the mask is 0, all records will be enqed.
-    Bit#(256) tentB = pack(te) & traceCmpMask;
-    tentB = pack(traceCmp) & traceCmpMask;
-    if ((pack(te) & traceCmpMask) == (pack(traceCmp) & traceCmpMask)) begin
+    if (!breakTraceCmp) begin
+      if ((pack(te) & traceCmpMask) == (pack(traceCmp) & traceCmpMask)) begin
+        trace_buf.enq(te);
+      end
+    end else begin
+      if ((pack(te) & traceCmpMask) == (pack(traceCmp) & traceCmpMask)) begin
+        MessagePacket com = MessagePacket{op: BreakpointFired, length: 8'h8, data: ?};
+        for (Integer i=0; i<8; i=i+1) com.data[7-i] = mipsPC[i*8+7:i*8];
+        if (state!=StreamTrace) bpReport2.enq(com);
+        breakTraceCmp <= False;
+      end
       trace_buf.enq(te);
     end
   endmethod

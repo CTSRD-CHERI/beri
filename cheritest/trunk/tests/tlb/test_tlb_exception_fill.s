@@ -83,20 +83,20 @@ test:		.ent test
 		dli $a4, 0
 write_loop:
 		sd $a4, 0($a4)
-		daddi $a4, $a4, 64
+		daddi $a4, $a4, 128
 		bnez $a3, write_loop
-		daddi $a3, $a3, -64
+		daddi $a3, $a3, -128
 		
 		dli $a3, 0x40000
 read_loop:
-		daddi $a4, $a4, -64
+		daddi $a4, $a4, -128
 		ld $a5, 0($a4)
 		beq $a5, $a4, skip_add
 		nop
 		addi $a6, $a6, 1
 skip_add:
 		bnez $a3, read_loop
-		daddi $a3, -64
+		daddi $a3, -128
 	
 return:
 		ld	$fp, 16($sp)

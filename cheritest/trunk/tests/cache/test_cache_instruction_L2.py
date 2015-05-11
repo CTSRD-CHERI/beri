@@ -72,8 +72,9 @@ class test_cache_instruction_L2(BaseBERITestCase):
     @attr('invalidateL2')
     def test_written_back_writable_location(self):
         self.assertRegisterEqual(self.MIPS.a5, 5, "Written back writable value is incorrect")
-        
+         
     @attr('cache')
     @attr('invalidateL2')
     def test_invalidated_writable_location(self):
         self.assertRegisterEqual(self.MIPS.a6, 5, "Writable location not invalidated")
+

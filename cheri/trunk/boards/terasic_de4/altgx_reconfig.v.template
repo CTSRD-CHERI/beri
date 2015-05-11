@@ -1,0 +1,65 @@
+// megafunction wizard: %ALTGX_RECONFIG%
+// GENERATION: STANDARD
+// VERSION: WM1.0
+// MODULE: alt2gxb_reconfig
+
+//
+// Copyright (c) 2014 Alex Horsman
+// All rights reserved.
+//
+// This software was developed by SRI International and the University of
+// Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+// ("CTSRD"), as part of the DARPA CRASH research programme.
+//
+// @BERI_LICENSE_HEADER_START@
+//
+// Licensed to BERI Open Systems C.I.C. (BERI) under one or more contributor
+// license agreements.  See the NOTICE file distributed with this work for
+// additional information regarding copyright ownership.  BERI licenses this
+// file to you under the BERI Hardware-Software License, Version 1.0 (the
+// "License"); you may not use this file except in compliance with the
+// License.  You may obtain a copy of the License at:
+//
+//   http://www.beri-open-systems.org/legal/license-1-0.txt
+//
+// Unless required by applicable law or agreed to in writing, Work distributed
+// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+// CONDITIONS OF ANY KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations under the License.
+//
+// @BERI_LICENSE_HEADER_END@
+//
+
+// ============================================================
+// CNX file retrieval info
+// ============================================================
+// Retrieval info: PRIVATE: ADCE NUMERIC "0"
+// Retrieval info: PRIVATE: CMU_PLL NUMERIC "0"
+// Retrieval info: PRIVATE: DATA_RATE NUMERIC "0"
+// Retrieval info: PRIVATE: INTENDED_DEVICE_FAMILY STRING "Stratix IV"
+// Retrieval info: PRIVATE: PMA NUMERIC "0"
+// Retrieval info: PRIVATE: PROTO_SWITCH NUMERIC "0"
+// Retrieval info: PRIVATE: SYNTH_WRAPPER_GEN_POSTFIX STRING "0"
+// Retrieval info: CONSTANT: CBX_BLACKBOX_LIST STRING "-lpm_mux"
+// Retrieval info: CONSTANT: INTENDED_DEVICE_FAMILY STRING "Stratix IV"
+// Retrieval info: CONSTANT: NUMBER_OF_CHANNELS NUMERIC "1"
+// Retrieval info: CONSTANT: NUMBER_OF_RECONFIG_PORTS NUMERIC "1"
+// Retrieval info: CONSTANT: enable_buf_cal STRING "true"
+// Retrieval info: CONSTANT: reconfig_fromgxb_width NUMERIC "17"
+// Retrieval info: CONSTANT: reconfig_togxb_width NUMERIC "4"
+// Retrieval info: USED_PORT: busy 0 0 0 0 OUTPUT NODEFVAL "busy"
+// Retrieval info: USED_PORT: reconfig_clk 0 0 0 0 INPUT NODEFVAL "reconfig_clk"
+// Retrieval info: USED_PORT: reconfig_fromgxb 0 0 17 0 INPUT NODEFVAL "reconfig_fromgxb[16..0]"
+// Retrieval info: USED_PORT: reconfig_togxb 0 0 4 0 OUTPUT NODEFVAL "reconfig_togxb[3..0]"
+// Retrieval info: CONNECT: @reconfig_clk 0 0 0 0 reconfig_clk 0 0 0 0
+// Retrieval info: CONNECT: @reconfig_fromgxb 0 0 17 0 reconfig_fromgxb 0 0 17 0
+// Retrieval info: CONNECT: busy 0 0 0 0 @busy 0 0 0 0
+// Retrieval info: CONNECT: reconfig_togxb 0 0 4 0 @reconfig_togxb 0 0 4 0
+// Retrieval info: GEN_FILE: TYPE_NORMAL altgx_reconfig.v TRUE
+// Retrieval info: GEN_FILE: TYPE_NORMAL altgx_reconfig.inc FALSE
+// Retrieval info: GEN_FILE: TYPE_NORMAL altgx_reconfig.cmp FALSE
+// Retrieval info: GEN_FILE: TYPE_NORMAL altgx_reconfig.bsf FALSE
+// Retrieval info: GEN_FILE: TYPE_NORMAL altgx_reconfig_inst.v FALSE
+// Retrieval info: GEN_FILE: TYPE_NORMAL altgx_reconfig_bb.v TRUE
+// Retrieval info: LIB_FILE: altera_mf
+// Retrieval info: LIB_FILE: lpm

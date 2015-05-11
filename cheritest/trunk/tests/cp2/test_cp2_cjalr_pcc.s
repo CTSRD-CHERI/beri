@@ -35,10 +35,10 @@
 #
 
 sandbox:
-		cgetpcc $t0($c2)
-		cjr $ra($c24)
-		# branch delat slot
-		nop
+		cgetpcc $c2
+		# FIXME: new assembler syntax
+		cjr $c24
+		nop		# branch delay slot
 
 		.global test
 test:		.ent test
@@ -56,9 +56,9 @@ test:		.ent test
 		candperm $c1, $c0, $t0
 
 		dla	$t0, sandbox
-		cjalr	$t0($c1)
-		# branch delay slot
-		nop
+		csetoffset $c1, $c1, $t0
+		cjalr	$c24, $c1
+		nop			# branch delay slot
 
 		# Check what was in the PCC
 		cgetperm $a0, $c2
@@ -67,7 +67,7 @@ test:		.ent test
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		nop			# branch delay slot
 		.end	test
 
 		.data

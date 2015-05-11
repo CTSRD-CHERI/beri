@@ -40,8 +40,6 @@ import FIFO::*;
 import FIFOF::*;
 import Vector::*;
 
-import ConfigReg::*;
-
 interface SFIFO#(type t, type st, type val);
   interface FIFOF#(t) fifo;
   interface Forwarder#(st,val) search;
@@ -121,6 +119,11 @@ module mkSFIFO1V#(function Maybe#(Maybe#(val)) searchF(t x, st r))
 
 endmodule
 
+
+ // First version: follows scheduled order of rules.  Thus values move on
+ // before being searched for; this introduces long combinational paths, from
+ // the register and through a principal rule before being forwarded.
+/*
 module mkSFIFO1#(parameter Integer dn, // position of deq (and notEmpty) in sequence
 		 parameter Integer en, // position of enq (and notFull) in sequence
 		 parameter Integer sn, // position of search in sequence
@@ -172,5 +175,138 @@ module mkSFIFO1#(parameter Integer dn, // position of deq (and notEmpty) in sequ
       endmethod
       method isFlushed = !full(fn);
    endinterface
-
 endmodule
+*/
+
+// Second Version: keeps value around, in a separate register, after being
+// dequeued, so that it may be searched for forwarding; this reduces
+// combinational path lengths compared with first version above.
+//
+module mkSFIFO1#(parameter Integer dn, // position of deq (and notEmpty) in sequence
+		 parameter Integer en, // position of enq (and notFull) in sequence
+		 parameter Integer sn, // position of search in sequence (now irrelevant)
+		 parameter Integer fn, // position of isFlushed in sequence
+		 function Maybe#(Maybe#(val)) searchF(t x, st r))
+   (SFIFO#(t,st,val))
+   provisos(Bits#(t,t__));
+
+   EHR#(3, Maybe#(t))  mvalue <- mkEHR(Invalid);
+   function full(n) = isValid(mvalue[n]);
+
+  `ifdef VERIFY
+   Reg#(Maybe#(t)) mreg = mvalue[2];
+  `else
+   Reg#(Maybe#(t)) mreg <- mkReg(Invalid);
+
+   (*no_implicit_conditions, fire_when_enabled *)
+   rule setReg;
+      mreg <= mvalue[2];
+   endrule
+  `endif
+
+   interface FIFOF fifo;
+      method Bool notEmpty();
+	 return full(dn);
+      endmethod
+
+      method t first() if (mreg matches tagged Valid .x);
+	 return x;
+      endmethod
+
+      method Action deq() if (full(dn));
+	 mvalue[dn] <= Invalid;
+      endmethod
+
+      // -----
+
+      method Bool notFull();
+	 return !full(en);
+      endmethod
+
+      method Action enq(x) if (!full(en));
+	 mvalue[en] <= tagged Valid x;
+      endmethod
+
+      // -----
+
+      method Action clear();
+	 mvalue[2] <= Invalid;
+      endmethod
+
+   endinterface
+
+   interface Forwarder search;
+      method Maybe#(Maybe#(val)) searchA(st r);
+	 return (mreg matches tagged Valid .x ? searchF(x, r) : Invalid);
+      endmethod
+      method Maybe#(Maybe#(val)) searchB(st r);
+	 return (mreg matches tagged Valid .x ? searchF(x, r) : Invalid);
+      endmethod
+      method isFlushed = !isValid(mreg);
+   endinterface
+endmodule
+
+// Third Version: same functionality as second version, but using a wire
+// instead of extra register.
+//
+/*
+module mkSFIFO1#(parameter Integer dn, // position of deq (and notEmpty) in sequence
+		 parameter Integer en, // position of enq (and notFull) in sequence
+		 parameter Integer sn, // position of search in sequence (now irrelevant)
+		 parameter Integer fn, // position of isFlushed in sequence
+		 function Maybe#(Maybe#(val)) searchF(t x, st r))
+   (SFIFO#(t,st,val))
+   provisos(Bits#(t,t__));
+
+   EHR#(3, Maybe#(t))  mvalue <- mkEHR(Invalid);
+   function full(n) = isValid(mvalue[n]);
+
+   Wire#(Maybe#(t)) mwire <- mkBypassWire;
+
+   (*no_implicit_conditions, fire_when_enabled*)
+   rule setWire;
+      mwire <= mvalue[0];
+   endrule
+
+   interface FIFOF fifo;
+      method Bool notEmpty();
+	 return full(dn);
+      endmethod
+
+      method t first() if (mvalue[0] matches tagged Valid .x);
+	 return x;
+      endmethod
+
+      method Action deq() if (full(dn));
+	 mvalue[dn] <= Invalid;
+      endmethod
+
+      // -----
+
+      method Bool notFull();
+	 return !full(en);
+      endmethod
+
+      method Action enq(x) if (!full(en));
+	 mvalue[en] <= tagged Valid x;
+      endmethod
+
+      // -----
+
+      method Action clear();
+	 mvalue[2] <= Invalid;
+      endmethod
+
+   endinterface
+
+   interface Forwarder search;
+      method Maybe#(Maybe#(val)) searchA(st r);
+	 return (mwire matches tagged Valid .x ? searchF(x, r) : Invalid);
+      endmethod
+      method Maybe#(Maybe#(val)) searchB(st r);
+	 return (mwire matches tagged Valid .x ? searchF(x, r) : Invalid);
+      endmethod
+      method isFlushed = !full(fn);
+   endinterface
+endmodule
+*/

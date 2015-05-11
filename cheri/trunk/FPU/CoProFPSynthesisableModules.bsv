@@ -35,6 +35,7 @@ import CoProFPServerCreation::*;
 
 import NonPipelinedMath::*;
 import FloatingPoint::*;
+import FloatingPointMultiplierSimple::*;
 import ClientServer::*;
 import GetPut::*;
 import FIFOF::*;
@@ -55,13 +56,8 @@ endmodule
 
 (* synthesize, options="-aggressive-conditions" *)
 module mkConcreteMulServers(MultipleFormatDiadicServers);
-    `ifdef BLUESIM
-        let floatMultiplier <- mkFloatingPointMultiplier();
-        let doubleMultiplier <- mkFloatingPointMultiplier();
-    `else
-        let floatMultiplier <- mkUnbufferedFloatMulServer();
-        let doubleMultiplier <- mkUnbufferedDoubleMulServer();
-    `endif
+    let floatMultiplier <- mkFloatingPointMultiplierSimple();
+    let doubleMultiplier <- mkFloatingPointMultiplierSimple();
     let worker <- mkCombinedServers(floatMultiplier, doubleMultiplier, 5);
     return worker;
 endmodule

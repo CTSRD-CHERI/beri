@@ -42,7 +42,8 @@ sandbox:
 		# sandbox should be running with a PCC that gives resticted
 		# permissions. Save it to $c2 so that we can check PCC.perms
 		# later on.
-		cgetpcc $a2($c2)
+		cgetpcc $c2
+		# FIXME: new assembler syntax
 
 		# Return from the sandboxed subroutine
 		.align 5
@@ -53,8 +54,8 @@ sandbox:
 		nop
 		nop
 		nop
-		cjr	$ra($c24)
-		nop	# Probably a branch-delay slot
+		cjr	$c24
+		nop		# Branch-delay slot
 
 		.global test
 test:		.ent test
@@ -78,11 +79,11 @@ loop:
 		move	$a1, $ra
 
 		dla	$a0, sandbox
-		# PC will be savced in $ra
+		csetoffset $c1, $c1, $a0
 		# PCC will be saved in $c24
-		cjalr	$a0($c1)
-		# I'm not sure if this a branch delay slot
-		nop
+		cjalr	$c24, $c1
+		nop			# Branch delay slot
+
 		nop
 
 		cgetperm $a3, $c2

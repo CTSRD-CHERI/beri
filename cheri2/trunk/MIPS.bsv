@@ -1,7 +1,7 @@
 /*-
- * Copyright (c) 2010 Gregory Chadwick
+ * Copyright (c) 2010 Gregory A. Chadwick
  * Copyright (c) 2010-2012 Jonathan Woodruff
- * Copyright (c) 2010-2011 Simon W. Moore 
+ * Copyright (c) 2010-2011 Simon W. Moore
  * Copyright (c) 2011-2012 SRI International
  * Copyright (c) 2012-2013 Robert M. Norton
  * All rights reserved.
@@ -327,8 +327,8 @@ typedef union tagged {
   void Ex_Trap;          // 13
   void Ex_CP2Trap;       // 14 CP2 Trap (CCall, CReturn) INTERNAL
   void Ex_FloatingPoint; // 15
-  void Ex_TLBLoadCap;    // 16 TLB cap load forbidden CHERI EXTENSION
-  void Ex_TLBStoreCap;   // 17 TLB cap store forbidden CHERI EXTENSION
+  void Ex_Exp16;         // 16 Unused (was TLB cap load forbidden CHERI EXTENSION)
+  void Ex_TLB17;         // 17 Unused (was TLB cap store forbidden INTERNAL)
   void Ex_CoProcess2;    // 18 Exception from Coprocessor 2 (extenstion to ISA)
   void Ex_TLBLoadInst;   // 19 TLB instruction miss INTERNAL
   void Ex_AddrErrInst;   // 20 Instruction address error INTERNAL
@@ -338,7 +338,7 @@ typedef union tagged {
   void Ex_MCheck;        // 24 Disasterous error in control system, eg, duplicate entries in TLB.
   void Ex_Thread;        // 25 Thread related exception (check VPEControl(EXCPT))
   void Ex_DSP;           // 26 Unable to do DSP ASE Instruction (lack of DSP)
-  void Ex_Exp27;         // 27 Place holder
+  void Ex_Suspended;     // 27 Fake exception used when polling for interrupt in waiting thread -- INTERNAL
   void Ex_TLBLoadInv;    // 28 TLB matched but valid bit not set INTERNAL
   void Ex_TLBStoreInv;   // 29 TLB matched but valid bit not set INTERNAL
   void Ex_CacheErr;      // 30 Parity/ECC error in cache.
@@ -363,8 +363,8 @@ typedef union tagged {
   void MIPS_Ex_Trap;          // 13
   void MIPS_Ex_Exp14;         // Place holder
   void MIPS_Ex_FloatingPoint; // 15
-  void MIPS_Ex_TLBLoadCap;    // 16 TLB cap load forbidden CHERI EXTENSION
-  void MIPS_Ex_TLBStoreCap;   // 17 TLB cap store forbidden CHERI EXTENSION
+  void MIPS_Ex_Exp16;         // 16 unused (was TLB cap load forbidden CHERI EXTENSION)
+  void MIPS_Ex_Exp17;         // 17 unused (was TLB cap store forbidden CHERI EXTENSION)
   void MIPS_Ex_CoProcess2;    // Exception from Coprocessor 2 (extenstion to ISA)
   void MIPS_Ex_Exp19;         // Place holder
   void MIPS_Ex_Exp20;         // Place holder
@@ -385,8 +385,6 @@ function MIPSException exceptionToMIPS(Exception e);
   case (e)
     Ex_TLBLoadInv:  return MIPS_Ex_TLBLoad;
     Ex_TLBStoreInv: return MIPS_Ex_TLBStore;
-    Ex_TLBLoadCap:  return MIPS_Ex_TLBLoadCap;
-    Ex_TLBStoreCap: return MIPS_Ex_TLBStoreCap;
     Ex_TLBLoadInst: return MIPS_Ex_TLBLoad;
     Ex_AddrErrInst: return MIPS_Ex_AddrErrLoad;
     Ex_TLBInvInst:  return MIPS_Ex_TLBLoad;

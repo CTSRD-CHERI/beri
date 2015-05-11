@@ -44,7 +44,7 @@ class test_raw_fpu_infinity_single(BaseBERITestCase):
 
     def test_raw_fpu_infinity_single_sub_2(self):
         '''Test sub.s from +infinity'''
-	self.assertRegisterEqual(self.MIPS.a2 & 0xffffffff, 0xff800000, "sub.s of +infinity did not give -infinity")
+	self.assertRegisterMaskEqual(self.MIPS.a2, 0xffffffff, 0xff800000, "sub.s of +infinity did not give -infinity")
 
     def test_raw_fpu_infinity_single_mul(self):
         '''Test mul.s of +infinity'''

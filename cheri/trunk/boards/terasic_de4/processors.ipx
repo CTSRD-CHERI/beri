@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<library>
+<!-- IP search path for BERI & CHERI processors -->
+<path path="../../ip/**/*" />
+<path path="../../../../cheri2/trunk/ip/**/*" />
+</library>

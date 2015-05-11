@@ -27,8 +27,11 @@
 #
 
 from beritest_tools import BaseBERITestCase
+from nose.plugins.attrib import attr
 
+@attr('mips_overflow')
 class test_dsub_overflow_minint(BaseBERITestCase):
+
     def test_epc(self):
         '''Test that an exception was raised when subtracting MININT from zero'''
         self.assertRegisterEqual(self.MIPS.a0, self.MIPS.a5, "Unexpected EPC")

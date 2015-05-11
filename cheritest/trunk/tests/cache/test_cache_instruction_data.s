@@ -66,19 +66,19 @@ test:		.ent test
 		#
 		dli	$t0, 0x9000000000000000
 		daddu	$t0, $gp, $t0
-		ld	$a0, 0($t0)
+		lb	$a0, 0($t0)
 
 		#
 		# (1) Read via cached address; brings line into data cache.
 		#
 		dli	$t0, 0x9800000000000000
 		daddu	$t0, $gp, $t0
-		ld	$a1, 0($t0)
+		lb	$a1, 0($t0)
 		
 		#
 		# (2) Read via cached address; brings line into data cache.
 		#
-		ld	$a2, 0($t0)
+		lb	$a2, 0($t0)
 		
 		#
 		# (3) series of cache instructions to writeback cache lines from the L1 data.  
@@ -92,7 +92,7 @@ test:		.ent test
 		#
 		# (4) Read again via cached address.  Should still be in cache and unchanged.
 		#
-		ld	$a3, 0($t0)
+		lb	$a3, 0($t0)
 		
 		#
 		# (4) series of cache instructions to writeback/invalidate data cache lines from data L1.  
@@ -105,7 +105,7 @@ test:		.ent test
 		#
 		# (4) Read again via cached address.  Should come from L2 cache and unchanged.
 		#
-		ld	$a4, 0($t0)
+		lb	$a4, 0($t0)
 		
 		#
 		# (5) series of cache instructions to invalidate data cache lines.  
@@ -118,7 +118,7 @@ test:		.ent test
 		#
 		# (4) Read again via cached address.  Should come from L2 cache and unchanged.
 		#
-		ld	$a5, 0($t0)
+		lb	$a5, 0($t0)
 		
 		#
 		# (7) series of cache instructions to writeback/invalidate data cache lines on a hit.
@@ -130,7 +130,15 @@ test:		.ent test
 		cache 0x15, 10($t0) 
 		cache 0x15, 18($t0) 
 		
-		ld	$a6, 0($t0)
+		lb	$a6, 0($t0)
+
+		# 
+		# (8) Index Load Tag Data Cache. Read the tags for a particular cache line. 
+		#
+		#ld    $t3, 0($t0)	
+		cache   0x05, 0($t0)	# dL1 Tag lookup
+		mfc0    $a7, $28          # Read CP0 register TagLo dL1
+
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

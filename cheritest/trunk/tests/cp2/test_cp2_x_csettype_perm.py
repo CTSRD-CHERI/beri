@@ -34,18 +34,21 @@ from nose.plugins.attrib import attr
 
 class test_cp2_x_csettype_perm(BaseBERITestCase):
     @attr('capabilities')
+    @attr('csettype')
     def test_cp2_x_csettype_perm_1(self):
         '''Test csettype did not set the type without Permit_Set_Type permission'''
         self.assertRegisterEqual(self.MIPS.a0, 0,
             "csettype set the type when did not have Permit_Set_Type permission")
 
     @attr('capabilities')
+    @attr('csettype')
     def test_cp2_x_csettype_perm_2(self):
         '''Test csettype raises an exception when doesn't have Permit_Set_Type permission'''
         self.assertRegisterEqual(self.MIPS.a2, 1,
             "csettype did not raise an exception when didn't have Permit_Set_Type permission")
 
     @attr('capabilities')
+    @attr('csettype')
     def test_cp2_x_csettype_perm_3(self):
         '''Test capability cause is set correctly when CSetType doesn't have Permit_Set_Type permission'''
         self.assertRegisterEqual(self.MIPS.a3, 0x1801,

@@ -114,14 +114,16 @@ test:		.ent test
 		#
 
 		dla     $t0, sandbox
-		cjr     $t0($c1)
+		csetoffset $c1, $c1, $t0
+		cjr     $c1
 		nop	# branch delay slot
 
 L1:
 
 		# The creturn should have restored all privileges to $pcc.
 		# Check that it has.
-		cgetpcc $t0($c1)
+		cgetpcc $c1
+		# FIXME: new assembler syntax
 		cgetperm $a6, $c1
 		
 		
@@ -152,7 +154,7 @@ bev0_ccall_handler:
 		cgetcause $a3
 		# When the exception happened, $kcc should have been copied
 		# to $pcc.
-		cgetpcc $k0($c28)
+		cgetpcc $c28
 		cgetperm $a4, $c28
 
 		#

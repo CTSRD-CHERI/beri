@@ -1,0 +1,16 @@
+This directory hierarchy is intended for use with
+the browser program to demonstrate the use of
+capabilities in the form of Capsicum and CHERI to
+protect an application from a library with a
+developer installed backdoor.
+
+The directories "bad" and "good" contain the same
+PNG images.  The bad directory contains an extra
+file which triggers the backdoor when the browser
+examines the file to determine which icon to
+display.  If the protection mode is set to None
+it will successfully execute its payload.  If the
+protection mode is set to Capsicum the protected
+child process will crash, but the payload will
+not be executed and a toxic warning icon will be
+displayed.

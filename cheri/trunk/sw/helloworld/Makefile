@@ -2,11 +2,11 @@
 # Copyright (c) 2010 Gregory A. Chadwick
 # Copyright (c) 2010-2013 Jonathan Woodruff
 # Copyright (c) 2011 Robert N. M. Watson
-# Copyright (c) 2011 Steven J. Mudoch
+# Copyright (c) 2011 Steven J. Murdoch
 # Copyright (c) 2011 Robert M. Norton
 # Copyright (c) 2011 Wojciech A. Koszek
 # Copyright (c) 2012-2013 Alan Mujumdar
-# Copyright (c) 2013 Theo Markettos
+# Copyright (c) 2013 A. Theodore Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of

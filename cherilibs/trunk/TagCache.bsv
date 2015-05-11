@@ -32,12 +32,12 @@ import List::*;
 import FIFO::*;
 import SpecialFIFOs::*;
 import FIFOF::*;
+import FF::*;
 import GetPut::*;
 import MasterSlave::*;
 import Vector::*;
 import Debug::*;
 import Library::*;
-import ConfigReg::*;
 import MEM :: * ;
 import MemTypes::*;
 import DefaultValue::*;
@@ -68,7 +68,7 @@ import Assert::*;
  * byte:   5 bit byte index into a 256-bit word
  *****************************************************************************/
 
-typedef enum {Init, Serving, MissStart, MissRead, MissData} CacheState deriving (Bits, Eq);
+typedef enum {Init, Serving, MissRead} CacheState deriving (Bits, Eq);
 typedef enum {TagCache, Processor} MemReqSource deriving (Bits, Eq);
 
 typedef struct {
@@ -99,33 +99,34 @@ endinterface
 (*synthesize*)
 module mkTagCache(TagCacheIfc);
   // FIFO containing the current in progress request
-  FIFOF#(CheriMemRequest)            preReq_fifo     <- mkBypassFIFOF;
-  FIFO#(CheriMemRequest)             req_fifo        <- mkLFIFO;
+  FIFOF#(CheriMemRequest)  req_fifo        <- mkLFIFOF;
 
   // BRAMs containing cache tags and data (i.e. cached tags!)
-  MEM#(Bit#(8), TagT)             tags            <- mkMEM;
-  MEM#(Bit#(8), Bit#(64))         data            <- mkMEM;
+  MEM#(Bit#(8), TagT)      tags            <- mkMEM;
+  MEM#(Bit#(8), Bit#(64))  data            <- mkMEM;
 
-  FIFO#(Bool)                     tag_out_fifo    <- mkSizedFIFO(8);
-  FIFOF#(CheriMemResponse)           sendResp_fifo   <- mkBypassFIFOF;
-  FIFOF#(CheriMemResponse)            mem_out_fifo   <- mkFIFOF;
-
+  FIFOF#(Bool)             tag_out_fifo    <- mkUGSizedFIFOF(8);
+  `ifndef NOTAG
+    FIFOF#(CheriMemResponse) mem_out_fifo    <- mkUGSizedFIFOF(8);
+  `else
+    FIFOF#(CheriMemResponse) mem_out_fifo    <- mkBypassFIFOF;
+  `endif
   TagT invalidTag = TagT{valid: False, tag: 0, dirty: False};
   EvictionT invalidEviction = EvictionT{tag: invalidTag, addr: ?, data: ?};
-  Reg#(EvictionT)                 eviction        <- mkReg(invalidEviction);
+  Reg#(EvictionT)          eviction        <- mkReg(invalidEviction);
 
   // FIFO of requests going to the memory interface
-  FIFOF#(CheriMemRequest)            memReq_fifo     <- mkFIFOF;
-  // FIFO recording whether the last memory request was for the data or the tag cache
-  FIFO#(MemReqSource)             nextMemSource   <- mkSizedFIFO(8);
+  FIFOF#(CheriMemRequest)  memReq_fifo     <- mkLFIFOF;
   // FIFO for memory responses containing tags
-  FIFOF#(CheriMemResponse)           preRespQ_fifo   <- mkBypassFIFOF;
-  FIFOF#(CheriMemResponse)           cache_respQ     <- mkBypassFIFOF;
+  FIFOF#(CheriMemResponse) cache_respQ     <- mkBypassFIFOF;
 
-  Reg#(CacheState)                cacheState      <- mkConfigReg(Init);
-  Reg#(Bit#(8))                   count           <- mkConfigReg(0);
+  Reg#(CacheState)         cacheState      <- mkReg(Init);
+  Reg#(CheriTransactionID) nextId          <- mkReg(0);
+  
+  Reg#(UInt#(TLog#(MemTypes::MaxNoOfFlits))) flit <- mkReg(0);
 
 `ifndef NOTAG
+  Reg#(Bit#(8))                   count           <- mkReg(0);
   rule initialize(cacheState == Init);
     tags.write(pack(count), invalidTag);
     if (count == 255) begin
@@ -133,14 +134,33 @@ module mkTagCache(TagCacheIfc);
       count <= 0;
     end else count <= count + 1;
   endrule
+  
+  function Action noteLookupComplete(CheriMemRequest req) = action
+    Bool completeTransaction = True;
+    if (req.operation matches tagged Read .rop &&& rop.noOfFlits != flit) 
+      completeTransaction = False; 
+    if (completeTransaction) begin
+      req_fifo.deq;
+      let unusedA  <- tags.read.get();
+      let unusedB <- data.read.get();
+      flit <= 0;
+    end else flit <= flit + 1;
+    debug2("tagcache", $display("flit = %x, finished = %x", flit, completeTransaction));
+  endaction;
 
-  // Only start the lookup when there aren't any more active requests, ie, let a burst go through in sequence.
-  (* descending_urgency = "writeBackEviction, getCheriMemResponse, sendMissDataRequest" *)
-  rule getCheriMemResponse(cacheState == Serving);
-    let req = req_fifo.first;
+  (* descending_urgency = "writeBackEviction, getCheriMemResponse" *)
+  rule getCheriMemResponse(cacheState == Serving && tag_out_fifo.notFull);
+    CheriMemRequest req = req_fifo.first;
     TagCacheAddr addr = unpack(pack(req.addr));
-    let tagRead  <- tags.read.get();
-    let dataRead <- data.read.get();
+    addr.word = addr.word + zeroExtend(pack(flit));
+    let tagRead  = tags.read.peek();
+    let dataRead = data.read.peek();
+    
+    Bool cached = {case (req.operation) matches
+                      tagged Read .rop:  return !rop.uncached;
+                      tagged Write .wop: return !wop.uncached;
+                      default: return False;
+                    endcase};
 
     // Only track tags for the bottom 4GB for now.  Return 0 otherwise.
     // Currently the cache system will allow tags to be valid for higher addresses until
@@ -150,20 +170,20 @@ module mkTagCache(TagCacheIfc);
     // Check the old victim value to see if it's a hit before going to memory.
     Bool hitVictim = addr.index == eviction.addr.index && addr.tag == eviction.tag.tag && eviction.tag.valid;
 
-    if (!hit && !outOfBound && tagRead.valid)
+    if ((!hit && !outOfBound && tagRead.valid) || (hit && !cached))
       begin
         let evicted = EvictionT{
                 tag: tagRead,
                 data: dataRead,
                 addr: unpack({8'h0,tagRead.tag,addr.index,11'h0})
             };
-        debug2("tcache", $display("TagCache: addr %x miss, victim buf <= ", addr, fshow(evicted)));
+        debug2("tagcache", $display("TagCache: addr %x miss, victim buf <= ", addr, fshow(evicted)));
         eviction <= evicted;
       end
     if (hitVictim && !hit && !outOfBound)
       begin
         // Swap the victim buffer with the current read since it will be overwritten.
-        debug2("tcache", $display("TagCache: addr %x hit in victim buf", addr, fshow(eviction)));
+        debug2("tagcache", $display("TagCache: addr %x hit in victim buf", addr, fshow(eviction)));
         // Old values of the victim!
         dataRead = eviction.data;
         tagRead = eviction.tag;
@@ -174,57 +194,52 @@ module mkTagCache(TagCacheIfc);
 
     if (hit || outOfBound)
       begin // If it's a hit...
-        req_fifo.deq;
+        noteLookupComplete(req);
         // send the data request to dram
-        memReq_fifo.enq(req);
-        debug2("tagcache", $display("<time %0t, TagCache> forward req:", $time, fshow(req)));
+        debug2("tagcache", $display("<time %0t, TagCache> forward resp:", $time, fshow(req)));
         case (req.operation) matches
-          tagged Read .rop :
-          begin
-            nextMemSource.enq(Processor); // signal that the next response from memory is data, not tags
+          tagged Read .rop : begin
             Bool response = outOfBound ? False : dataRead[addr.word]==1'b1;
             tag_out_fifo.enq(response);
-            debug2("tcache", $display("TagCache Read Hit! %x=%x response=%b", addr, dataRead, response));
+            debug2("tagcache", $display("<time %0t, TagCache> TagCache Read Hit! %x=%x response=%b", $time, addr, dataRead, response));
           end
-          tagged Write .wop &&& (!outOfBound) :
-          begin // Else, do the the write.
-            nextMemSource.enq(Processor); // signal that the next response from memory is data, not tags
-            if (dataRead[addr.word] != pack(wop.data.cap))
-              begin
-                dataRead[addr.word] = pack(wop.data.cap);
-                tagRead.dirty = True;
-                debug2("tcache", $display("TagCache Write Hit! %x=%x (%d:=%b)", addr, dataRead, addr.word, wop.data.cap));
-              end
+          tagged Write .wop: begin // Else, do the the write.
+            if (dataRead[addr.word] != pack(wop.data.cap) && !outOfBound) begin
+              dataRead[addr.word] = pack(wop.data.cap);
+              tagRead.dirty = True;
+              debug2("tagcache", $display("<time %0t, TagCache> TagCache Write Hit! %x=%x (%d:=%b)", $time, addr, dataRead, addr.word, wop.data.cap));
+            end
           end
         endcase
-        debug2("tcache", $display("TagCache: write back hit line %x <= %x", addr.index, dataRead, fshow(tagRead)));
+        debug2("tagcache", $display("TagCache: write back hit line %x <= %x", addr.index, dataRead, fshow(tagRead)));
         // Always write the new tags and data in case the victim was hit
         // and should replace the current entry.
-        tags.write(addr.index  , tagRead);
-        data.write(addr.index  , dataRead);
+        tags.write(addr.index, tagRead);
+        data.write(addr.index, dataRead);
       end
     else
       begin // If it is a miss
         let tagAddr =  {16'h3F, pack(addr)[31:13], 5'h0};
         CheriMemRequest mem_req = defaultValue;
         mem_req.addr = unpack(tagAddr);
-        mem_req.masterID = ?;
-        mem_req.transactionID = ?;
+        mem_req.masterID = 12;
+        mem_req.transactionID = nextId;
         mem_req.operation = tagged Read {
                               uncached: False,
                               linked: False,
                               noOfFlits: 0,
                               bytesPerFlit: BYTE_32
                             };
+        nextId <= nextId + 1;
         memReq_fifo.enq(mem_req);
-        nextMemSource.enq(TagCache);
         cacheState <= MissRead;
-        debug2("tcache", $display("TagCache request tag data at %x", $time, fshow(mem_req)));
+        debug2("tagcache", $display("TagCache request tag data at %x", $time, fshow(mem_req)));
       end
   endrule
 
-  rule getDRAMResponse(cacheState == MissRead);
-    let req = req_fifo.first;
+  rule getDRAMResponse(cacheState == MissRead && tag_out_fifo.notFull);
+    CheriMemRequest req = req_fifo.first;
+    noteLookupComplete(req);
     TagCacheAddr addr = unpack(pack(req.addr));
     CheriMemResponse resp <- toGet(cache_respQ).get;
     Vector#(4, Bit#(64)) words = ?;
@@ -234,11 +249,11 @@ module mkTagCache(TagCacheIfc);
     endcase
     let word = words[pack(addr)[12:11]];
 
-    debug2("tcache", $display("TagCache fill %x = %x ", addr, word, fshow(words), fshow(resp)));
+    debug2("tagcache", $display("TagCache fill %x = %x ", addr, word, fshow(words), fshow(resp)));
     Bool response = word[addr.word] == 1'b1;
     Bool isDirty = False;
     case (req.operation) matches
-        tagged Read .rop : begin
+      tagged Read .rop : begin
         tag_out_fifo.enq(response);
       end
       tagged Write .wop: begin // Else, do the the write.
@@ -250,17 +265,8 @@ module mkTagCache(TagCacheIfc);
     data.write(addr.index, word);
     TagT newTag = TagT{tag: addr.tag, valid: True, dirty: isDirty};
     tags.write(addr.index, newTag);
-    debug2("tcache", $display("TagCache: write back filled line %x <= %x ", addr.index, word, fshow(newTag)));
-    
-    cacheState <= MissData;
-  endrule
+    debug2("tagcache", $display("TagCache: write back filled line %x <= %x ", addr.index, word, fshow(newTag)));
 
-  rule sendMissDataRequest(cacheState == MissData);
-    let req <- popFIFO(req_fifo);
-    // send the data request to dram
-    debug2("tagcache", $display("<time %0t, TagCache> forward req after miss: ", $time, fshow(req)));
-    memReq_fifo.enq(req);
-    nextMemSource.enq(Processor); // signal that the next response from memory is data, not tags
     cacheState <= Serving;
   endrule
 
@@ -270,8 +276,8 @@ module mkTagCache(TagCacheIfc);
     let wbAddr = {16'h3f, pack(addr)[31:13],5'h0};
     CheriMemRequest mem_req = defaultValue;
     mem_req.addr = unpack(wbAddr);
-    mem_req.masterID = ?;
-    mem_req.transactionID = ?;
+    mem_req.masterID = 12;
+    mem_req.transactionID = nextId;
     mem_req.operation = tagged Write {
                           uncached: False,
                           conditional: False,
@@ -284,54 +290,28 @@ module mkTagCache(TagCacheIfc);
                           },
                           last: True
                         };
-    nextMemSource.enq(TagCache);
-    debug2("tcache", $display("TagCache Eviction Writeback write tag data time %d", $time, fshow(mem_req)));
+    nextId <= nextId + 1;
+    debug2("tagcache", $display("TagCache Eviction Writeback write tag data time %d", $time, fshow(mem_req)));
     memReq_fifo.enq(mem_req);
     ev.tag.dirty = False;
-    debug2("tcache", $display("TagCache Eviction Writeback victim buffer <= ", fshow(ev)));
+    debug2("tagcache", $display("TagCache Eviction Writeback victim buffer <= ", fshow(ev)));
     eviction <= ev;
   endrule
 `endif
-
-  rule handleRequest(cacheState == Serving);
-    CheriMemRequest reqIn = preReq_fifo.first;
-    preReq_fifo.deq;
-    TagCacheAddr addr = unpack(pack(reqIn.addr));
-    debug2("tcache", $display("TagCache request: addr=%x at time %d", addr, $time));
-    `ifdef NOTAG
-      memReq_fifo.enq(reqIn);
-      nextMemSource.enq(Processor);
-    `else
-      Bool cancel = False;
-      case (reqIn.operation) matches tagged Write .* &&& (pack(addr)[39:24] == 16'h003f):
-        cancel = True;
-      endcase
-      // Potentially cancel a write if it is to the tagCache region.
-      // This is likely to create strange behaviour in the region, as stores
-      // may be seen by the caches but not seen after eviction, but it will
-      // not allow writes to affect security.
-      if (!cancel)
-        begin
-          // Each 64-bit line in the tag cache represents 64*32 bytes of memory (2kiB).
-          // The cache has 256 lines which is tags for 512k of memory.
-          tags.read.put(addr.index);
-          data.read.put(addr.index);
-          req_fifo.enq(reqIn);    // enq in the current request
-        end
-    `endif
-  endrule
-  
-  Bool isReadResponse = False;
-  if (mem_out_fifo.first.operation matches tagged Read .unused) isReadResponse = True;
-  rule sendReadResponse(isReadResponse);
-    CheriMemResponse resp <- toGet(mem_out_fifo).get;
+  Bool responseCanGet = mem_out_fifo.notEmpty();
+  `ifndef NOTAG
+    // If the tag is not ready for a read response, we can't get.
+    if (mem_out_fifo.first.operation matches tagged Read .rop &&& !tag_out_fifo.notEmpty)
+      responseCanGet = False;
+  `endif
+  function CheriMemResponse memResponsePeek();
+    CheriMemResponse resp = mem_out_fifo.first;
     CheriMemResponse newResp = resp;
-    Bool tag = True;
-    `ifndef NOTAG
-      debug2("tcache", $display("TagCache response: %x at time %d", tag_out_fifo.first, $time));
-      tag  <- popFIFO(tag_out_fifo);
-    `endif
-    if (mem_out_fifo.first.operation matches tagged Read .rop)
+    if (mem_out_fifo.first.operation matches tagged Read .rop) begin
+      Bool tag = True;
+      `ifndef NOTAG
+        tag  = tag_out_fifo.first;
+      `endif
       newResp.operation = tagged Read {
                             data: Data {
                               cap: unpack(pack(tag)),
@@ -339,17 +319,55 @@ module mkTagCache(TagCacheIfc);
                             },
                             last: rop.last
                           };
-    debug2("tagcache", $display("<time %0t, TagCache> return response:", $time, fshow(newResp)));
-    sendResp_fifo.enq(newResp);
-  endrule
-  rule sendWriteResponse(!isReadResponse);
-    CheriMemResponse resp <- toGet(mem_out_fifo).get;
-    sendResp_fifo.enq(resp);
-  endrule
-
+    end
+    return newResp;
+  endfunction
+  
   interface Slave cache;
-    interface request  = toCheckedPut(preReq_fifo);
-    interface response = toCheckedGet(sendResp_fifo);
+    interface CheckedPut request;
+      method Bool canPut();
+        return True;//req_fifo.notFull() && memReq_fifo.notFull() && nextMemSource.notFull() && cacheState == Serving;
+      endmethod
+      method Action put(CheriMemRequest reqIn);
+        TagCacheAddr addr = unpack(pack(reqIn.addr));
+        debug2("tagcache", $display("TagCache request: time %d :", $time, fshow(reqIn)));
+        memReq_fifo.enq(reqIn);
+        `ifndef NOTAG
+          /*Bool cancel = False;
+          case (reqIn.operation) matches tagged Write .* &&& (pack(addr)[39:24] == 16'h003f):
+            cancel = True;
+          endcase
+          // Potentially cancel a write if it is to the tagCache region.
+          // This is likely to create strange behaviour in the region, as stores
+          // may be seen by the caches but not seen after eviction, but it will
+          // not allow writes to affect security.
+          if (!cancel)
+            begin*/
+              // Each 64-bit line in the tag cache represents 64*32 bytes of memory (2kiB).
+              // The cache has 256 lines which is tags for 512k of memory.
+              tags.read.put(addr.index);
+              data.read.put(addr.index);
+              req_fifo.enq(reqIn);    // enq in the current request
+            //end
+        `endif
+      endmethod
+    endinterface
+    interface CheckedGet response;
+      method Bool canGet();
+        return responseCanGet;
+      endmethod
+      method CheriMemResponse peek();
+        return memResponsePeek();
+      endmethod
+      method ActionValue#(CheriMemResponse) get() if (responseCanGet);
+        CheriMemResponse resp = memResponsePeek();
+        `ifndef NOTAG
+          if (resp.operation matches tagged Read .rop) tag_out_fifo.deq;
+        `endif
+        mem_out_fifo.deq;
+        return resp;
+      endmethod
+    endinterface
   endinterface
 
   interface Master memory;
@@ -358,16 +376,21 @@ module mkTagCache(TagCacheIfc);
       method Bool canPut();
         return mem_out_fifo.notFull() && cache_respQ.notFull();
       endmethod
-      method Action put(CheriMemResponse r);
+      method Action put(CheriMemResponse r) if (mem_out_fifo.notFull() && cache_respQ.notFull());
         `ifdef NOTAG
           mem_out_fifo.enq(r);
         `else
-          let reqSource <- popFIFO(nextMemSource);
+          MemReqSource reqSource = (r.masterID==12)?TagCache:Processor;
+          debug2("tagcache", $display("TagCache response from memory: source=%x, at time %d", reqSource, $time));
           if (reqSource == TagCache) begin
-            if (r.operation matches tagged Read .unused)
+            if (r.operation matches tagged Read .unused) begin
               cache_respQ.enq(r);
+              debug2("tagcache", $display("tagCache read response"));
+            end else
+              debug2("tagcache", $display("tagCache write response"));
           end else begin
             mem_out_fifo.enq(r);
+            debug2("tagcache", $display("memory response in tagCache"));
           end
         `endif
       endmethod

@@ -75,8 +75,8 @@ module mkCapabilityRegisterFile(CapabilityRegisterFile);
   Vector#(NumThreads, EHR#(2,Capability))     pccReg  <- replicateM(mkEHR(defaultCap));
   Vector#(NumThreads, Reg#(TaggedCapability)) epccReg <- replicateM(mkReg(tuple2(True, defaultCap)));
   Vector#(NumThreads, Reg#(TaggedCapability)) kccReg  <- replicateM(mkReg(tuple2(True, defaultCap)));
-  Bram#(ThreadCapReg, TaggedCapability)       rfA     <- mkBram();
-  Bram#(ThreadCapReg, TaggedCapability)       rfB     <- mkBram();
+  Bram#(ThreadCapReg, TaggedCapability)       rfA     <- mkBramNoWriteForward();
+  Bram#(ThreadCapReg, TaggedCapability)       rfB     <- mkBramNoWriteForward();
 
   //initialization mechanisms
   Reg#(CapRegName) cap    <- mkReg(minBound);
@@ -180,13 +180,19 @@ module mkForwardingCapabilityRegisterFile
   //ndave: Stall if the value is to be forwarded but hasn't been generated
   method ActionValue#(TaggedCapability) readRespA() if (forwardResultA != Valid(Invalid)); // only V(V(x)) or I
     let v <- archRF.readRespA(); portA.deq();
-    return fromMaybe(v, joinMaybe(forwardResultA));
+    let retval = fromMaybe(v, joinMaybe(forwardResultA));
+    debug2("capregfile", $display("CAPREGFILE: fwdAs ", fshow(getValuesA(fwds, portA.first()))));
+    debug2("capregfile", $display("CAPREGFILE: readRespA from %s: ", isValid(forwardResultA) ? "forwarder":"regfile", fshow(retval)));
+    return retval;
   endmethod
 
   //ndave: Stall if the value is to be forwarded but hasn't been generated
   method ActionValue#(TaggedCapability) readRespB() if (forwardResultB != Valid(Invalid));
     let v <- archRF.readRespB(); portB.deq();
-    return fromMaybe(v, joinMaybe(forwardResultB));
+    let retval = fromMaybe(v, joinMaybe(forwardResultB));
+    debug2("capregfile", $display("CAPREGFILE: fwdBs ", fshow(getValuesB(fwds, portB.first()))));
+    debug2("capregfile", $display("CAPREGFILE: readRespB from %s: ", isValid(forwardResultB) ? "forwarder":"regfile", fshow(retval)));
+    return retval;
   endmethod
 
   method Action write(ThreadID tid, CapRegName x, Bool t, Capability v) = archRF.write(tid, x,t,v);
@@ -220,19 +226,26 @@ module [m] mkCapabilityRegisterFile_Debug#(m#(CapabilityRegisterFile) mkRF)
 
   interface Display debugging;
     method Action debug_display(ThreadID t);
+      function Action dumpCap(Capability cap);
+        $display("u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x",
+           cap.sealed, // XXX rmn30 change test suite?
+           cap.perms,
+           cap.otype,
+           cap.cursor - cap.base,
+           cap.base,
+           cap.length);
+      endfunction
+
       $display("======  Thread %2d  ======", t);
       $display("======   RegFile   ======");
       let pcc = rf.pcc[t][0];
-      $display("DEBUG CAP PCC u:%d perms:0x%x type:0x%x base:0x%x length:0x%x",
-               pcc.unsealed, pcc.perms, pcc.oType_eaddr, pcc.base, pcc.length);
+      $write("DEBUG CAP PCC ");
+      dumpCap(pcc);
       for (Integer i = 0; i<32; i=i+1)
-        $display("DEBUG CAP REG %d u:%d perms:0x%x type:0x%x base:0x%x length:0x%x",
-           i,
-           debugCaps[t][i].unsealed,
-           debugCaps[t][i].perms,
-           debugCaps[t][i].oType_eaddr,
-           debugCaps[t][i].base,
-           debugCaps[t][i].length);
+        begin
+          $write("DEBUG CAP REG %d ", i);
+          dumpCap(debugCaps[t][i]);
+        end
     endmethod
   endinterface
 endmodule

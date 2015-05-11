@@ -61,11 +61,16 @@ test:		.ent test
 		candperm $c1, $c0, $t0
 		ccheckperm $c1, $t0
 
-		dli	$t0, 8
+		dli	$t0, 0x8
 		candperm $c1, $c0, $t0
                 ccheckperm $c1, $t0
 
-		dli	$a0, 1 	# Set a0 to 1 if the test can to completion
+		dli	$t0, 0x7
+		candperm $c1, $c0, $t0
+		dli	$t0, 0x1
+		ccheckperm $c1, $t0
+
+		dli	$a0, 1 	# Set a0 to 1 if the test ran to completion
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

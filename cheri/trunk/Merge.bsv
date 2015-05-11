@@ -34,32 +34,34 @@
  *****************************************************************************/
 package Merge;
 
+import Debug::*;
 import MIPS::*;
 import GetPut::*;
-import ClientServer::*;
+import MasterSlave::*;
 import FIFO::*;
 import FIFOF::*;
 import SpecialFIFOs::*;
 import Vector::*;
 import MemTypes::*;
+import Interconnect::*;
    
 typedef Bit#(4) InterfaceT;
 
 interface MergeIfc#(numeric type numIfc);
-  interface Client#(CheriMemRequest, CheriMemResponse) merged;
-  interface Vector#(numIfc, Server#(CheriMemRequest, CheriMemResponse)) server;
+  interface Master#(CheriMemRequest, CheriMemResponse) merged;
+  interface Vector#(numIfc, Slave#(CheriMemRequest, CheriMemResponse)) slave;
 endinterface
 
 module mkMerge(MergeIfc#(numIfc));
-  Vector#(numIfc,  FIFOF#(CheriMemRequest))    req_fifos     <- replicateM(mkUGFIFOF);
-  FIFO#(CheriMemRequest)                       nextReq       <- mkBypassFIFO;
-  Vector#(numIfc,  FIFOF#(CheriMemResponse))   rsp_fifos     <- replicateM(mkFIFOF);
-  FIFO#(InterfaceT)                         pendingReqs   <- mkSizedFIFO(16);
+  Vector#(numIfc,  FIFOF#(CheriMemRequest))  req_fifos   <- replicateM(mkUGFIFOF);
+  FIFOF#(CheriMemRequest)                    nextReq     <- mkBypassFIFOF;
+  Vector#(numIfc,  FIFOF#(CheriMemResponse)) rsp_fifos   <- replicateM(mkFIFOF);
+  FIFOF#(InterfaceT)                         pendingReqs <- mkSizedFIFOF(16);
   `ifdef MULTI
-    Reg#(Bool)                              scLock        <- mkReg(False);
-    Reg#(InterfaceT)                        scLockPort    <- mkReg(0);
-    Reg#(Bit#(8))                                 arbiter       <- mkReg(0);
-  `endif 
+  Reg#(Bool)                                 scLock      <- mkReg(False);
+  Reg#(InterfaceT)                           scLockPort  <- mkReg(0);
+  Reg#(Bit#(8))                              arbiter     <- mkReg(0);
+  `endif
 
   rule mergeInputs;
     Bool found = False;
@@ -100,13 +102,13 @@ module mkMerge(MergeIfc#(numIfc));
             tagged Read .r : pendingReqs.enq(fromInteger(i));
           endcase
         `else
-        if ((req_fifos[i].first.operation matches tagged Read .r ? True : False) ||
-            (req_fifos[i].first.operation matches tagged Write .w &&& w.conditional ? True : False)) begin
+        //if ((req_fifos[i].first.operation matches tagged Read .r ? True : False) ||
+        //    (req_fifos[i].first.operation matches tagged Write .w &&& w.conditional ? True : False)) begin
           pendingReqs.enq(fromInteger(i));
           if (req_fifos[i].first.operation matches tagged Write .w &&& w.conditional == True) begin 
             debug($display("Merge - Expecting L2 Response for pending request: ", fshow(req_fifos[i].first)));
           end
-        end
+        //end
         `endif
         req_fifos[i].deq();
         found = True;
@@ -115,101 +117,71 @@ module mkMerge(MergeIfc#(numIfc));
     `endif
   endrule
   
-  Vector#(numIfc, Server#(CheriMemRequest, CheriMemResponse)) servers;
+  Vector#(numIfc, Slave#(CheriMemRequest, CheriMemResponse)) slaves;
   for (Integer i=0; i<valueOf(numIfc); i=i+1) begin
-    servers [i] = interface Server;
-      interface response = toGet(rsp_fifos[i]);
-      interface Put request;
-        method Action put(CheriMemRequest req) if (req_fifos[i].notFull);
-          debug($display("Merge - Request from L1 Cache Port:%0d", fromInteger(i)));
-          req_fifos[i].enq(req);
-        endmethod
-      endinterface
+    slaves [i] = interface Slave;
+      interface response = toCheckedGet(rsp_fifos[i]);
+      interface request  = toCheckedPut(req_fifos[i]);
     endinterface;
   end
   
-  interface server = servers;
+  interface slave = slaves;
   
-  interface Client merged;
-    interface Get request;
-      method ActionValue#(CheriMemRequest) get();
-        debug($display("%t : Submitted request in Memory Merge interface", $time));
-        CheriMemRequest rtnPacket = nextReq.first;
-        nextReq.deq;
-        return rtnPacket;
-      endmethod
-    endinterface
-    interface Put response;
+  interface Master merged;
+    interface CheckedGet request = toCheckedGet(nextReq);
+    interface CheckedPut response;
+      method Bool canPut = (rsp_fifos[pendingReqs.first].notFull && pendingReqs.notEmpty);
       method Action put(CheriMemResponse resp);
-        debug($display("%t : Put response into interface %d Memory Merge", $time, pendingReqs.first));
         rsp_fifos[pendingReqs.first].enq(resp);
-        pendingReqs.deq;
+        if (resp.operation matches tagged Read .rr) begin
+          if (rr.last) pendingReqs.deq;
+        end else pendingReqs.deq;
       endmethod
     endinterface
   endinterface
 endmodule
 
 module mkMergeFast(MergeIfc#(numIfc));
-  FIFO#(CheriMemRequest)    nextReq       <- mkBypassFIFO;
-  FIFO#(CheriMemResponse)      rsp_fifo      <- mkBypassFIFO;
-  FIFO#(InterfaceT)                pendingReqs   <- mkSizedFIFO(16);
-  Vector#(numIfc, Wire#(Bool))     fired         <- replicateM(mkDWire(False));
-  Vector#(numIfc, Bool)            block;
+  FIFOF#(CheriMemRequest)      nextReq     <- mkBypassFIFOF;
+  FIFOF#(CheriMemResponse)     rsp_fifo    <- mkBypassFIFOF;
+  Vector#(numIfc, Wire#(Bool)) fired       <- replicateM(mkDWire(False));
+  Vector#(numIfc, Bool)        block;
   
   for (Integer i=0; i<valueOf(numIfc); i=i+1) begin
     block[i] = (i==0) ? False:(fired[(i==0) ? 0:i-1]);
   end
   
-  Vector#(numIfc, Server#(CheriMemRequest, CheriMemResponse)) servers;
+  Vector#(numIfc, Slave#(CheriMemRequest, CheriMemResponse)) slaves;
   for (Integer i=0; i<valueOf(numIfc); i=i+1) begin
-    servers [i] = interface Server;
-      interface Get response;
-        method ActionValue#(CheriMemResponse) get() 
-                           if (pendingReqs.first == fromInteger(i));
+    slaves [i] = interface Slave;
+      interface CheckedGet response;
+        method Bool canGet = (rsp_fifo.notEmpty && rsp_fifo.first.masterID == fromInteger(i));
+        method CheriMemResponse peek if (rsp_fifo.first.masterID == fromInteger(i));
+          return rsp_fifo.first;
+        endmethod
+        method ActionValue#(CheriMemResponse) get if (rsp_fifo.first.masterID == fromInteger(i));
           CheriMemResponse resp <- toGet(rsp_fifo).get;
-          pendingReqs.deq;
+          debug2("merge", $display("<time %0t, Merge %x> giving Response: ", 
+            $time, i, fshow(resp)));
           return resp;
         endmethod
       endinterface
-      interface Put request;
+      interface CheckedPut request;
+        method Bool canPut = (!block[i] && nextReq.notFull);
         method Action put(CheriMemRequest req) if (!block[i]);
           nextReq.enq(req);
-          `ifndef MULTI
-            case (req.operation) matches
-              tagged Read .r : pendingReqs.enq(fromInteger(i));
-            endcase
-          `else
-            if ((req.operation matches tagged Read .r ? True : False) ||
-                (req.operation matches tagged Write .w &&& w.conditional ? True : False)) begin
-              pendingReqs.enq(fromInteger(i));
-              if (req.operation matches tagged Write .w &&& w.conditional) begin
-                debug($display("Merge Fast Store Conditional Request"));
-              end
-            end
-          `endif
+          debug2("merge", $display("<time %0t, Merge %x> passing request: ", $time, i, fshow(req)));
           fired[i] <= True;
         endmethod
       endinterface
     endinterface;
   end
   
-  interface server = servers;
+  interface slave = slaves;
   
-  interface Client merged;
-    interface Get request;
-      method ActionValue#(CheriMemRequest) get();
-        debug($display("%t : Submitted request in Memory MergeFast interface", $time));
-        CheriMemRequest rtnPacket = nextReq.first;
-        nextReq.deq;
-        return rtnPacket;
-      endmethod
-    endinterface
-    interface Put response;
-      method Action put(CheriMemResponse resp);
-        debug($display("%t : Put response into interface %d Memory MergeFast", $time, pendingReqs.first));
-        rsp_fifo.enq(resp);
-      endmethod
-    endinterface
+  interface Master merged;
+    interface CheckedGet request  = toCheckedGet(nextReq);
+    interface CheckedPut response = toCheckedPut(rsp_fifo);
   endinterface
 endmodule
 

@@ -44,6 +44,7 @@ int yydebug = 1;
 extern const char *yyfile;
 extern FILE *yyin;
 extern uint8_t yybusno;
+extern int yyparse(void);
 
 int
 main(int argc, char **argv)

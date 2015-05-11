@@ -1,4 +1,12 @@
 berictl
 cherictl
+debug_server
+cheri_terminal
+berictl_arm
+cherictl_arm
+debug_server_arm
+cheri_terminal_arm
 cherictl_test
 tests/alltests
+*~
+*.o

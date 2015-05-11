@@ -36,13 +36,13 @@ from nose.plugins.attrib import attr
 class test_cp2_cmove(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_cmove_uperms(self):
-        '''Test that cmove retained u, perms fields correctly'''
-        self.assertRegisterEqual(self.MIPS.a0, 0xff, "cmove failed to retain correct u, perms fields")
+        '''Test that cmove retained perms fields correctly'''
+        self.assertRegisterEqual(self.MIPS.a0, 0xff, "cmove failed to retain correct perms field")
 
     @attr('capabilities')
-    def test_cp2_cmove_type(self):
-        '''Test that cmove retained the ctype field correctly'''
-        self.assertRegisterEqual(self.MIPS.a1, 0x5, "cmove failed to retain correct ctype")
+    def test_cp2_cmove_offset(self):
+        '''Test that cmove retained the offset field correctly'''
+        self.assertRegisterEqual(self.MIPS.a1, 0x5, "cmove failed to retain correct offset")
 
     @attr('capabilities')
     def test_cp2_cmove_base(self):

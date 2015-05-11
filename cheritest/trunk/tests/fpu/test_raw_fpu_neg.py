@@ -31,7 +31,7 @@ from nose.plugins.attrib import attr
 class test_raw_fpu_neg(BaseBERITestCase):
     def test_neg_single(self):
         '''Test we can negate in single precision'''
-        self.assertRegisterEqual(self.MIPS.s0 & 0xffffffff, 0x85300000, "Failed to negate a single")
+        self.assertRegisterMaskEqual(self.MIPS.s0, 0xffffffff, 0x85300000, "Failed to negate a single")
 
     @attr('float64')
     def test_neg_double(self):
@@ -51,4 +51,4 @@ class test_raw_fpu_neg(BaseBERITestCase):
     def test_neg_single_denorm(self):
         '''Test that neg.s flushes a denormalized result to zero'''
         # We ignore the sign
-        self.assertRegisterEqual(self.MIPS.s4 & 0x7FFFFFFF, 0x0, "neg.s failed to flush denormalised result");
+        self.assertRegisterMaskEqual(self.MIPS.s4, 0x7FFFFFFF, 0x0, "neg.s failed to flush denormalised result");

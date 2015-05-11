@@ -49,6 +49,6 @@ class test_cp2_x_cjalr_tag(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_x_cjalr_tag_3(self):
         '''Test capability cause is set correctly when capability tag was unset'''
-        self.assertRegisterEqual(self.MIPS.a3, 0x0201,
+        self.assertRegisterEqual(self.MIPS.a3, 0x0202,
             "Capability cause was not set correcly when capability tag was unset")
 

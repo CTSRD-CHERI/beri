@@ -33,12 +33,11 @@ import FIFO::*;
 import SpecialFIFOs::*;
 import Vector::*;
 
-`define ReRegs 4
-`define LogReRegs 2
+//`define ReRegs 4
 
-typedef Bit#(`LogReRegs) RenameReg; // A renamed destination register address, one of 4 in the current design
+typedef Bit#(4) RenameReg; // A renamed destination register address, one of 4 in the current design
 
-interface ForwardingPipelinedRegFileIfc#(type regType);
+interface ForwardingPipelinedRegFileIfc#(type regType, numeric type renameRegs);
   method Action reqRegs(ReadReq req);
   // These two methods, getRegs and writeRegSpeculative should be called in the
   // same rule, Execute.
@@ -46,9 +45,12 @@ interface ForwardingPipelinedRegFileIfc#(type regType);
   method Action writeRegSpeculative(regType data, Bool write);
   method Action writeReg(RegNum regW, regType data, Bool write, Bool committing);
   method Action writeRaw(RegNum regW, regType data);
-  method ReadRegs#(regType) readRaw(RegNum regA, RegNum regB);
+  method ActionValue#(ReadRegs#(regType)) readRaw(RegNum regA, RegNum regB);
   method Action putDebugRegs(regType a, regType b);
 endinterface
+
+// Register file interface determines the number of rename registers.
+typedef ForwardingPipelinedRegFileIfc#(MIPSReg, 4) MIPSRegFileIfc;
 
 typedef struct {
   Bool    valid;
@@ -113,14 +115,15 @@ typedef struct {
 
 typedef enum {Init, Serving} RegFileState deriving (Bits, Eq);
 //(* synthesize *)
-module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
+module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType,renameRegs))
   provisos(Bits#(regType, regType_sz));
   SpecRegTag initialTag = SpecRegTag{valid:False, epoch:?, regNum:?, pending:?};
-  Reg#(Vector#(`ReRegs,SpecRegTag)) rnTags         <- mkReg(replicate(initialTag));
-  Reg#(Vector#(`ReRegs,SpecReg#(regType))) rnRegs  <- mkReg(?);
-  RegFile#(RegNum,regType)          regFile        <- mkRegFile(0, 31); // BRAM
+  Reg#(Vector#(renameRegs,SpecRegTag)) rnTags         <- mkReg(replicate(initialTag));
+  Reg#(Vector#(renameRegs,SpecReg#(regType))) rnRegs  <- mkReg(?);
+  //RegFile#(RegNum,regType)          regFile        <- mkRegFile(0, 31); // BRAM
+  RegFile3Port#(regType)   regFile                 <- mkRegFile3Port;
 
-  FIFOF#(void)             limiter                 <- mkUGSizedFIFOF(`ReRegs);
+  FIFOF#(void)             limiter                 <- mkUGSizedFIFOF(valueOf(renameRegs));
   FIFOF#(ReadReq)          readReq                 <- mkFIFOF;
   FIFOF#(RegReadReport#(regType))    readReport    <- mkFIFOF;
   FIFOF#(WriteReport)      wbReRegWrite            <- mkSizedFIFOF(4);
@@ -145,10 +148,11 @@ module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
     ReadReq rq = readReq.first;
     readReq.deq();
 
-    ReadRegs#(regType) ret = ReadRegs{
-      regA: regFile.sub(rq.a),
-      regB: regFile.sub(rq.b)
-    };
+    ReadRegs#(regType) ret = ?;
+    ret.regA <- regFile.readA(rq.a);
+    ret.regB <- regFile.readB(rq.b);
+    // signal that readRaw should not fire.
+    readRegsUsed <= True;
 
     if (rq.fromDebug) begin
       if (rq.a==0) ret.regA = debugOpA;
@@ -170,8 +174,8 @@ module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
       }
     };
 
-    Vector#(`ReRegs, SpecRegTag) newReTags = rnTags;
-    for (Integer i=0; i<`ReRegs; i=i+1) begin
+    Vector#(renameRegs, SpecRegTag) newReTags = rnTags;
+    for (Integer i=0; i<valueOf(renameRegs); i=i+1) begin
       SpecRegTag srt = rnTags[i];
       RenameReport renameReport = RenameReport{
         valid: True,
@@ -213,7 +217,7 @@ module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
       newReTags[nextReReg].valid = False;
     end
     if (rq.write) begin
-      nextReReg <= nextReReg + 1;
+      nextReReg <= (nextReReg + 1 == fromInteger(valueOf(renameRegs))) ? 0:nextReReg + 1;
       limiter.enq(?);
       //$display("rereg enqueued");
     end 
@@ -246,7 +250,7 @@ module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
                         pipeEmpty;
 
   rule writePending(pendVal.notEmpty && !speculativeWriteUsed);
-    Vector#(`ReRegs, SpecReg#(regType)) newRnRegs = rnRegs;
+    Vector#(renameRegs, SpecReg#(regType)) newRnRegs = rnRegs;
     newRnRegs[pendVal.first.regNum] = pendVal.first.specReg;
     pendVal.deq();
     rnRegs <= newRnRegs;
@@ -258,7 +262,7 @@ module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
     RegWrite rw = writeback.first;
     writeback.deq();
     if (rw.write) begin
-      regFile.upd(rw.regNum,rw.data);
+      regFile.write(rw.regNum,rw.data);
       debug($display("Wrote register %d", writeback.first.regNum));
     end
     if (rw.couldWrite) limiter.deq();
@@ -274,25 +278,18 @@ module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
     ReadRegs#(regType) ret = report.regFileVals;
     // Return renamed register values if necessary
     if (report.a.valid) begin
-      if (rnRegs[report.a.regNum].valid) begin
-        ret.regA = rnRegs[report.a.regNum].register;
-      end else if (a_is_ready) begin
-        ret.regA = pendVal.first.specReg.register;
-      end
+      if (rnRegs[report.a.regNum].valid) ret.regA = rnRegs[report.a.regNum].register;
+      else if (a_is_ready) ret.regA = pendVal.first.specReg.register;
     end
     if (report.b.valid) begin
-      if (rnRegs[report.b.regNum].valid) begin
-        ret.regB = rnRegs[report.b.regNum].register;
-      end else if (b_is_ready) begin
-        ret.regB = pendVal.first.specReg.register;
-      end
+      if (rnRegs[report.b.regNum].valid) ret.regB = rnRegs[report.b.regNum].register;
+      else if (b_is_ready) ret.regB = pendVal.first.specReg.register;
     end
-    readRegsUsed <= True;
     return ret;
   endmethod
 
   method Action writeRegSpeculative(regType data, Bool write);
-    Vector#(`ReRegs, SpecReg#(regType)) newRnRegs = rnRegs;
+    Vector#(renameRegs, SpecReg#(regType)) newRnRegs = rnRegs;
     WriteReport  req = readReport.first.write;
     RenameReport old = readReport.first.old;
     readReport.deq();
@@ -322,7 +319,7 @@ module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
     // Do the BRAM write in the next cycle for frequency.
     //writeback.enq(RegWrite{ write: doWrite, couldWrite: couldWrite, data: data, regNum: regW});
     if (doWrite) begin
-      regFile.upd(regW,data);
+      regFile.write(regW,data);
       debug($display("Wrote register %d", regW));
     end
     if (wbReRegWrite.first.write) limiter.deq();
@@ -337,14 +334,13 @@ module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
   endmethod
   
   method Action writeRaw(RegNum regW, regType data) if (!writeRegUsed);
-    regFile.upd(regW,data);
+    regFile.write(regW,data);
   endmethod
   
-  method ReadRegs#(regType) readRaw(RegNum regA, RegNum regB) if (!readRegsUsed);
-    ReadRegs#(regType) ret = ReadRegs{
-      regA: regFile.sub(regA),
-      regB: regFile.sub(regB)
-    };
+  method ActionValue#(ReadRegs#(regType)) readRaw(RegNum regA, RegNum regB) if (!readRegsUsed);
+    ReadRegs#(regType) ret = ?;
+    ret.regA <- regFile.readA(regA);
+    ret.regB <- regFile.readB(regB);
     return ret;
   endmethod
 
@@ -354,3 +350,30 @@ module mkForwardingPipelinedRegFile(ForwardingPipelinedRegFileIfc#(regType))
   endmethod
 
 endmodule
+
+
+interface RegFile3Port#(type regType);
+  method Action  write(RegNum regW, regType data);
+  method ActionValue#(regType) readA(RegNum regNum);
+  method ActionValue#(regType) readB(RegNum regNum);
+endinterface
+
+module mkRegFile3Port(RegFile3Port#(regType))
+  provisos(Bits#(regType, regType_sz));
+  RegFile#(RegNum,regType) regFile <- mkRegFile(0, 31); // BRAM
+  Reg#(Bool) dummyA <- mkReg(False);
+  Reg#(Bool) dummyB <- mkReg(False);
+  
+  method Action write(RegNum regW, regType data);
+    regFile.upd(regW,data);
+  endmethod
+  method ActionValue#(regType) readA(RegNum regNum);
+    dummyA <= !dummyA;
+    return regFile.sub(regNum);
+  endmethod
+  method ActionValue#(regType) readB(RegNum regNum);
+    dummyB <= !dummyB;
+    return regFile.sub(regNum);
+  endmethod
+endmodule
+

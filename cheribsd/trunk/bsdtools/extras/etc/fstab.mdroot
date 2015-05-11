@@ -1,0 +1,2 @@
+/dev/md0 / ufs rw 0 0
+md /tmp mfs rw,-s48m 2 0

@@ -33,7 +33,7 @@ class test_cp2_x_cchecktype(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_x_cchecktype_1(self):
         '''Test that cchecktype raises an exception if the otypes don't match'''
-        self.assertRegisterEqual(self.MIPS.a2, 1, "cchecktype did not raise an exception")
+        self.assertRegisterEqual(self.MIPS.a2, 1, "cchecktype did not raise an exception when otypes did not match")
 
     @attr('capabilities')
     def test_cp2_x_cchecktype_2(self):

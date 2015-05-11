@@ -38,7 +38,8 @@ import Library::*;
 
 typedef enum {
     Left,
-    Right
+    Right,
+    None
 } DataSource deriving (Bits, Eq, FShow);
 
 interface PutMerge#(type data);
@@ -49,60 +50,41 @@ endinterface
 // This provides two put interfaces, and selects between them to write to its
 // out interface. It's fair for some reasonable definition of fair: the source
 // which didn't write last is allowed to go first.
-module mkPutMerge#(Put#(data) out)(PutMerge#(data))
-        provisos(Bits#(data, a__));
-
-    function alwaysTrue(item);
-        return True;
-    endfunction
-
-    let worker <- mkGuardedPutMerge(out, alwaysTrue);
-    return worker;
-
+module mkPutMerge#(Put#(data) out)(PutMerge#(data)) provisos (Bits#(data, a__));
+    let _worker <- mkSizedPutMerge(2, out);
+    return _worker;
 endmodule
 
-// This only dispatches the request if it satisfies some preidcate.
-module mkGuardedPutMerge
-        #(Put#(data) out,
-          function Bool canPut(data item))
-        (PutMerge#(data))
-        provisos (Bits#(data, a__));
-
-    FIFOF#(data) leftData <- mkBypassFIFOF();
-    FIFOF#(data) rightData <- mkBypassFIFOF();
+module mkSizedPutMerge#(Integer bufferLengths, Put#(data) out)(PutMerge#(data))
+        provisos(Bits#(data, a__));
+    FIFOF#(data) leftData <- mkSizedFIFOF(bufferLengths);
+    FIFOF#(data) rightData <- mkSizedFIFOF(bufferLengths);
     Reg#(DataSource) lastData <- mkReg(Right);
 
-    function Action outputFrom(DataSource source);
-        action
-            let fifo = (case (source)
-                Left: leftData;
-                Right: rightData;
-            endcase);
-            let data = fifo.first;
-            if (canPut(data)) begin
-                fifo.deq;
-                out.put(data);
-                lastData <= source;
-            end
-        endaction
-    endfunction
-
-    rule outputFromEither (leftData.notEmpty() && rightData.notEmpty());
-        if (lastData == Right)
-            outputFrom(Left);
-        else // lastData == Left
-            outputFrom(Right);
+    Bool rightReady = rightData.notEmpty();
+    Bool leftReady = leftData.notEmpty();
+    DataSource source = None;
+    if (leftReady && rightReady) begin
+      if (lastData == Right)
+        source = Left;
+      else // lastData == Left
+        source = Right;
+    end 
+    else if (leftReady)  source = Left;
+    else if (rightReady) source = Right;
+    
+    rule outputFromLeft(source == Left);
+      out.put(leftData.first);
+      leftData.deq;
+      lastData <= source;
     endrule
-
-    rule outputFromLeft (leftData.notEmpty() && !rightData.notEmpty());
-        outputFrom(Left);
-    endrule
-
-    rule outputFromRight (rightData.notEmpty() && !leftData.notEmpty());
-        outputFrom(Right);
+    
+    rule outputFromRight(source == Right);
+      out.put(rightData.first);
+      rightData.deq;
+      lastData <= source;
     endrule
 
     interface left = toPut(leftData);
     interface right = toPut(rightData);
-
 endmodule

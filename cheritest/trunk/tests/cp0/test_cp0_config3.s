@@ -31,7 +31,7 @@
 .set noat
 
 #
-# Test the inital value of CP0.config1
+# Test the inital value of CP0.config3
 #
 
 		.global test

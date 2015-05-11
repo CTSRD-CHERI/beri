@@ -1,9 +1,9 @@
 #-
-# Copyright (c) 2011-2021 Philip Paeps
+# Copyright (c) 2011-2012 Philip Paeps
 # Copyright (c) 2011 Jonathan Anderson
 # Copyright (c) 2011 Jonathan Woodruff
 # Copyright (c) 2012-2014 Robert N. M. Watson
-# Copyright (c) 2012-2013 Simon W. Moore
+# Copyright (c) 2012-2014 Simon W. Moore
 # Copyright (c) 2013 Philip Withnall
 # Copyright (c) 2013 Bjoern A. Zeeb
 # Copyright (c) 2013 Robert M. Norton
@@ -60,21 +60,21 @@ objs=						\
 
 SUBDIRS=					\
 	AvalonSampler				\
-	MTL_LCD					\
-	MTL_LCD_HDMI				\
 	TERASIC_ISP1761				\
+	USB1761Bridge				\
 	JTAGUART2Stream				\
 	i2c					\
-	AlteraUPP_sd_card			\
 	FanControl				\
-	Compositor				\
-	VideoPLL				\
-	opencore_16550_uart			\
 	HDMI					\
 	PixelStream				\
 	uart16550				\
 	PCIExpressStream		\
+	ReconfigPLL				\
 	$(NULL)
+#	MTL_LCD					\
+#	MTL_LCD_HDMI				\
+#	opencore_16550_uart			\
+#	AlteraUPP_sd_card			\
 
 all: $(TARGETS) $(SUBDIRS)
 $(SUBDIRS):

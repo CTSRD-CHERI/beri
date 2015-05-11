@@ -47,7 +47,7 @@ test:		.ent test
 		# Set the type, base, and length to something non-zero
 		cmove $c1, $c0
 		dli $t0, 0x10
-		csettype $c1, $c1, $t0
+		csetoffset $c1, $c1, $t0
 		cincbase $c1, $c1, $t0
 		csetlen  $c1, $c1, $t0
 		
@@ -58,9 +58,10 @@ test:		.ent test
 		cgetperm $a0, $c1
 		cgetbase $a1, $c1
 		cgetlen  $a2, $c1
-		cgettype $a3, $c1
+		cgetoffset $a3, $c1
 		cgettag  $a4, $c1
-		cgetunsealed $a5, $c1
+		cgetsealed $a5, $c1
+		cgettype $a6, $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

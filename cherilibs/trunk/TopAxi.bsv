@@ -1,6 +1,7 @@
 /*-
 * Copyright (c) 2014 Colin Rothwell
-* Copyright (c) 2014 Alexandre Joannou
+* Copyright (c) 2014, 2015 Alexandre Joannou
+* Copyright (c) 2015 Paul J. Fox
 * All rights reserved.
 *
 * This software was developed by SRI International and the University of
@@ -34,15 +35,19 @@
 import Processor::*; // The interface
 import Proc::*; // The implementation
 import Peripheral::*; // BlueBus interfaces and counter
-import CheriAxi::*;
-import BlueBusWrapper::*;
-import MemTypes::*; // CORE_COUNT lives here...
+`ifdef DMA
+import DMA::*;
+`endif
+import MemTypes::*;
 import AvalonStreaming::*;
 import AxiBridge::*;
-import TLMBridge::*;
 import BeriBootMem::*;
 import Interconnect::*;
 import NumberTypes::*;
+import MasterSlave::*;
+import InternalPeriphBridge::*;
+import InternalToAxi::*;
+import Burst::*;
 
 import TLM3::*;
 import Axi::*;
@@ -50,9 +55,9 @@ import Vector::*;
 import BRAM::*;
 import Connectable::*;
 
-`include "TLM.defines"
 `include "CheriTLM.defines"
-`include "parameters.bsv"
+typedef BuffIndex#(TLog#(count), count) MinimalBuffIndex#(numeric type count);
+
 
 typedef Vector#(CORE_COUNT, AvalonStreamSinkPhysicalIfc#(Bit#(8))) DebugSinks;
 typedef Vector#(CORE_COUNT, AvalonStreamSourcePhysicalIfc#(Bit#(8))) DebugSources;
@@ -67,9 +72,9 @@ interface TopAxi;
 
     `ifdef TRACE
     (* prefix = "axm_trace" *)
-    interface AxiWrMaster#(`TLM_PRM_TRACE) trace_write_master;
+    interface AxiWrMaster#(`PRM_TRACE) trace_write_master;
     (* prefix = "axm_trace" *)
-    interface AxiRdMaster#(`TLM_PRM_TRACE) trace_read_master;
+    interface AxiRdMaster#(`PRM_TRACE) trace_read_master;
     `endif
 
     interface DebugSinks debug_stream_sinks;
@@ -80,7 +85,61 @@ interface TopAxi;
 
     (* always_ready, always_enabled *)
     method Bool reset_n_out();
+
+    `ifdef RMA
+    interface AvalonStreamSourcePhysicalIfc#(Bit#(76)) networkRx;
+    interface AvalonStreamSinkPhysicalIfc#(Bit#(76)) networkTx;
+    `endif
 endinterface
+
+/* TopAxi overview
+ * There can also optionally be a virtualised DMA, which isn't shown.
+ *                                   proc  [ DMA Master ]
+ *                                    |    [      |     ]
+ *                                    v    [      v     ]
+ *                           --------------- bus --------------
+ *                           |                                |
+ *                           v                                |
+ *                         burster                            |
+ *                           |                                |
+ *                           v                                |
+ *                     periph bridge                          |   
+ *                           |                                |
+ *                           v                                v
+ *    --------------- ordered bus ----------         -- InternalToAxi --
+ *    |       |       |   [     |      ]   |         ||               ||
+ *    v       v       v   [     v      ]   v         vv               vv
+ * bootmem  count    pic  [ DMA Config ] null      AxiRead         AxiWrite
+ *
+ */
+
+typedef 1 BaseMasterCount;
+typedef 3 BasePeriphCount;
+
+`ifdef DMA
+    typedef TAdd#(1, BaseMasterCount) MasterCount1;
+    typedef TAdd#(1, BasePeriphCount) PeriphCount1;
+`else
+    typedef BaseMasterCount MasterCount1;
+    typedef BasePeriphCount PeriphCount1;
+`endif
+Integer dma_master_index = valueOf(BaseMasterCount);
+Integer dma_periph_index = valueOf(BasePeriphCount);
+
+`ifdef DMA_VIRT
+    typedef TAdd#(1, MasterCount1) MasterCount;
+    typedef TAdd#(1, PeriphCount1) PeriphCount2;
+`else
+    typedef MasterCount1 MasterCount;
+    typedef PeriphCount1 PeriphCount2;
+`endif
+Integer dma_virt_master_index = valueOf(MasterCount1);
+Integer dma_virt_periph_index = valueOf(PeriphCount1);
+
+// Add CORE_COUNT for PIC
+typedef TAdd#(PeriphCount2, CORE_COUNT)    PeriphCount;
+typedef TLog#(PeriphCount)                  LogPeriphs;
+typedef BuffIndex#(LogPeriphs, PeriphCount) PeriphBuffIndex;
 
 (* synthesize,
    reset_prefix = "csi_clockreset_reset_n",
@@ -90,43 +149,131 @@ module mkTopAxi(TopAxi);
     Reg#(Bit#(32)) qsysIrqs <- mkReg(0);
 
     Processor processor <- mkCheri();
+    // Use top of masterID address space for DMA.
+    `ifdef DMA
+    DMA#(4) dma <- mkDMA(DMAConfiguration {
+        icacheID:   13,
+        readID:     14,
+        writeID:    15,
+        useTLB:     False
+    });
+    `endif
 
-    // Construct crossbar, fifofs and transactors for CHERI.
+    `ifdef DMA_VIRT
+    DMA#(4) dmaVirt <- mkDMA(DMAConfiguration {
+        icacheID:   10,
+        readID:     11,
+        writeID:    12,
+        useTLB:     True
+    });
+    mkConnection(processor.tlbs[0], dmaVirt.instructionTLBClient);
+    mkConnection(processor.tlbs[1], dmaVirt.dataTLBClient);
+    `endif
 
-    CheriRdMasterXActor internalRdXActor <- mkAxiRdMaster(8);
-    CheriWrMasterXActor internalWrXActor <- mkAxiWrMaster(8, False);
-    let internalSlave <- mkSplitTLMToInterconnectSlave(
-            internalRdXActor.tlm, internalWrXActor.tlm);
+    function CheriPeriphSlave getSlave(Peripheral#(n) periph) = periph.slave;
 
-    CheriRdMasterXActor externalRdXActor <- mkAxiRdMaster(8);
-    CheriWrMasterXActor externalWrXActor <- mkAxiWrMaster(8, True);
-    let externalSlave <- mkSplitTLMToInterconnectSlave(
-            externalRdXActor.tlm, externalWrXActor.tlm);
+    //////////////////////////////
+    // Internal peripherals Bus //
+    ///////////////////////////////////////////////////////////////////////////
+    // peripherals (slaves)
+    Peripheral#(0) counter <- mkCountPerif;
+    Peripheral#(0) bootMem <- mkBootMem;
+    Peripheral#(0) nullPer <- mkNullPerif;
 
-    Vector#(1, CheriInterconnectMaster) interconnectMasters = newVector();
-    interconnectMasters[0] = processor.extMemory;
-
-    Vector#(2, CheriInterconnectSlave) interconnectSlaves = newVector();
-    interconnectSlaves[0] = externalSlave;
-    interconnectSlaves[1] = internalSlave;
-
+    // wiring up slaves
+    Vector#(PeriphCount2, CheriPeriphSlave) nonPICPeriphs = newVector();
+    nonPICPeriphs[0] = nullPer.slave;
+    nonPICPeriphs[1] = counter.slave;
+    nonPICPeriphs[2] = bootMem.slave;
+    `ifdef DMA
+        nonPICPeriphs[dma_periph_index] = dma.configuration;
+    `endif
+    `ifdef DMA_VIRT
+        nonPICPeriphs[dma_virt_periph_index] = dmaVirt.configuration;
+    `endif
+    Vector#(PeriphCount, CheriPeriphSlave) peripheralSlaves =
+        append(nonPICPeriphs, map(getSlave, processor.pic));
+    // peripheral bridge (master)
+    InternalPeripheralBridge peripheralBridge <- mkInternalPeripheralBridge;
+    BurstIfc burster <- mkBurst;
+    mkConnection(burster.master, peripheralBridge.slave);
     // helper function to route a packet to the right output
-    function Maybe#(BuffIndex#(1, 2)) route (CheriTLMReq r);
-        return tagged Valid BuffIndex{
-            bix: (  pack(getRoutingField(r))[30:23] == 8'hff ||             // bluespec peripherals
-                    pack(getRoutingField(r))[30:17] == 14'h2000) ? 1 : 0    // boot memory
-        };
+    function Maybe#(PeriphBuffIndex) routePeripheral (CheriMemRequest64 r);
+        // Layout the pics in sequential addresses starting at 7F804000
+        // Data within the pic starts at bit 13, so we do a bunch of slicing
+        // down to bit 14.
+        // 7F8 is the bit pattern with [30:23] = '1
+        let addr = pack(getRoutingField(r));
+        let picNumber = addr[22:14] - 1;
+        // Null peripheral by default
+        PeriphBuffIndex ret = 0;
+        if (addr[31:0] == 32'h7F80_0000)
+            ret = 1; // null peripheral
+        else if (addr[30:17] == 14'h2000)
+            ret = 2; // boot memory
+        `ifdef DMA
+            // The DMA gets 1 MiB of address = 256 * 4K interfaces.
+            else if ((addr[31:0] & ~32'hF_FFFF) == 32'h7F90_0000)
+                ret = fromInteger(dma_periph_index); // dma config
+        `endif
+        `ifdef DMA_VIRT
+            else if ((addr[31:0] & ~32'hF_FFFF) == 32'h7FA0_0000)
+                ret = fromInteger(dma_virt_periph_index);
+        `endif
+        else if (addr[30:23] == '1 &&
+                picNumber < fromInteger(valueOf(CORE_COUNT))) begin
+            let rawRet = fromInteger(valueOf(PeriphCount2)) + picNumber;
+            ret = unpack(truncate(rawRet));
+        end
+        return tagged Valid ret;
     endfunction
-    
-    // Bus 
+    // Bus
     mkSingleMasterOrderedBus(
-        processor.extMemory, 
-        interconnectSlaves, route, 8 // transactions.
+        peripheralBridge.master,
+        peripheralSlaves, routePeripheral, 32
     );
 
+    /////////////////////////////////////
+    // Axi split interface ordered Bus //
+    ///////////////////////////////////////////////////////////////////////////
+    // InternalToAxi translator (slave)
+    InternalToAxi  axi_translator  <- mkInternalToAxi;
 
+    //////////////
+    // main Bus //
+    ///////////////////////////////////////////////////////////////////////////
+    Vector#(MasterCount, CheriMaster) interconnectMasters = newVector();
+    interconnectMasters[0] = processor.extMemory;
+    `ifdef DMA
+        interconnectMasters[dma_master_index] = dma.memory;
+    `endif
+    `ifdef DMA_VIRT
+        interconnectMasters[dma_virt_master_index] = dmaVirt.memory;
+    `endif
+    // wiring up slaves
+    Vector#(2, CheriSlave) interconnectSlaves = newVector();
+    interconnectSlaves[0] = axi_translator.slave;
+    interconnectSlaves[1] = burster.slave;
+    // helper function to route a packet to the right output
+    function Maybe#(BuffIndex#(1, 2)) route (CheriMemRequest r);
+        // Main memory by default
+        let addr = pack(getRoutingField(r));
+        BuffIndex#(1,2) ret = 0;
+        if ((addr[30:23] == 8'hff) || (addr[30:17] == 14'h2000))
+            ret = 1;
+        return tagged Valid ret;
+    endfunction
+    // Bus 
+    mkBus(
+        interconnectMasters, route,
+        interconnectSlaves, constFn(tagged Valid 0)
+    );
+
+    ///////////
+    // Debug //
+    ///////////
+    ///////////////////////////////////////////////////////////////////////////
     // TODO: Port and connect tracing interface.
-
     module mkConnectDebug
         #(Server#(Bit#(8), Bit#(8)) beriside)
         (Tuple2#(AvalonStreamSinkPhysicalIfc#(Bit#(8)),
@@ -141,94 +288,18 @@ module mkTopAxi(TopAxi);
     endmodule
 
     DebugPhysicals debugs <- mapM(mkConnectDebug, processor.debugStream);
-
-    function Bool matchBaseAndMask(
-            CheriTLMAddr base, CheriTLMAddr mask, CheriTLMAddr addr);
-        return (addr & mask) == base;
-    endfunction
-
-    // Construct Boot Memory.
-    // TODO: Use an axtual banked BRAM.
-
-    /*BRAM_Configure bootMemCfg = defaultValue();*/
-    /*bootMemCfg.loadFormat = tagged Hex "mem.hex"; // boot data*/
-    /*BRAM2PortBE#(Bit#(11), Bit#(256), 32) bootMem <- mkBRAM2ServerBE(bootMemCfg);*/
-    BRAM2PortBE#(Bit#(11), Bit#(256), 32) bootMem <- mkSplitBootMem();
-    let matchBootMem = matchBaseAndMask(`BERI_ROM_BASE, `BERI_ROM_MASK);
-    CheriTLMRecv tlmRdBootMem <- mkTLMBRAMBE(bootMem.portA);
-    CheriTLMRecv tlmWrBootMem <- mkTLMBRAMBE(bootMem.portB);
-    CheriRdSlaveXActor bootMemRdXActor <- mkAxiRdSlave(False, matchBootMem);
-    CheriWrSlaveXActor bootMemWrXActor <- mkAxiWrSlave(False, matchBootMem);
-    let bootMemReadConn <- mkConnection(bootMemRdXActor.tlm, tlmRdBootMem);
-    let bootMemWriteConn <- mkConnection(bootMemWrXActor.tlm, tlmWrBootMem);
-
-    // Construct Counter, for cache debugging etc.
-
-    let bbCounter <- mkCountPerif();
-    let counter <- mkBlueBusPeripheralToTLM(
-        bbCounter, `CHERI_COUNT_BASE, `CHERI_COUNT_WIDTH);
-    CheriRdSlaveXActor counterXActor <- mkAxiRdSlave(False, counter.matchAddress);
-    let counterConn <- mkConnection(counterXActor.tlm, counter.peripheral.read);
-
-    // Construct PICs.
-
-    `ifndef MULTI
-        let pic <- mkBlueBusPeripheralToTLM(
-            processor.pic[0], `CHERI_PIC_BASE_0, `CHERI_PIC_WIDTH);
-        let picAxi <- mkTLMReadWriteRecvToAxi(pic.peripheral, pic.matchAddress);
-    `else
-        let pic_0 <- mkBlueBusPeripheralToTLM(
-            processor.pic[0], `CHERI_PIC_BASE_0, `CHERI_PIC_WIDTH);
-        let picAxi_0 <- mkTLMReadWriteRecvToAxi(pic_0.peripheral, pic_0.matchAddress);
-        let pic_1 <- mkBlueBusPeripheralToTLM(
-            processor.pic[1], `CHERI_PIC_BASE_1, `CHERI_PIC_WIDTH);
-        let picAxi_1 <- mkTLMReadWriteRecvToAxi(pic_1.peripheral, pic_1.matchAddress);
-    `endif
-
-    // Construct Read Bus.
-
-    Vector#(1, AxiRdFabricMaster#(`TLM_PRM_CHERI)) rdMasters = newVector();
-    rdMasters[0] = internalRdXActor.fabric;
-
-    `ifndef MULTI
-        Vector#(3, AxiRdFabricSlave#(`TLM_PRM_CHERI)) rdSlaves = newVector();
-        rdSlaves[0] = bootMemRdXActor.fabric;
-        rdSlaves[1] = counterXActor.fabric;
-        rdSlaves[2] = picAxi.read;
-    `else
-        Vector#(4, AxiRdFabricSlave#(`TLM_PRM_CHERI)) rdSlaves = newVector();
-        rdSlaves[0] = bootMemRdXActor.fabric;
-        rdSlaves[1] = counterXActor.fabric;
-        rdSlaves[2] = picAxi_0.read;
-        rdSlaves[3] = picAxi_1.read;
-    `endif
-
-    mkAxiRdBus(rdMasters, rdSlaves);
-
-    // Construct Write Bus.
-
-    Vector#(1, AxiWrFabricMaster#(`TLM_PRM_CHERI)) wrMasters = newVector();
-    wrMasters[0] = internalWrXActor.fabric;
-
-    `ifndef MULTI
-        Vector#(2, AxiWrFabricSlave#(`TLM_PRM_CHERI)) wrSlaves = newVector();
-        wrSlaves[0] = bootMemWrXActor.fabric;
-        wrSlaves[1] = picAxi.write;
-    `else
-        Vector#(3, AxiWrFabricSlave#(`TLM_PRM_CHERI)) wrSlaves = newVector();
-        wrSlaves[0] = bootMemWrXActor.fabric;
-        wrSlaves[1] = picAxi_0.write;
-        wrSlaves[2] = picAxi_1.write;
-    `endif
-
-    mkAxiWrBus(wrMasters, wrSlaves);
-
+    
     (* fire_when_enabled, no_implicit_conditions*)
     rule irqFeedThrough;
-        // blueBusIrqs (in well defined positions) grow from the top.
-        // Currently there are no blueBusIrqs.
+        // Bluespec IRQs (in well defined positions) grow from the top.
+        // The only one of these is the DMA, at interrupt 31
         // qsysIrqs grow from the bottom.
-        processor.putIrqs(qsysIrqs);
+        `ifdef DMA
+            Bit#(32) dmaIrq = zeroExtend(pack(dma.getIRQ())) << 31;
+        `else
+            Bit#(32) dmaIrq = 0;
+        `endif
+        processor.putIrqs(qsysIrqs | dmaIrq);
     endrule
 
     method Action irq(Bit#(32) irqs);
@@ -240,7 +311,12 @@ module mkTopAxi(TopAxi);
     interface debug_stream_sinks = map(tpl_1, debugs);
     interface debug_stream_sources = map(tpl_2, debugs);
 
-    interface read_master = externalRdXActor.fabric.bus;
-    interface write_master = externalWrXActor.fabric.bus;
+    interface read_master  = axi_translator.read_master;
+    interface write_master = axi_translator.write_master;
+
+    `ifdef RMA
+    interface networkRx = processor.networkRx;
+    interface networkTx = processor.networkTx;
+    `endif
 
 endmodule

@@ -45,8 +45,8 @@ import GetPut :: *;
 import FIFO::*;
 import FIFOF::*;
 import SpecialFIFOs::*;
-import ConfigReg::*;
 import Vector::*;
+import BuildVector::*;
 import FShow::*;
 
 import Debug::*;
@@ -67,6 +67,7 @@ import CapabilityExecute::*;
 import Library::*;
 import SearchFIFO::*;
 import Debug::*;
+import TraceTypes::*;
 
 //=============================================================================
 // Interface
@@ -77,7 +78,16 @@ typedef struct{
   Exception exception;
   Bool          bCond;
   Address   fetchAddr;
+  Maybe#(Address) mNewPC;
 } CapResp deriving(Bits, Eq, FShow);
+
+
+typedef struct{
+  Bool          flush;
+`ifdef DEBUG
+  TraceEntry       te;
+`endif
+} CapWritebackResp deriving(Bits, Eq, FShow);
 
 interface CapabilityCoprocessor;
 
@@ -94,7 +104,14 @@ interface CapabilityCoprocessor;
   method ActionValue#(Exception) memoryStage2(Bool commit);
   // the return value signifies if we need to flush after commit.
   // XXX NDAVE: Can we remove the returning flush by pushing this information into decode?
-  method ActionValue#(Bool) commitWriteback(Bool commit, Maybe#(Bool) misException);
+  method ActionValue#(CapWritebackResp) commitWriteback(
+     Bool commit, 
+     `ifdef DEBUG
+     TraceEntry te,
+     `endif
+     Address pc, 
+     Exception exception, 
+     Bool eret);
 
   method Bool isFlushed();
   method Action debugDisplay();
@@ -114,9 +131,9 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
    let debug_crf <- mkCapabilityRegisterFile_Debug(toModule(caprf));
    CapabilityRegisterFile crf = debug_crf.inf;
   `else
-   CapabilityRegisterFile crf = caprf; 
+   CapabilityRegisterFile crf = caprf;
   `endif
-   
+
   CapExecute capExe <- mkCapExecute();
 
   let cfet2decQ_debug <- mkFIFOF_Debug(mkPipeFIFOF, 1);
@@ -126,30 +143,28 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
   FIFOF#(DecCapInst) cdec2exeQ = cdec2exeQ_debug.inf;
 
   SFIFO#(ExeCapInst, ThreadCapReg, TaggedCapability)
-//                     scexe2memQ <- mkSFIFO1_ne_nf_deq_search_enq_EHR(searchCExe);
                      scexe2memQ <- mkSFIFO1(0,1,1,2, searchCExe);
   FIFOF#(ExeCapInst) cexe2memQ = scexe2memQ.fifo;
 
   SFIFO#(MemCapInst, ThreadCapReg, TaggedCapability)
-//                     scmem2mem2Q <- mkSFIFO1_ne_nf_deq_enq_search_EHR(searchCMem);
                      scmem2mem2Q <- mkSFIFO1(0,1,2,2, searchCMem);
   FIFOF#(MemCapInst) cmem2mem2Q = scmem2mem2Q.fifo;
 
   SFIFO#(MemCapInst, ThreadCapReg, TaggedCapability)
-//                     scmem2wbQ <- mkSFIFO1_ne_nf_deq_enq_search_EHR(searchCMem);
                      scmem2wbQ <- mkSFIFO1(0,1,2,2, searchCMem);
   FIFOF#(MemCapInst) cmem2wbQ = scmem2wbQ.fifo;
 
-  Vector#(2, Forwarder#(ThreadCapReg, TaggedCapability)) forwarders =
-      Vector::cons(scexe2memQ.search, Vector::cons(scmem2wbQ.search, Vector::nil));
+  Vector#(3, Forwarder#(ThreadCapReg, TaggedCapability)) forwarders =
+      vec(scexe2memQ.search, scmem2mem2Q.search, scmem2wbQ.search);
 
   CapabilityRegisterFile forwardcrf <- mkForwardingCapabilityRegisterFile(crf,forwarders);
 
   interface IMem capIMem;
     method ActionValue#(Exception) req(ThreadID thread, ThreadState ts, Address off);
-      match {.a, .isValid} <- convOffset(SZ_4Byte, off, forwardcrf.pcc[thread][1]);
-
-      debug($display("CP2: IMEM req to 0x%h", off, " x ", fshow(forwardcrf.pcc[thread][1]), " => (0x%h) ", a, fshow(isValid)));
+      let pcc     = forwardcrf.pcc[thread][1];
+      let a       = pcc.base + off;
+      let isValid = off + 4 <= pcc.length;
+      debug2("fetch",$display("CP2: IMEM req to 0x%h", off, " x ", fshow(pcc), " => (0x%h) ", a, fshow(isValid)));
 
       let e <- (isValid) ? imem.req(thread, ts, a) : toAV(Ex_CoProcess2); // only req when necessary
 
@@ -159,7 +174,7 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
 
     method ActionValue#(Tuple2#(Exception, Bit#(32))) resp();
       let rv <- imem.resp();
-      debug($display("CP2: IMEM resp: 0x%h", fshow(rv)));
+      debug2("decode", $display("CP2: IMEM resp: 0x%h", fshow(rv)));
       return rv;
     endmethod
     interface invalidate = imem.invalidate;
@@ -176,7 +191,7 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
       tagged Valid .r: forwardcrf.readReqB(thread, r);
     endcase
 
-    debug($display("CP2: capReq reading ", fshow(op.cA), " ", fshow(op.cA)));
+    debug2("decode", $display("CP2: capReq reading ", fshow(op.cA), " ", fshow(op.cA)));
 
     let dci = DecCapInst{thread: thread, ts: ts, op: op, imm: imm, fetEx: !isValid, fetchAddr: fetchAddr};
     cdec2exeQ.enq(dci);
@@ -188,11 +203,11 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
 
     TaggedCapability pcA <- case (dci.op.cA) matches
 			      tagged Valid .*: forwardcrf.readRespA();
-			      default:         toAV(tuple2(False, invalidCap));
+			      default:         ?;
 			    endcase;
     TaggedCapability pcB <- case (dci.op.cB) matches
 			      tagged Valid .*: forwardcrf.readRespB();
-			      default:         toAV(tuple2(False, invalidCap));
+			      default:         ?;
 			    endcase;
     `ifdef VERIFY2
    $display(pcA,pcB);
@@ -211,13 +226,6 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
     if (!kill) // mispredicted executions are dropped
       begin
 	let capResult = cResult.capResult;
-        debug2("cp2exec", $display("CP2: capResp Op: ", fshow (dci.op.op),
-                       "\n reading A: ", fshow(dci.op.cA), " => %b", vA, fshow(cA),
-                       "\n reading B: ", fshow(dci.op.cB), " => %b", vB, fshow(cB),
-                       "\n Result: ", fshow(cResult.capResult),
-                       " LoadStore (%d/%d)", cResult.loadOp, cResult.storeOp,
-                       "\n CapCause :", fshow(cResult.capCause))) ;
-
         let eci = ExeCapInst{thread: dci.thread, ts: dci.ts, op: dci.op, tag: cResult.capTag, cap: cResult.capResult, getMemResp: doMem, capException: cResult.capCause, memAddr: cResult.memAddr};
         cexe2memQ.enq(eci);
       end
@@ -226,10 +234,21 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
              exception: cResult.exception,
              result:    cResult.result,
              bCond:     cResult.bCond,
-             fetchAddr: dci.fetchAddr
+             fetchAddr: dci.fetchAddr,
+             mNewPC:    cResult.mNewPC
            };
 
-   debug2("cp2exec", $display("CP2: capRespV: ", fshow (capRespV)));
+    if (!kill)
+      begin
+        debug2("cp2exec", $display("CP2: capResp Op: ", fshow (dci.op.op),
+                       "\n reading A: ", fshow(dci.op.cA), " => %b ", vA, fshow(cA),
+                       "\n reading B: ", fshow(dci.op.cB), " => %b ", vB, fshow(cB),
+                       "\n Result: ", fshow(cResult.capResult),
+                       " LoadStore (%d/%d)", cResult.loadOp, cResult.storeOp,
+                       "\n CapCause :", fshow(cResult.capCause),
+                       "\n CapResp: ", fshow(capRespV)));
+      end
+
    return capRespV;
   endmethod
 
@@ -292,7 +311,6 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
         ex <- capMem.req (
            mci.thread,
            mci.ts,
-           True,
            mreq);
         debug2("cp2mem", $display("CP2: capmem 0x%x %s %b ", mci.memAddr, load ? " -> " : " <- ", mci.tag, fshow(mci.cap)));
       end
@@ -310,12 +328,23 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
     return ex;
   endmethod
 
-  method ActionValue#(Bool) commitWriteback(Bool commit, Maybe#(Bool) mExceptionOrERET); // writeback
+  method ActionValue#(CapWritebackResp) commitWriteback(Bool commit, 
+     `ifdef DEBUG 
+     TraceEntry te, 
+     `endif
+     Address pc, 
+     Exception exception, Bool eret); // writeback
     let wci = cmem2wbQ.first();
     cmem2wbQ.deq();
-    Bool flushit = False;
+    let resp = CapWritebackResp {
+      `ifdef DEBUG
+      te: te,
+      `endif
+      flush: False
+    };
     Maybe#(Capability) newDelayedPCC = mDelayedPCC[wci.thread];
     Capability oldPCC = crf.pcc[wci.thread][0];
+    oldPCC.cursor = oldPCC.base + pc;
     Capability newPCC = oldPCC;
     function addBool(c) = tuple2(True, c);
 
@@ -334,55 +363,83 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
                               return tuple2(wci.tag, wci.cap);
                             endactionvalue;
 
+    `ifdef DEBUG
+    if (wci.getMemResp)
+      if (isValid(wci.op.dest))
+        begin
+          let shortCap = capToShortCap(ctag, cap);
+          resp.te.entry_type = TraceType_CapLoad;
+          resp.te.regVal1    = pack(shortCap)[127:64];
+          resp.te.pc         = pack(shortCap)[63:0];
+        end
+      else
+        begin
+          let shortCap = capToShortCap(wci.tag, wci.cap);
+          resp.te.entry_type = TraceType_CapStore;
+          resp.te.regVal1    = pack(shortCap)[127:64];
+          resp.te.pc         = pack(shortCap)[63:0];
+        end
+    else if (isValid(wci.op.dest))
+      begin
+        let shortCap = capToShortCap(ctag, cap);
+        resp.te.entry_type = TraceType_CapOp;
+        resp.te.regVal1    = pack(shortCap)[127:64];
+        resp.te.regVal2    = pack(shortCap)[63:0];
+      end
+    `endif
+
     if(commit)
       begin
         if (mDelayedPCC[wci.thread] matches tagged Valid .c)
           begin
+            debug2("wb", $display("CP2: WB write delayed pcc: ", fshow(c)));
             newPCC = c;
             newDelayedPCC = Invalid;
-            flushit = True; // rmn30 YYY could we avoid flushing on cap. jump?
+            resp.flush = True; // rmn30 YYY could we avoid flushing on cap. jump?
           end
-        if (mExceptionOrERET == tagged Valid True) // exception
+        if (exception != Ex_None && exception != Ex_Suspended) // exception
           begin
             debug2("trace", $display("CP2\tT%1d: EXCEPTION: ", wci.thread, fshow(wci.capException)));
             debug2("trace", $display("CP2\tT%1d: pcc  <= ", wci.thread, fshow(crf.kcc(wci.thread))));
             debug2("trace", $display("CP2\tT%1d: epcc <= ", wci.thread, fshow(oldPCC)));
-	    if (wci.capException.capex != pack(ExC_None))
+            if (exception == Ex_CoProcess2 || exception == Ex_CP2Trap)
               capCause[wci.thread][0] <= wci.capException;
             match {.kt, .kcc} = crf.kcc(wci.thread);
             newPCC = (kt) ? kcc : invalidCap;
             crf.write(wci.thread, 31, True, oldPCC);
-            flushit = True;
+            resp.flush = True;
           end
-        else if (mExceptionOrERET == tagged Valid False) // eret
+        else if (eret) // eret
           begin
             debug2("trace", $display("CP2\tT%1d: ERET pcc <= ", wci.thread, fshow(crf.epcc(wci.thread))));
             match {.et, .epcc } = crf.epcc(wci.thread);
             newPCC = et ? epcc : invalidCap;
-            flushit = True;
+            resp.flush = True;
           end
         else if (wci.op.op == CapOp_SetCause) // special case -- set cause without exception
           begin
             debug2("trace", $display("CP2\tT%1d: SetCause <= ", wci.thread, fshow(wci.capException)));
             capCause[wci.thread][0] <= wci.capException;
-            flushit = True;
+            resp.flush = True;
           end
-        else if (wci.op.op == CapOp_JR) // ordinary commit
+        else if (wci.op.op == CapOp_JR)  // capability jump
           begin
             debug2("trace", $display("CP2\tT%1d: JR pcc <= ", wci.thread, fshow(cap)));
-            if (wci.op.dest matches tagged Valid .c)
-               debug2("trace", $display("CP2\tT%1d: c%1d <= ", wci.thread, c, fshow(oldPCC)));
             newDelayedPCC = tagged Valid cap;
             // write link cap
             if (wci.op.dest matches tagged Valid .c)
-              crf.write(wci.thread, c, True, oldPCC);
+              begin
+                let linkPCC = oldPCC;
+                linkPCC.cursor = linkPCC.cursor + 8;
+                debug2("trace", $display("CP2\tT%1d: c%1d <= ", wci.thread, c, fshow(linkPCC)));
+                crf.write(wci.thread, c, True, linkPCC);
+              end
             // don't flush until after branch delay
           end
-        else if (wci.op.dest matches tagged Valid .c)
+        else if (wci.op.dest matches tagged Valid .c)  // ordinary commit
           begin
             debug2("trace",$display("CP2\tT%1d: c%1d <= ", wci.thread, c, show_tagged_cap(ctag, cap)));
             crf.write(wci.thread, c, ctag, cap);
-            flushit = True; // XXX rmn30 don't do this.
           end
         else if(wci.op.displayRF)
           begin
@@ -393,7 +450,7 @@ module mkCapabilityCoprocessor#(IMem imem, DMem dmem, DCache capMem, CapabilityR
       end
     crf.pcc[wci.thread][0]  <= newPCC;
     mDelayedPCC[wci.thread] <= newDelayedPCC;
-    return flushit;
+    return resp;
   endmethod
 
   method Action debugDisplay();

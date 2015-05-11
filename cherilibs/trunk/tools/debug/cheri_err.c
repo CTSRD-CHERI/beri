@@ -118,6 +118,9 @@ beri_debug_strerror(int ret)
 	case BERI_DEBUG_ERROR_ALTERA_SOFTWARE:
 		return ("Altera tools returned an error");
 
+	case BERI_DEBUG_ERROR_PCIEXPRESS_DISABLED:
+		return ("berictl was built without PCI Express support");
+
 	default:
 		return ("unknown error");
 	}

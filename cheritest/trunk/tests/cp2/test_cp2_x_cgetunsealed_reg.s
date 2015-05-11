@@ -31,7 +31,7 @@
 .set noat
 
 #
-# Test that cgetunsealed raises an exception if the capability register is
+# Test that cgetsealed raises an exception if the capability register is
 # one of the reserved registers and the corresponding bit in PCC.perms is
 # not set.
 #
@@ -41,12 +41,12 @@ sandbox:
 		# Try to use KR1C ($c27) as a capability, without having
 		# the required permission in PCC.
 		#
-		dli     $a0, 2
-		cgetunsealed $a0, $c27 # This should raise a C2E exception
 
-		cjr     $ra($c24)
-		# branch delay slot
-		nop
+		dli     $a0, 2
+		cgetsealed $a0, $c27	# This should raise a C2E exception
+
+		cjr     $c24
+		nop			# branch delay slot
 
 		.global test
 test:		.ent test
@@ -74,15 +74,15 @@ test:		.ent test
 		dli     $t0, 0x1ff
 		candperm $c2, $c0, $t0
 		dla     $t0, sandbox
-		cjalr   $t0($c2)
-		# branch delay slot
-		nop
+		csetoffset $c2, $c2, $t0
+		cjalr   $c24, $c2
+		nop			# Branch delay slot
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		nop			# Branch delay slot
 		.end	test
 
 		.ent bev0_handler

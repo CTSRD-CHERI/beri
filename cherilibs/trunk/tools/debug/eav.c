@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2013 SRI International
+ * Copyright (c) 2015 A. Theodore Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -34,6 +35,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "macosx.h"
 #include "eav.h"
 
 #ifdef __linux__

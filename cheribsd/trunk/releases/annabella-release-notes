@@ -1,0 +1,21 @@
+Release:	Annabella
+Date:		2013-07-22
+
+The Annabella release is an incremental release with few or no
+compatibility changes relative to Ambrunes.
+
+Software changes
+ - Integrated from FreeBSD as of 2013-06-18 resolving a local root exploit
+   among other issues.
+ - Integration of outstanding changes to the CHERI binutils port from
+   https://github.com/CTSRD-CHERI/binutils.
+ - Compile SSH with the NONE cipher enabled.  It must still be
+   configured on the client and server and explicitly requested.
+ - Serial console support (115200 bps).
+ - Large TLBs now supported.
+ - Preliminary support for multi-threaded CHERI2.
+
+Hardware changes:
+ - All I/O wires constrained.  Fixes SD Card support.
+ - Hardware serial console (16550 compatible).
+ - TLB expanded to 144 entries.

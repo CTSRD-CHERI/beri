@@ -34,14 +34,14 @@ from nose.plugins.attrib import attr
 
 class test_cp2_csealunsealcode(BaseBERITestCase):
     @attr('capabilities')
-    def test_cp2_csealunsealcode1(self):
-        '''Test that cunseal sets the unsealed bit'''
-        self.assertRegisterEqual(self.MIPS.a0, 1,
-            "cunseal did not set the u bit")
+    def test_cp2_csealunsealcode_1(self):
+        '''Test that cunseal clears the sealed bit'''
+        self.assertRegisterEqual(self.MIPS.a0, 0,
+            "cunseal did not clear the sealed bit")
 
     @attr('capabilities')
-    def test_cp2_sealunsealcode2(self):
-        '''Test that cunseal sets the otype field'''
+    def test_cp2_sealunsealcode_2(self):
+        '''Test that cunseal clears the otype field'''
         self.assertRegisterEqual(self.MIPS.a1, 0,
-            "cunseal did not set the otype field correctly")
+            "cunseal did not clear the otype field")
 

@@ -2,6 +2,7 @@
  * Copyright (c) 2013 Alan A. Mujumdar
  * Copyright (c) 2014 Alexandre Joannou
  * Copyright (C) 2014 Colin Rothwell
+ * Copyright (C) 2015 Paul J. Fox
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -41,37 +42,66 @@
 
 import MIPS::*;
 import MemTypes::*;
+import Memory::*;
 import FIFO::*;
 import FIFOF::*;
-//import SpecialFIFOs::*;
-//import FIFOLevel::*;
+import Debug::*;
 import GetPut::*;
 import ClientServer::*;
 import MasterSlave::*;
+import Connectable::*;
 import Interconnect::*;
 import MIPSTop::*;
-import Merge::*;
-import L2Cache::*;
+`ifndef MICRO
+  import L2Cache::*;
+`endif
 import AvalonStreaming::*;
 import Vector::*;
 import PIC::*;
 import Peripheral::*;
 `ifdef CAP
-  import CapCop::*;
+  import CapCop :: *;
   import TagCache::*;
   import Connectable::*;
-`endif 
+  `define USECAP
+`elsif CAP128
+  import CapCop128 :: *;
+  import TagCache::*;
+  import Connectable::*;
+  `define USECAP
+`endif
+`ifdef RMA
+  import RemoteMemoryAccessorCheri::*;
+`endif
+
+// For testing the memory sub-system
+`ifdef TEST_MEM
+  import MIPSTop_TestMem::*;
+`endif
 
 interface MulticoreIfc;
   interface Master#(CheriMemRequest, CheriMemResponse) memoryStage;  
+  (* always_ready, always_enabled *)
   method Action putIrqs(Bit#(32) irqs);
   interface Vector#(CORE_COUNT, Server#(Bit#(8), Bit#(8))) debugStream; 
   interface Vector#(CORE_COUNT, Peripheral#(0)) pic;
+  `ifdef RMA
+  interface AvalonStreamSourcePhysicalIfc#(Bit#(76)) networkRx;
+  interface AvalonStreamSinkPhysicalIfc#(Bit#(76)) networkTx;
+  `endif
   method Bool reset_n();
+
+  // For testing the memory sub-system
+  interface Vector#(CORE_COUNT, MIPSMemory) mipsMemories;
 endinterface
 
   (*synthesize*)
   module mkMulticore(MulticoreIfc);
+
+    // For testing the memory sub-system
+    `ifdef TEST_MEM
+      function mkMIPSTop = mkMIPSTop_TestMem;
+    `endif
 
     // Instantiating a number processor cores as stated by CORE_COUNT
     Vector#(CORE_COUNT, MIPSTopIfc)	beri		<- mapM(mkMIPSTop, map(fromInteger, genVector));
@@ -85,23 +115,62 @@ endinterface
         return masters;
     endfunction
 
-    Vector#(TMul#(2,CORE_COUNT), Master#(CheriMemRequest,CheriMemResponse))
-    beriMasters = getBeriMasters(beri);
+    Vector#(TMul#(2,CORE_COUNT), Master#(CheriMemRequest,CheriMemResponse)) 
+            beriMasters = getBeriMasters(beri);
+    
+    Vector#(1, Slave#(CheriMemRequest,CheriMemResponse)) topSlave;
+   `ifndef MICRO
+      // L2Cache instantiation has been moved from Memory.bsv to this location
+      L2CacheIfc l2cache <- mkL2Cache;
+      topSlave[0] = l2cache.cache;
+      
+      // A single port L2Cache can not communicate directly with the L1's due to the nature
+      // of the merge module. A different merge module is used with the multiport L2, it 
+      // Allows direct L1Cache invalidation
 
-    // L2Cache instantiation has been moved from Memory.bsv to this location
-    L2CacheIfc				l2cache		<- mkL2Cache; 
-    Vector#(1, Slave#(CheriMemRequest,CheriMemResponse)) l2slave;
-    l2slave[0] = l2cache.cache;
+      rule invalidateL1Caches;
+        Maybe#(InvalidateCache) inv <- l2cache.getInvalidate;
+        if (inv matches tagged Valid .invalidate) begin
+          for (Integer i=0; i<valueof(CORE_COUNT); i=i+1) begin
+            if (invalidate.sharers[2*i]) begin 
+              beri[i].invalidateICache(unpack(pack(invalidate.addr)));
+            end
+            if (invalidate.sharers[2*i+1]) begin
+              beri[i].invalidateDCache(unpack(pack(invalidate.addr)));
+            end
+            debug2("multicore", $display("<time %0t Multicore> Invalidate L1 Shared Block Core:%d, BitMap:%b, Addr:%x", $time, fromInteger(i), invalidate.sharers, invalidate.addr));
+          end
+        end
+      endrule
 
-    mkBus(beriMasters,constFn(tagged Valid unpack(0)),l2slave,routeFromField);
+      Master#(CheriMemRequest,CheriMemResponse) lastMaster = l2cache.memory;
+    `else
+      Forward#(CheriMemRequest,CheriMemResponse) forwarder <- mkForward;
+      topSlave[0] = forwarder.slave;
+      Master#(CheriMemRequest,CheriMemResponse) lastMaster = forwarder.master;
+    `endif
+ 
+    // I do this sleazy forceReqType trickery because I can't be bothered to
+    // work out the complicated return type.
+    function truncateMasterID(resp);
+        CheriMemResponse forceRespType = resp;
+        return tagged Valid unpack(truncate(pack(resp.masterID)));
+    endfunction
 
-    // Creating one PIC per core
-    Vector#(CORE_COUNT,PIC#(64,Bit#(0))) pics            <- replicateM(mkPIC);
+    mkBus(beriMasters,constFn(tagged Valid unpack(0)),topSlave,truncateMasterID);
+
+    // Connect the Remote Memory Accessor.  This is very likely to have to move up or down the stack
+    `ifdef RMA
+      RemoteMemoryAccessorCheriIfc rma <- mkRemoteMemoryAccessorCheri(0); // Argument is the board id, needs to be different for every board 
+      mkConnection(lastMaster, rma.slave);
+      lastMaster = rma.master;
+    `endif
 
     // Connecting the L2Cache to the TagCache. TagCache is then connected to DRAM
-    `ifdef CAP
-      TagCacheIfc                       tagCache        <- mkTagCache(); 
-      mkConnection(l2cache.memory, tagCache.cache);
+    `ifdef USECAP
+      TagCacheIfc tagCache <- mkTagCache(); 
+      mkConnection(lastMaster, tagCache.cache);
+      lastMaster = tagCache.memory;
     `endif
     
     // Synchronised count and pause registers for all cores.
@@ -121,6 +190,9 @@ endinterface
         pause <= getPause;
       endrule
     end
+    
+    // Creating one PIC per core
+    Vector#(CORE_COUNT,PIC#(32,Bit#(0))) pics <- replicateM(mkPIC);
 
     // PIC interfacing
     (* fire_when_enabled, no_implicit_conditions *)  
@@ -131,21 +203,8 @@ endinterface
       end  
     endrule 
 
-    // A single port L2Cache can not communicate directly with the L1's due to the nature
-    // of the merge module. A different merge module is used with the multiport L2, it 
-    // Allows direct L1Cache invalidation
-    rule invalidateL1Caches;
-      InvalidateCache inv <- l2cache.invalidate.request.get();
-      for (Integer i=0; i<valueof(CORE_COUNT); i=i+1) begin
-	if (inv.sharers[2*i]) begin 
-          beri[i].invalidateICache(unpack(pack(inv.addr)));
-        end
-        if (inv.sharers[2*i+1]) begin
-          beri[i].invalidateDCache(unpack(pack(inv.addr)));
-        end
-        debug($display("Multicore Invalidate L1 Shared Block Core:%d, BitMap:%b, Addr:%x", fromInteger(i), inv.sharers, inv.addr));
-      end
-    endrule
+    // For testing the memory sub-system
+    function MIPSMemory getMipsMemory(MIPSTopIfc core) = core.mipsMemory;
 
     Vector#(CORE_COUNT, Server#(Bit#(8), Bit#(8))) debug;
     Vector#(CORE_COUNT, Peripheral#(0)) picVector;
@@ -164,10 +223,14 @@ endinterface
     interface PIC pic = picVector;
     interface debugStream = debug;
     method reset_n = beri[0].reset_n;
-    `ifdef CAP
-      interface memoryStage = tagCache.memory;
-    `else
-      interface memoryStage = l2cache.memory;
+    interface memoryStage = lastMaster;
+
+    // For testing the memory sub-system
+    interface mipsMemories = map(getMipsMemory, beri);
+
+    `ifdef RMA
+    interface networkRx = rma.networkRx;
+    interface networkTx = rma.networkTx;
     `endif
 
   endmodule

@@ -33,9 +33,9 @@ class test_raw_fpu_cvt_d32(BaseBERITestCase):
     @attr('float32')
     def test_raw_fpu_cvt_d32(self):
         '''Test can convert from double to single precision when in 32-bit mode'''
-        self.assertRegisterEqual(self.MIPS.a1 & 0xfffffffe, 0x3e2aaaaa, "Failed to convert double to single precision")
+        self.assertRegisterMaskEqual(self.MIPS.a1, 0xfffffffe, 0x3e2aaaaa, "Failed to convert double to single precision")
 
-        self.assertRegisterEqual(self.MIPS.a1 & 0x1, 1, "Failed to round to nearest when converting from double precision to single precision")
+        self.assertRegisterMaskEqual(self.MIPS.a1, 0x1, 1, "Failed to round to nearest when converting from double precision to single precision")
 
     @attr('float32') 
     def test_raw_fpu_cvt_d32_mode(self):

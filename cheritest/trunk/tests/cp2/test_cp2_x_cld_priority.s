@@ -43,7 +43,7 @@ sandbox:
 		dli     $t0, 1		# This makes the offset unaligned
 		cldr    $a0, $t0($c27)	# This should raise a C2E exception
 
-		cjr     $ra($c24)
+		cjr     $c24
 		# branch delay slot
 		nop
 
@@ -82,15 +82,15 @@ test:		.ent test
 		dli     $t0, 0x1ff
 		candperm $c2, $c0, $t0
 		dla     $t0, sandbox
-		cjalr   $t0($c2)
-		# branch delay slot
-		nop
+		csetoffset $c2, $c2, $t0
+		cjalr   $c24, $c2
+		nop			# Branch delay slot
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		nop			# Branch delay slot
 		.end	test
 
 		.ent bev0_handler

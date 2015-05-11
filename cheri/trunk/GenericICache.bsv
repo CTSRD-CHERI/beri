@@ -313,6 +313,7 @@ module mkGenericICache#(Bit#(16) coreId) (CacheInstIfc#(nb_ways, sets_per_way, b
                 // send a cache line request to main memory
                 CheriMemRequest mem_req = defaultValue;
                 mem_req.addr = unpack(pack(addr));
+                mem_req.addr.byteOffset = 0;
                 mem_req.masterID = unpack(truncate({coreId,1'b0}));
                 mem_req.operation = tagged Read {
                                       uncached: False,

@@ -127,3 +127,33 @@ class BaseBERITestCase(unittest.TestCase):
             self.fail(msg + "0x%016x is outside of [0x%016x,0x%016x]"%(
                 reg_val, expected_min, expected_max))
 
+    def assertRegisterMaskEqual(self, first, mask, second, msg=None):
+        '''Convenience method which outputs the values of first and second if
+        they are not equal on the bits selected by the mask (preceded by msg,
+        if given)'''
+        if self.ALWAYS_FAIL:
+            first = 1
+            second = 2
+            mask = 0x3
+        if first & mask != second:
+            if msg is None:
+                msg = ""
+            else:
+                msg = msg + ": "
+            self.fail(msg + "0x%016x and 0x%016x != 0x%016x"%(first, mask, second))
+
+    def assertRegisterMaskNotEqual(self, first, mask, second, msg=None):
+        '''Convenience method which outputs the values of first and second if
+        they are equal on the bits selected by the mask (preceded by msg,
+        if given)'''
+        if self.ALWAYS_FAIL:
+            first = 1
+            second = 1
+            mask = 0x3
+        if first & mask == second:
+            if msg is None:
+                msg = ""
+            else:
+                msg = msg + ": "
+            self.fail(msg + "0x%016x and 0x%016x == 0x%016x"%(first, mask, second))
+

@@ -32,6 +32,8 @@
 
 package Interconnect;
 
+import Debug::*;
+import FIFO::*;
 import MasterSlave::*;
 import NumberTypes :: *;
 import Vector :: *;
@@ -128,7 +130,8 @@ module mkOneWayBus
         (Empty)
         provisos(
             Bits#(packet_t, packet_size),
-            Routable#(packet_t, width));
+            Routable#(packet_t, width),
+            FShow#(packet_t));
 
     // wire to input
     Vector#(n_in, PulseWire) w_get <- replicateM(mkPulseWire);
@@ -166,6 +169,7 @@ module mkOneWayBus
                         w_to_arbiter[i] <= to_arbiter;
                     end
                     default: begin
+                        $display("%t: INVALID PACKET ", $time, fshow(inputs[i].peek));
                         dynamicAssert(False, "Every packet should have a destination address mapped to an output");
                     end
                 endcase
@@ -242,6 +246,7 @@ module mkBus
         function Maybe#(BuffIndex#(TLog#(n_in), n_in)) routeRsp (rsp_t rsp))
         (Empty)
         provisos(
+            FShow#(req_t), FShow#(rsp_t),
             Routable#(req_t, m2s_width),
             Bits#(req_t, req_size),
             Routable#(rsp_t, s2m_width),
@@ -469,7 +474,7 @@ module mkSingleMasterOrderedBus
             Routable#(rsp_t, s2m_width),
             Bits#(req_t, req_size),
             Bits#(rsp_t, rsp_size),
-            FShow#(req_t));
+            FShow#(req_t), FShow#(rsp_t));
 
     staticAssert(in_flight_transactions > 0, "Can't authorize less than maximum 1 in flight transaction in the bus");
 
@@ -487,7 +492,7 @@ module mkSingleMasterOrderedBus
             tagged Valid .s_idx: begin
                 if (w_canPut_req[s_idx]) begin
                     w_put_req[s_idx] <= tagged Valid master.request.peek;
-                    let _ <- master.request.get;
+                    let rtodebug <- master.request.get;
                     pendingSlave.enq(s_idx);
                     req_state <= (getLastField(master.request.peek)) ? FIRST_FLIT : NEXT_FLIT;
                 end
@@ -505,6 +510,9 @@ module mkSingleMasterOrderedBus
     endrule
 
     rule rsp_receive (w_canGet_rsp[pendingSlave.first]);
+        /*$display("%t: SingleMasterOrdered bus response Slave %d ",*/
+            /*$time, pendingSlave.first,*/
+            /*fshow(w_peek_rsp[pendingSlave.first]));*/
         master.response.put(w_peek_rsp[pendingSlave.first]);
         w_get_rsp[pendingSlave.first] <= True;
         if (getLastField(w_peek_rsp[pendingSlave.first])) pendingSlave.deq;
@@ -527,6 +535,161 @@ module mkSingleMasterOrderedBus
     endrules;
     Vector#(n_out, Rules) all_output_rules = genWith(gen_output_rules);
     mapM(addRules, all_output_rules);
+
+endmodule
+
+// Ordered Bus
+// Supports multiple masters. Doesn't have a reverse routing to masters
+// function, because it keeps track of master IDs using the response source
+// buffer. This bus implements static priority: masters with lower ids are
+// serviced ahead of masters with larger ids.
+
+// Guarentee: responses are returned in the order their requests traversed the
+// bus.
+
+typedef BuffIndex#(TLog#(count), count) MinimalBuffIndex#(numeric type count);
+
+module mkOrderedBus
+        #(Vector#(masterCount, Master#(reqType, respType)) masters,
+          Vector#(slaveCount, Slave#(reqType, respType)) slaves,
+          function Maybe#(BuffIndex#(TLog#(slaveCount), slaveCount)) routeReq
+              (reqType req),
+          Integer inflightTransactions)
+        (Empty)
+        provisos (
+            FShow#(reqType), FShow#(respType),
+            Bits#(reqType, a__), Bits#(respType, b__),
+            Routable#(respType, c__)
+        );
+
+    staticAssert(inflightTransactions > 0, "It doesn't make sense to have a" +
+        "bus that supports no transactions...");
+
+    FIFO#(
+        Tuple2#(MinimalBuffIndex#(slaveCount), MinimalBuffIndex#(masterCount))
+    ) nextResponse <- mkSizedFIFO(inflightTransactions);
+    let nextResponseSlave = tpl_1(nextResponse.first());
+    let nextResponseMaster = tpl_2(nextResponse.first());
+
+    Vector#(masterCount, RWire#(MinimalBuffIndex#(slaveCount))) reqTargets <-
+        replicateM(mkRWire);
+    Vector#(slaveCount, PulseWire) respTakenFromSlave <- replicateM(mkPulseWire);
+
+    // Conceptually, these wires actually form "the bus".
+    Wire#(reqType)     reqWire     <- mkWire;
+    Wire#(respType)    respWire    <- mkWire;
+
+    // I need this function because it's the only way to get correct results
+    // when using a BuffIndex type with count 1, which translates as a UInt#(0)
+    function Bool equalityCircuit(someType left, someType right)
+            provisos(Bits#(someType, size));
+        let pairXor = pack(left) ^ pack(right);
+        let notEq = reduceOr(pairXor);
+        return !unpack(notEq);
+    endfunction
+
+    function Bool reqHasReadySlave(
+            RWire#(MinimalBuffIndex#(slaveCount)) slaveIndexWire);
+        case (slaveIndexWire.wget())
+            matches tagged Valid .slaveIndex:
+                return slaves[slaveIndex].request.canPut();
+            default:
+                return False;
+        endcase
+    endfunction
+
+    function Bool thisMasterSends(indexToCheck);
+        let maybeCorrectIndex = findIndex(reqHasReadySlave, reqTargets);
+        case (maybeCorrectIndex) matches
+            tagged Valid .correctIndex:
+                return indexToCheck == correctIndex;
+            tagged Invalid:
+                return False;
+        endcase
+    endfunction
+
+    function Rules perMasterRules(Integer masterIndex) = rules
+        let master = masters[masterIndex];
+        let buffIndexMaster = fromInteger(masterIndex);
+
+        rule forwardReqTarget (master.request.canGet());
+            case (routeReq(master.request.peek())) matches
+                tagged Valid .slaveIndex: begin
+                    debug2("orderedBus", $display("%t: Master %d has request "
+                        + "for Slave %d", $time, masterIndex, slaveIndex));
+                    reqTargets[masterIndex].wset(slaveIndex);
+                end
+                tagged Invalid: begin
+                    $display(fshow(master.request.peek()));
+                    dynamicAssert(False, "Request for invalid slave!");
+                end
+            endcase
+        endrule
+
+        rule forwardRequestFromMaster (thisMasterSends(buffIndexMaster));
+            let req <- master.request.get();
+            reqWire <= req;
+            case (reqTargets[masterIndex].wget())
+                matches tagged Valid .slaveIndex: begin
+                    debug2("orderedBus", $display("%t: Master %d sending to "
+                        + "Slave %d ", $time, masterIndex, slaveIndex,
+                            fshow(req)));
+                    nextResponse.enq(tuple2(slaveIndex, buffIndexMaster));
+                end
+                default:
+                    dynamicAssert(False, "Should have had valid slave index!");
+            endcase
+        endrule
+
+        rule forwardResponseToMaster
+                (equalityCircuit(nextResponseMaster, buffIndexMaster));
+            debug2("orderedBus", $display("%t: Response placed from wire to "
+                + "Master %d", $time, buffIndexMaster));
+            master.response.put(respWire);
+            if (getLastField(respWire)) nextResponse.deq();
+            respTakenFromSlave[nextResponseSlave].send();
+        endrule
+
+    endrules;
+
+    function Bool thisSlaveReceives(indexToCheck);
+        case (routeReq(reqWire)) matches
+            tagged Valid .reqSlaveId:
+                return (reqSlaveId == indexToCheck);
+            default:
+                return False;
+        endcase
+    endfunction
+
+    function Rules perSlaveRules(Integer slaveIndex) = rules
+        let slave = slaves[slaveIndex];
+        MinimalBuffIndex#(slaveCount) buffIndexSlave = fromInteger(slaveIndex);
+
+        rule forwardRequestToSlave (thisSlaveReceives(buffIndexSlave));
+            slave.request.put(reqWire);
+        endrule
+
+        rule forwardResponseFromSlave
+                (equalityCircuit(nextResponseSlave, buffIndexSlave));
+
+            debug2("orderedBus", $display("%t: Response from Slave %d put on "
+                + "wire. ", $time, buffIndexSlave));
+            respWire <= slave.response.peek();
+        endrule
+
+        // Take Alexandre's suggestion to only dequeue if it's the result has
+        // been taken by the master
+        rule deqFromSlave(respTakenFromSlave[slaveIndex]);
+            debug2("orderedBus", $display("%t: Dequeuing slave %d ", $time,
+                slaveIndex, fshow(respWire)));
+            let _ <- slave.response.get();
+        endrule
+
+    endrules;
+    Vector#(masterCount, Rules) masterRules = genWith(perMasterRules);
+    Vector#(slaveCount, Rules)  slaveRules  = genWith(perSlaveRules);
+    mapM(addRules, masterRules);
+    mapM(addRules, slaveRules);
 
 endmodule
 

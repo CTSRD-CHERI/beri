@@ -187,11 +187,17 @@ module mkBlueBusPeripheralToTLM
         endaction
     endfunction
 
-    PutMerge#(CheriTLMReq) putMerge <- mkPutMerge(toPut(putRequest));
+    //PutMerge#(CheriTLMReq) putMerge <- mkPutMerge(toPut(putRequest));
+    Wire#(Bool)              readUsed            <- mkDWire(False);
 
     interface CheriTLMReadWriteRecv peripheral;
         interface CheriTLMRecv read;
-            interface Put rx = putMerge.left;
+            interface Put rx;
+              method Action put(CheriTLMReq tlmReq);
+                putRequest(tlmReq);
+                readUsed <= True;
+              endmethod
+            endinterface
 
             interface Get tx;
                 method ActionValue#(CheriTLMResp) get() if (nextRespCmd == READ);
@@ -208,7 +214,11 @@ module mkBlueBusPeripheralToTLM
         endinterface
 
         interface CheriTLMRecv write;
-            interface Put rx = putMerge.right;
+            interface Put rx;
+              method Action put(CheriTLMReq tlmReq) if (!readUsed);
+                putRequest(tlmReq);
+              endmethod
+            endinterface
 
             interface Get tx;
                 method ActionValue#(CheriTLMResp) get() if (nextRespCmd == WRITE);

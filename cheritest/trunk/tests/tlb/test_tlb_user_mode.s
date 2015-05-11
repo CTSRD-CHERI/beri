@@ -44,6 +44,33 @@ test:   .ent    test
 		jal 	bev0_handler_install
 		nop		
 	
+		#
+		# Check to see if we already have a TLB entry for page 0
+		#
+
+		dli	$t0, 0x0
+		dmtc0	$t0, $10		# TLB EntryHi
+		tlbp
+		mfc0	$a0, $0			# TLB Index
+		srl	$t0, $a0, 31
+		bnez	$t0, L1
+		nop				# branch delay slot`
+
+		#
+		# Clear the existing TLB entry by setting its ASID to
+		# a value that won't match (5)
+		#
+
+		tlbr
+		dli	$t0, 0x5
+		dmtc0	$t0, $10
+		tlbwi
+
+L1:
+		dmtc0   $zero, $10
+		tlbp
+		dmfc0   $a0, $0  
+
  		dmtc0	$zero, $5               # Write 0 to page mask i.e. 4k pages
 		dmtc0	$zero, $0		# TLB index 
 		dmtc0	$zero, $10		# TLB entryHi

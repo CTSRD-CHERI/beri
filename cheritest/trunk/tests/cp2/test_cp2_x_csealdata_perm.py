@@ -35,18 +35,26 @@ from nose.plugins.attrib import attr
 class test_cp2_x_csealdata_perm(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_x_csealdata_perm_1(self):
-        '''Test csealdata did not seal without Permit_Seal'''
-        self.assertRegisterEqual(self.MIPS.a0, 1,
-            "csealdata sealed without having Permit_Seal permission")
+        '''Test cseal did not seal without Permit_Seal'''
+        self.assertRegisterEqual(self.MIPS.a0, 0,
+            "cseal sealed without having Permit_Seal permission")
 
     @attr('capabilities')
     def test_cp2_x_csealdata_perm_2(self):
         '''Test csealdata raised a C2E exception when didn't have Permit_Seal'''
         self.assertRegisterEqual(self.MIPS.a2, 1,
-            "csealdata did not raise an exception didn't have Permit_Seal")
+            "cseal did not raise an exception didn't have Permit_Seal")
 
     @attr('capabilities')
     def test_cp2_x_csealdata_perm_3(self):
         '''Test capability cause is set correctly when didn't have Permit_Seal'''
         self.assertRegisterEqual(self.MIPS.a3, 0x1702,
-            "csealdata did not set capability cause correctly when didn't have Permit_Seal")
+            "cseal did not set capability cause correctly when didn't have Permit_Seal")
+
+    @attr('capabilities')
+    def test_cp2_x_csealdata_perm_4(self):
+        '''Test cseal did not set the otype field when didn't have Permit_Seal
+ permission'''
+        self.assertRegisterEqual(self.MIPS.a1, 0,
+            "cseal set the otype field when didn't have Permit_Seal permission")
+

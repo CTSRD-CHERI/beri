@@ -44,6 +44,7 @@ import Vector::*;
 import FShow::*;
 
 import MIPS::*;
+import ThreadScheduler::*;
 import CHERITypes::*;
 import Debug::*;
 import Library::*;
@@ -62,7 +63,9 @@ interface CP0RegisterFile;
     method Action                  req(ThreadID thread, ThreadState ts, CP0Operation op, Bit#(8) extIrqs); // lookup or ins
     method ActionValue#(Exception) checkException(); // check for an exception (including interrupt)
     method ActionValue#(CP0Result) resp(Bool commit, Address exception_pc, Exception exception, Bool inDelaySlot, Value v, Bit#(32) instr);
+    method ActionValue#(ThreadID)  getNextThread();
     interface Vector#(NumThreads, Reg#(ThreadState)) threadStates;
+    interface ThreadScheduler threadScheduler;
 endinterface
 
 interface CP0;
@@ -170,6 +173,7 @@ CP0PerThreadState initialCP0ThreadState = CP0PerThreadState {
 
 module mkCP0(CP0);
   TLB                                   theTLB <- mkTLB;
+  ThreadScheduler           theThreadScheduler <- mkThreadScheduler;
 
    // Small per thread state. Uses an EHR to avoid scheduling problems in main pipeline.
    // (Note: threadState is not used internally by this module, but only via the CP0 interface.)
@@ -190,7 +194,7 @@ module mkCP0(CP0);
   Bram#(ThreadID, CP0PerThreadState)  cp0ThreadState =  initCP0bram.bram;
   // State shared between all threads
   Vector#(8,Reg#(Bool))      interruptsPending <- replicateM(mkReg(False));
-   EHR#(2, Bit#(32))                      countReg <- mkEHR(0);
+   EHR#(2, Bit#(64))                      countReg <- mkEHR(0);
 
   FIFO#(Tuple4#(ThreadID, ThreadState, CP0Operation, Bit#(8)))                    readQ <- mkPipeFIFO;
   FIFO#(Tuple5#(ThreadID, ThreadState, CP0Operation, Bit#(8), CP0PerThreadState))  midQ <- mkPipeFIFO;
@@ -244,7 +248,7 @@ module mkCP0(CP0);
 		   1:       return zeroExtend(cp0ts.eInstr);
 		   default: return 0;
 		 endcase;
-      09: return {32'b0,countReg[0]};
+      09: return {32'b0,countReg[0][31:0]};
       10: return {cp0ts.entryHiRegion, zeroExtend(cp0ts.entryHiVPN2), 5'b0, ts.asid};
       11: return {32'b0,cp0ts.compareReg};
       12: return {32'b0 // status register
@@ -290,7 +294,7 @@ module mkCP0(CP0);
                     let threadIDReg = {zeroExtend(maxThreadID), threadID};
                     return case (sel)
                       0: return {zeroExtend(thread), 8'h0, 8'h04, 8'h00}; // PRId: note use of top byte for thread ID
-                      1: return coreIDReg;   // Selects 1 and 2 are for compatibility with a previous version. 
+                      1: return coreIDReg;   // Selects 1 and 2 are for compatibility with a previous version.
                       2: return threadIDReg; // They may change in future to comply with MIPS spec.
                       6: return coreIDReg;
                       7: return threadIDReg;
@@ -344,8 +348,14 @@ module mkCP0(CP0);
                                   1'b0                  // No FPU
                                  };
                    end
-                   2: return {32'b0,1'b1,31'b0}; // Yes, config3 exists. That is all.
-                   3: return {32'b0,18'b0,1'b1,13'b0}; // No config4, URLI implemented
+                   2: return {32'b0,
+                              1'b1, // Yes, config3 exists.
+                              19'b0,// No L3 Cache
+                              4'd6, // L2: 4096 index positions
+                              4'd4, // L2: 32 bytes per line
+                              4'd3  // L2: 4-way
+                              };
+                   3: return {32'b0,18'b0,1'b1,13'b0}; // No config4, ULRI (user local register implemented)
                    default: return 0;
                  endcase;
       17: return cp0ts.llAddrReg; // Load Linked Address
@@ -440,7 +450,7 @@ module mkCP0(CP0);
         9:
         begin
           `ifndef DETERMINISTIC_TIMER
-          countReg[0]                <= unpack(v[31:0]);
+          countReg[0]                <= zeroExtend(unpack(v[31:0]));
           debug_cp0($display("CP0\tT%d: Count <- %x",thread, v));
           `else
           debug_cp0($display("CP0\tT%d: Ignored write to Count.", thread));
@@ -531,7 +541,7 @@ module mkCP0(CP0);
   endfunction
 
   `ifndef DETERMINISTIC_TIMER
-  `ifndef VERIFY2
+  `ifndef VERIFY
 	(* fire_when_enabled *)
   `endif
 	(* no_implicit_conditions *)
@@ -542,6 +552,8 @@ module mkCP0(CP0);
   `endif
 
   interface CP0RegisterFile regs;
+    method getNextThread = theThreadScheduler.getDecision;
+
     method Action req(ThreadID thread, ThreadState ts, CP0Operation op, Bit#(8) extIrqs) if (initialised);
       readQ.enq(tuple4(thread,ts,op, extIrqs));
       cp0ThreadState.readReq(thread);
@@ -583,18 +595,57 @@ module mkCP0(CP0);
 
       let interruptEx = (any(id, zipWith(andBools, threadInterruptsPending(cp0ts, extIrqs[4:0]), cp0ts.interruptMask)) && cp0ts.interruptEnable && !(ts.exceptionLevel || ts.errorLevel)) ? Ex_Interrupt :  Ex_None;
 
+      // We periodically execute instructions from suspended threads
+      // to poll for interrupts. If there is no interrupt we throw a
+      // fake exception to get our PC back to the right place.
+      let suspendEx = theThreadScheduler.isThreadRunning(thread) ? Ex_None : Ex_Suspended;
+
       respQ.enq(tuple6(thread, ts, op, extIrqs, cp0ts, cpUnusable));
-      return joinException(hwrEnaEx, joinException(accessEx, interruptEx));
+      return joinException(hwrEnaEx, joinException(accessEx, joinException(interruptEx, suspendEx)));
     endmethod
 
     method ActionValue#(CP0Result) resp(Bool commit, Address exception_pc, Exception exception, Bool inDelaySlot, Value v, Bit#(32) instr) if (initialised);
       match{.thread, .ts, .op, .extIrqs, .cp0ts, .cpUnusable} <- popFIFO(respQ);
       Bool cheri1_trace                          <- $test$plusargs("cheri1_trace");
 
-      // Check for timer interrupt. I assert that this handles wrapping just fine.
-      if ((countReg[0] - cp0ts.lastCount) > (cp0ts.compareReg - cp0ts.lastCount))
+      // Check to see whether we hit the compare value during the
+      // interval since the previous executed instruction from this
+      // thread. To do this we use the value of the counter now, the
+      // counter for last instruction and the timer target value.
+      // There are six cases to consider depending on the relative
+      // positions of the last count (L), current count(C) and
+      // timer(T):
+      //
+      // We assume unsigned arithmetic and no over-wrapping (i.e. not
+      // more than 2^32 cycles with no instructions from this thread):
+      //
+      // Counter not wrapped:
+      //          +---------->
+      // 0  |     |     |     |     |     2^32
+      //    T1    L     T2    C     T3
+      // T1: C-L < T1-L no timer
+      // T2: C-L > T2-L yes timer
+      // T3: C-L < T3-L no timer
+      // Counter wrapped:
+      // -------->            +-----------
+      // 0  |     |     |     |     |     2^32
+      //    T4    C     T5    L     T6
+      // T4: C-L > T4-L yes timer
+      // T5: C-L < T5-L no timer
+      // T6: C-L > T6-L yes timer
+      //
+      // i.e. C-L > T-L => timer fired
+      //
+      // Also some corner cases:
+      // C==L: impossible assuming no over-wrapping
+      // C==T: exact hit -- timer fired so use >=
+      // T==L: we hit the timer exactly last time so it must still be
+      // asserted OR the last instruction set the timer to precisely
+      // the time it executed (unlikely). Either way asserting the
+      // timer is OK.
+      if ((countReg[0][31:0] - cp0ts.lastCount) >= (cp0ts.compareReg - cp0ts.lastCount))
           cp0ts.timerAsserted = True; // this will actually take effect on the next committed instruction.
-      cp0ts.lastCount = countReg[0];
+      cp0ts.lastCount = countReg[0][31:0];
 
       //===============================================
       //Determine return values to main pipeline
@@ -605,13 +656,26 @@ module mkCP0(CP0);
       Bool isException = (exception != Ex_None);
       Bool commitNotEx = commit && !isException;
 
-      Maybe#(Address) maddr = (isException)
-    ? (Valid((cp0ts.bev) ? getExceptionEntryROM(exception)
-               : getExceptionEntryRAM(exception)))
-       : (op.cp0_inst == CP0_ERET) ? tagged Valid(cp0ts.exceptionPC) : Invalid;
+      Maybe#(Address) maddr = Invalid;
+      if (isException)
+        begin
+          if (exception == Ex_Suspended)
+            // We use this fake exception so that we can return the PC
+            // to the correct place following interrupt polling
+            // instructions from waiting threads.
+            maddr = Valid(exception_pc);
+          else if (cp0ts.bev)
+            maddr = Valid(getExceptionEntryROM(exception));
+          else
+            maddr = Valid(getExceptionEntryRAM(exception));
+        end
+      else if (op.cp0_inst == CP0_ERET)
+        maddr = Valid(cp0ts.exceptionPC);
 
-      if(commit && isException)
+      if(commit && isException && exception != Ex_Suspended)
         begin //take exception
+          // Wake up the thread if it was waiting i.e. if this is an interrupt poll
+          theThreadScheduler.resumeThread(thread);
           cp0ts.exceptionPC      = (inDelaySlot) ? exception_pc - 4 : exception_pc;
           cp0ts.lastException    = exceptionToMIPS(exception);
           ts.exceptionLevel      = True;
@@ -705,14 +769,18 @@ module mkCP0(CP0);
         end
         CP0_WAIT:
         begin
-          // nop
+          if (commitNotEx)
+            begin
+              theThreadScheduler.suspendThread(thread);
+              debug_cp0($display("CP0\tT%d: WAIT ", thread));
+            end
         end
         CP0_RDHWR:
         begin
           mretVal = Valid (case (validValue(op.cp0_opA))
                             00: return 64'b0;             // CPUNum - XXX thread or core? we already have this in PRID
                             01: return 8;                 // Step for SYNCI, which is not implemented
-                            02: return signExtend(countReg[0]); // CC high resolution counter
+                            02: return countReg[0];       // CC high resolution counter
                             03: return 64'b1;             // CCRes - counter increments every cycle
                             29: return cp0ts.userLocal;
                             default: return ?;
@@ -753,9 +821,8 @@ module mkCP0(CP0);
                         ts:               ts});
 
     endmethod
-
     interface  threadStates = map(tsIfcFn, threadState);
   endinterface
 
-  interface TLB    tlb        = theTLB;
+  interface TLB tlb  = theTLB;
 endmodule

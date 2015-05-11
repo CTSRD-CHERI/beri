@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2014 Alexandre Joannou
+ * Copyright (c) 2014, 2015 Alexandre Joannou
  * Copyright (c) 2014 Colin Rothwell
  * All rights reserved.
  *
@@ -43,6 +43,7 @@ import Connectable :: *;
 //////////////////////////
 
 interface CheckedPut#(type t);
+   (* always_ready *)
    method Bool canPut();
    method Action put(t val);
 endinterface
@@ -52,11 +53,17 @@ typeclass ToCheckedPut#(type a, type b)
     function CheckedPut#(b) toCheckedPut (a val);
 endtypeclass
 
+instance ToCheckedPut#(CheckedPut#(data_t), data_t);
+    function CheckedPut#(data_t) toCheckedPut (CheckedPut#(data_t) cp) = cp;
+endinstance
+
 instance ToCheckedPut#(FIFOF#(data_t), data_t);
     function CheckedPut#(data_t) toCheckedPut (FIFOF#(data_t) f) =
         interface CheckedPut#(data_t);
             method canPut = f.notFull;
-            method put    = f.enq;
+            method Action put(data_t d) if (f.notFull);
+              f.enq(d);
+            endmethod
         endinterface;
 endinstance
 
@@ -98,6 +105,7 @@ endmodule
 //////////////////////////
 
 interface CheckedGet#(type t);
+   (* always_ready *)
    method Bool canGet();
    method t peek();
    method ActionValue#(t) get();
@@ -108,12 +116,21 @@ typeclass ToCheckedGet#(type a, type b)
     function CheckedGet#(b) toCheckedGet (a val);
 endtypeclass
 
+instance ToCheckedGet#(CheckedGet#(data_t), data_t);
+    function CheckedGet#(data_t) toCheckedGet (CheckedGet#(data_t) cg) = cg;
+endinstance
+
 instance ToCheckedGet#(FIFOF#(data_t), data_t);
     function CheckedGet#(data_t) toCheckedGet (FIFOF#(data_t) f) =
         interface CheckedGet#(data_t);
             method canGet = f.notEmpty;
-            method peek   = f.first;
-            method get    = actionvalue f.deq; return f.first; endactionvalue;
+            method data_t peek if (f.notEmpty);
+              return f.first;
+            endmethod
+            method ActionValue#(data_t) get if (f.notEmpty);
+              f.deq; 
+              return f.first;
+            endmethod
         endinterface;
 endinstance
 
@@ -160,10 +177,14 @@ interface Master#(type req_t, type rsp_t);
     interface CheckedPut#(rsp_t) response;
 endinterface
 
-function Master#(req_t, rsp_t) mkMaster(CheckedGet#(req_t) req, CheckedPut#(rsp_t) rsp) =
+function Master#(req_t, rsp_t) mkMaster(req_src_t req, rsp_src_t rsp)
+        provisos (
+            ToCheckedGet#(req_src_t, req_t),
+            ToCheckedPut#(rsp_src_t, rsp_t)
+        ) =
     interface Master#(req_t, rsp_t);
-        interface request = req;
-        interface response = rsp;
+        interface request = toCheckedGet(req);
+        interface response = toCheckedPut(rsp);
     endinterface;
 
 function Client#(req_t,rsp_t) masterToClient (Master#(req_t, rsp_t) m) =
@@ -224,5 +245,45 @@ instance Connectable#(Client#(req_t, rsp_t), Slave#(req_t, rsp_t));
         mkConnection(slaveToServer(s), c);
     endmodule
 endinstance
+
+///////////////////////
+// Forward interface //
+///////////////////////
+
+interface ForwardPutGet#(type a);
+    interface CheckedPut#(a) cput;
+    interface CheckedGet#(a) cget;
+endinterface
+
+module mkForwardPutGet (ForwardPutGet#(a))
+    provisos(Bits#(a, a_width));
+    FIFOF#(a) fifo <- mkSizedBypassFIFOF(1);
+    interface CheckedPut cput = toCheckedPut(fifo);
+    interface CheckedGet cget = toCheckedGet(fifo);
+endmodule
+
+interface Forward#(type req_t, type rsp_t);
+    interface Slave#(req_t, rsp_t) slave;
+    interface Master#(req_t, rsp_t) master;
+endinterface
+
+module mkForward (Forward#(req_t, rsp_t))
+    provisos(
+        Bits#(req_t, req_t_width),
+        Bits#(rsp_t, rsp_t_width)
+    );
+
+    ForwardPutGet#(req_t) req <- mkForwardPutGet;
+    ForwardPutGet#(rsp_t) rsp <- mkForwardPutGet;
+
+    interface Slave slave;
+        interface CheckedPut request  = req.cput;
+        interface CheckedGet response = rsp.cget;
+    endinterface
+    interface Master master;
+        interface CheckedGet request  = req.cget;
+        interface CheckedPut response = rsp.cput;
+    endinterface
+endmodule
 
 endpackage

@@ -41,9 +41,9 @@ class test_cp2_cmove_j(BaseBERITestCase):
         self.assertRegisterEqual(self.MIPS.a0, 0xff, "cmove failed to retain correct u, perms fields")
 
     @attr('capabilities')
-    def test_cp2_cmove_type(self):
-        '''Test that cmove retained the ctype field correctly'''
-        self.assertRegisterEqual(self.MIPS.a1, 0x5, "cmove failed to retain correct ctype")
+    def test_cp2_cmove_offset(self):
+        '''Test that cmove retained the offset field correctly'''
+        self.assertRegisterEqual(self.MIPS.a1, 0x5, "cmove failed to retain correct offset")
 
     @attr('capabilities')
     def test_cp2_cmove_base(self):

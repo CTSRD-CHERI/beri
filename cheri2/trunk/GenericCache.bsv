@@ -22,13 +22,13 @@
  *
  ******************************************************************************
  *
- * Authors: 
+ * Authors:
  *   Robert Norton <rmn30@cam.ac.uk>
- * 
+ *
  ******************************************************************************
  *
  * Description: Generic cache infrastructure.
- * 
+ *
  ******************************************************************************/
 
 import MIPS::*;
@@ -36,7 +36,6 @@ import CHERITypes::*;
 import Bram::*;
 import Library::*;
 
-import ConfigReg::*;
 import Debug::*;
 import FIFO::*;
 import SpecialFIFOs::*;
@@ -59,25 +58,28 @@ module mkSimpleDirectMappedCache#(
    CacheIfc#(requestT, responseT) nextLevel
    )(CacheIfc#(requestT, responseT)) provisos
    (Bounded#(indexT), Eq#(indexT), Bits#(indexT, indexSz), Arith#(indexT),
-    Bits#(tagT, tagSz), Eq#(tagT), 
+    Bits#(tagT, tagSz), Eq#(tagT),
     Bits#(dataT, dataSz),
     Bits#(requestT, requestSz),
-    Bits#(responseT, responseSz));
+    Bits#(responseT, responseSz),
+    FShow#(requestT),
+    FShow#(responseT),
+    FShow#(indexT));
   function initialTag(idx)                        =  tuple3(False, ?, ?);
   let initBram                                    <- mkInitialisedBramNoWriteForward(initialTag);
   Bram#(indexT, Tuple3#(Bool, tagT, dataT)) cache =  initBram.bram;
   let initialised                                 =  initBram.isInitialised;
-  
+
   let reqQ     <- mkFIFO;
   let missQ    <- mkFIFO;
   `ifndef VERIFY2
   let hitBP    <- mkBypassFIFO;
   `else
-  let hitBP    <- mkSizedFIFO(1);	
+  let hitBP    <- mkSizedFIFO(1);
   `endif
   let missBP   <- mkFIFO;
   let invalidateQ <- mkFIFO;
-     
+
   rule middleBit;
     match {.valid, .cacheTag, .data} <- cache.readResp;
     let request  <- popFIFO(reqQ);
@@ -93,32 +95,37 @@ module mkSimpleDirectMappedCache#(
 
   rule doInvalidate;
     let idx <- popFIFO(invalidateQ);
+    debug2("tlbcache", $display("TLBCache: doinvalidate ", fshow(idx)));
     cache.write(idx, tuple3(False, ?, ?));
   endrule
-  
+
   rule fillMiss;
     let request  <- popFIFO(missQ);
     let response <- nextLevel.resp();
     if (isCacheable(request, response))
       cache.write(getIndex(request), tuple3(True, getTag(request), getData(response)));
     missBP.enq(response);
+    debug2("tlbcache", $display("TLBCache: fillMiss ", fshow(request), fshow(response)));
   endrule
-  
+
   method Action req(requestT request) if (initialised);
     let index = getIndex(request);
     reqQ.enq(request);
     cache.readReq(index);
+    debug2("tlbcache", $display("TLBCache: req ", fshow(request)));
   endmethod
-     
+
   method ActionValue#(responseT) resp if (initialised);
     match{.hit, .response} <- popFIFO(hitBP);
     let r <- hit ? toAV(response) : popFIFO(missBP);
+    debug2("tlbcache", $display("TLBCache: resp ", fshow(r)));
     return r;
   endmethod
-     
+
   method Action invalidate(requestT request) if (initialised);
+    debug2("tlbcache", $display("TLBCache: invalidate ", fshow(request)));
     invalidateQ.enq(getIndex(request));
   endmethod
-     
+
 //  (* preempts = "invalidate, resp" *)
 endmodule

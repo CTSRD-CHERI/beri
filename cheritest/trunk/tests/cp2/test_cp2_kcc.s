@@ -46,9 +46,8 @@ sandbox:
 		dli $t0, 0
 		cldr $a0, $t0($c29)
 
-		cjr $ra($c24)
-		# branch delay slot
-		nop
+		cjr $c24
+		nop			# branch delay slot
 
 		.global test
 test:		.ent test
@@ -68,9 +67,9 @@ test:		.ent test
 		dla     $a0, 0
 
 		dla	$t0, sandbox
-		cjalr	$t0($c1)
-		# branch delay slot
-		nop
+		csetoffset $c1, $c1, $t0
+		cjalr	$c24, $c1
+		nop			# branch delay slot
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

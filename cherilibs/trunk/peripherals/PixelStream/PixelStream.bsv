@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2012 Simon W. Moore
+ * Copyright (c) 2012-2014 Simon W. Moore
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -28,9 +28,13 @@
  PixelStream
  ===========
  Simon Moore, Feb 2013
+ Simon Moore, Sep 2014
  
  This DMA's pixels out of memory (e.g. DDR2 memory with a 256 bit wide
  interface) and streams them to a video output device (e.g. HDMI or LCD).
+ 
+ Pixels are 32-bit with 8-bit channels: (alpha,r,g,b)
+ Pixels are in big endian format with b=LSB (if big endian)
 
  Currently the peripheral has two clocks:
   1. the main clock which should be taken from the DDR2 device to time
@@ -54,6 +58,13 @@
 
  if x-resolutions or y-resolution are zero then the device is disabled
  
+ Initially PixelStream is, from reset, configured to be 800 x 600 resolution
+ for a 38.2MHz pixel clock giving 60Hz refresh rate.  The base address is zero.
+ 
+ These parameters are:
+   800, 80, 32, 112
+   600, 3, 1, 18
+ 
  ******************************************************************************
 
  TODO
@@ -62,6 +73,8 @@
  * put avalon slave interface for parameters into a seperate clock domain? 
  * reset hdmi when video parameters are changed?
  * cause burst reader to restart when the resolution changes?  necessary?
+ * to handle higher resolutions, it would be good to trasfer two pixels per
+   clock cycle from BurstRead to the HDMI_Timing to improve bandwidth between
 
  ******************************************************************************/ 
 
@@ -80,15 +93,25 @@ import Avalon2ClientServer::*;
 import AvalonBurstMasterWordAddressed::*;
 
 typedef 29 DDR2_Addr_Width;
-typedef 8 DDR2_Burst_Length;
+typedef 4 DDR2_Burst_Length; // hack: also change maxBurst
 typedef UInt#(64) BaseAddrT;
 
 typedef UInt#(8) ColourChanT;
 
+/* little endian pixel format
 typedef struct {
-   ColourChanT r;   // red
-   ColourChanT g;   // green
-   ColourChanT b;   // blue
+   ColourChanT alpha; // alpha blend (unused) (MSB)
+   ColourChanT r;     // red
+   ColourChanT g;     // green
+   ColourChanT b;     // blue (LSB)
+   } RGBT deriving (Bits,Eq);
+*/
+// big endian pixel format
+typedef struct {
+   ColourChanT b;     // blue (LSB)
+   ColourChanT g;     // green
+   ColourChanT r;     // red
+   ColourChanT alpha; // alpha blend (unused) (MSB)
    } RGBT deriving (Bits,Eq);
 
 // AvalonStream type for 24-bit pixels with start-of-frame marked
@@ -99,7 +122,7 @@ typedef struct {
    Bool        sof;  // start of frame
    } Pixel24bT deriving (Bits,Eq);
 
-typedef Int#(12) VideoUnitT; // video units
+typedef Int#(16) VideoUnitT; // video units     TODO: use Bit#(12) ????
 typedef Int#(TMul#(SizeOf#(VideoUnitT),2)) ResDimT; // resolution dimension
 
 //typedef enum {Xres=0, Hsync_pulse_width=1, Hsync_back_porch=2, Hsync_front_porch=3,
@@ -126,7 +149,7 @@ typedef struct {
 interface VideoParametersIfc;
   interface AvalonSlaveIfc#(4) avalon_slave;
   (* always_enabled, always_ready *)
-  method VideoParamT readParam;
+  method VideoParamT readParam();
   (* always_enabled, always_ready *)
   method BaseAddrT   readBase();
 endinterface
@@ -135,9 +158,17 @@ endinterface
 // memory mapped interface to video parameters
 module mkVideoParameters(VideoParametersIfc);
   AvalonSlave2ClientIfc#(4)    mmap_slave <- mkAvalonSlave2Client;
-  Vector#(8, Reg#(VideoUnitT))          p <- replicateM(mkReg(0));
   Reg#(Bit#(SizeOf#(BaseAddrT)))     base <- mkReg(0);
-  
+  Vector#(8, Reg#(VideoUnitT))          p;
+  p[0] <- mkReg(800); // xres
+  p[1] <- mkReg( 80); // hsync_pulse_width
+  p[2] <- mkReg(112); // hsync_back_porch
+  p[3] <- mkReg( 30); // hsync_front_porch
+  p[4] <- mkReg(600); // yres
+  p[5] <- mkReg(  3); // vsync_pulse_width
+  p[6] <- mkReg( 18); // vsync_back_porch
+  p[7] <- mkReg(  1); // vsync_front_porch
+
   let vp = VideoParamT{
      vsync_front_porch: p[7],
      vsync_back_porch:  p[6],
@@ -208,7 +239,7 @@ module mkBurstRead(BurstReadIfc);
   Reg#(UInt#(3))              demux_state <- mkReg(0);
   
   //BurstLength maxBurst = 8;   // TODO: derive from DDR2_Max_Burst_Length?
-  Integer maxBurst = 8;
+  Integer maxBurst = 4;
   BurstReadAddrT maxBurstInt = fromInteger(maxBurst);
   
   rule start_frame_off((pixelctr<=0) && (addrctr<=0) && (num_pixels>0) && !pixbuf.notEmpty);
@@ -237,6 +268,7 @@ module mkBurstRead(BurstReadIfc);
   endrule
   
   rule pixel_demux_s0((demux_state==0) && (pixelctr>0));
+    // read data from burst buffers in avalon burst reader
     AvalonBurstWordT w <- avalon_master.server.response.get();
     Vector#(8,Bit#(32)) b8 = unpack(pack(w));
     RGBT pixcol = unpack(truncate(b8[0]));
@@ -308,37 +340,51 @@ module mkHDMI_Timing(HDMI_Timing_Ifc);
   let          no_pixel = Pixel24bT{r:0,g:0,b:0,sof:False};
   let         red_pixel = Pixel24bT{r:~0,g:0,b:0,sof:True};
   
-  FIFOF#(Pixel24bT) pixel_buf <- mkSizedFIFOF(64); //mkGFIFOF(False,True); // ungarded deq
+  FIFOF#(Pixel24bT) pixel_buf <- mkSizedFIFOF(64);
+// mkGFIFOF(False,True); // ungarded deq
+//mkSizedFIFOF(64); - TODO need more buffering and ungarded deq????
   Reg#(Pixel24bT)   pixel_out <- mkRegU;
   Reg#(Bool)              vsd <- mkRegU;
   Reg#(Bool)              hsd <- mkRegU;
   Reg#(Bool)               de <- mkRegU;               // data enable for HDMI
   Reg#(Bool)        output_on <- mkReg(False);
-  Reg#(Int#(12))            x <- mkReg(0);
-  Reg#(Int#(12))            y <- mkReg(0);
+  Reg#(VideoUnitT)          x <- mkReg(0);
+  Reg#(VideoUnitT)          y <- mkReg(0);
   
   rule init(!output_on);
+//    x <= -hsync_time;
+//    y <= -vsync_time;
     if(pixel_buf.first.sof)
-      output_on <= !pixel_buf.notFull; // start when the buffer is full
+      begin
+	output_on <= !pixel_buf.notFull; // start when the buffer is full
+      end
     else
       pixel_buf.deq; // remove pixels until the start of frame is reached
   endrule
-  
-  rule every_clock_cycle(output_on);
+
+  rule scan(output_on);
     // Note the above explicit condition that we have pixels to render
     if(x < (vp.xres+vp.hsync_front_porch-1))
       x <= x+1;
     else
       begin
         x <= -hsync_time;
-        y <= y < (vp.yres+vp.vsync_front_porch-1) ? y+1 : -vsync_time;
+        if(y < (vp.yres+vp.vsync_front_porch-1)) 
+	  y <= y+1;
+	else
+	  begin
+	    // end of frame reached
+	    y <= -vsync_time;
+	    // go back to init if there are still pixels to be removed from the pixel buffer
+	    // output_on <= pixel_buf.first.sof; 
+	  end
       end
     
     Bool hsync_pulse = (x < (-vp.hsync_back_porch));
     Bool vsync_pulse = (y < (-vp.vsync_back_porch));
     hsd <= !hsync_pulse;
     vsd <= !vsync_pulse;
-    
+
     // determine drawing region
     Bool drawing = (y>=0) && (y<vp.yres) && (x>=0) && (x<vp.xres);
     Bool first_pixel = (x==0) && (y==0);
@@ -409,7 +455,7 @@ module mkPixelStream(
   
   Reg#(ResDimT)      num_pixels <- mkReg(0);
   Reg#(VideoParamT)     vp_sync <- mkSyncRegFromCC(unpack(0), vidclk);
-  SyncFIFOIfc#(Pixel24bT) pix_sync <- mkSyncFIFOFromCC(4, vidclk);
+  SyncFIFOIfc#(Pixel24bT) pix_sync <- mkSyncFIFOFromCC(256, vidclk); // size to use BRAM (M9K block)
 
   // connect pixel_stream from burst_reader to hdmi via clock crossing FIFO  
   mkConnection(burst_read.pixel_stream, toPut(pix_sync));

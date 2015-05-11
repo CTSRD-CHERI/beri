@@ -1,0 +1,2 @@
+./etc/rc.d/demoagentd type=file uname=root gname=wheel mode=755
+./usr/sbin/demoagentd type=file uname=root gname=wheel mode=755

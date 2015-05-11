@@ -66,9 +66,9 @@ import FIFO::*;
 import SpecialFIFOs::*;
 import SearchFIFO::*;
 import Vector::*;
+import BuildVector::*;
 import FShow::*;
 import ClientServer::*;
-import ConfigReg::*;
 import List::*;
 
 import CheriAxi::*;
@@ -80,14 +80,11 @@ import MulDiv::*;
 
 import Processor::*;
 import Library::*;
+import TraceTypes::*;
 
 (*synthesize, options="-aggressive-conditions"*)
 module mkCheri(Processor);
-  //Vector#(NumThreads, EHR#(2,Bool))          flushingPipelineP <- replicateM(mkEHR(False)); // Are we flushing each thread currently?
-  // Currently using a ConfigReg here to avoid a backwards SB constraint from fetch/execute to writeback. This is not ideal but doesn't
-  // really matter -- it just means one more instruction might go past execute before flushing starts.
   Vector#(NumThreads, EHR#(3,Bool))       flushingPipelineP <- replicateM(mkEHR(False));
-
   Vector#(NumThreads,Reg#(Maybe#(Address))) branchDelayNextPC <- replicateM(mkReg(Invalid)); // what's the real next PC for branch delay
 
   //Pipeline "Registers"
@@ -118,7 +115,9 @@ module mkCheri(Processor);
 
   // list of searching interfaces from FIFOs (head is later instructions)
   Vector#(3, Forwarder#(ThreadRegName, Value)) forwarders =
-        Vector::cons(sexe2memQ.search, Vector::cons(smem2memQ.search, Vector::cons(smem2wbQ.search, Vector::nil)));
+    vec(sexe2memQ.search, smem2memQ.search, smem2wbQ.search);
+  //Vector#(2, Forwarder#(ThreadRegName, Value)) forwarders =
+  //    vec(smem2memQ.search, smem2wbQ.search);
 
   `ifndef VERIFY2
   Debug#(RegisterFile, Display#(Tuple2#(ThreadID, Address))) debug_rf <- mkRegisterFile_Debug(mkRegisterFile);
@@ -142,7 +141,7 @@ module mkCheri(Processor);
   let dmem = mem.dmem;
   let cp0  = mem.cp0;
   `ifndef VERIFY2
-  let extMem <- mkInternalMemoryToInterconnect(mem.extMemory);
+    let extMem = mem.extMemory;
   `endif
 
   Bool isFlushedP = fet2decQ.notFull()   && sdec2exeQ.search.isFlushed() &&
@@ -168,8 +167,6 @@ module mkCheri(Processor);
   imem = capCop.capIMem;
   dmem = capCop.capDMem;
   `endif
-
-  ThreadScheduler                       threadSched <- mkThreadScheduler();
 
   `ifdef CP1X
   CP1X cp1X <- mkCP1X;
@@ -212,7 +209,7 @@ module mkCheri(Processor);
 	  debugUnit.canFetchInst();
     `endif
 
-    let thread <- threadSched.getDecision();
+    let thread <- cp0.getNextThread();
     let ts = cp0.threadStates[thread];
     //This stage issues requests from memory and checks if we can read
     match {.epoch, .specPC, .predictedNextPC, .predictedNextNextPC} <- bpreds[thread].getPrediction();
@@ -312,6 +309,7 @@ module mkCheri(Processor);
             $write(" exc: ",  fshow(di.exception));
             $write(" [%d/%d]", decResult.decDebug.printRegisterState,
                                decResult.decDebug.terminate);
+            $write(" CP0: ", fshow(decResult.decCP0Operation));
             `ifdef CAP
             $display("CAP Op:", fshow(decResult.decCapOperation));
             `endif
@@ -383,7 +381,7 @@ module mkCheri(Processor);
                (isOpHI(dec2exeQ.first().opB) || isOpLO(dec2exeQ.first().opB)) ||
                            (isMAddSubOp(dec2exeQ.first().mmulOperation)));
    //Bool backendFlushed = sexe2memQ.search.isFlushed() && smem2memQ.search.isFlushed() && smem2wbQ.search.isFlushed() &&
-  Bool backendFlushed = sexe2memQ.fifo.notFull() && smem2memQ.search.isFlushed() && smem2wbQ.search.isFlushed() &&
+  Bool backendFlushed = sexe2memQ.search.isFlushed() && smem2memQ.search.isFlushed() && smem2wbQ.search.isFlushed() &&
                         mem.isCommitted(); //XXX ndave: this may need to be changes for CP2
   Bool noHazard = (nextExecReadHILO) ? backendFlushed : True;
 
@@ -437,6 +435,8 @@ module mkCheri(Processor);
     bCond = capResp.bCond;
     capEx = capResp.exception;
     fetchPC = capResp.fetchAddr;
+    if (capResp.mNewPC matches tagged Valid .newPC)
+      vA = newPC;     // CapCop may override the new pc on capability jump register
     `endif
 
     // Pass the computed branch condition to pc calc to resolve any branch. rv is passed through
@@ -495,7 +495,9 @@ module mkCheri(Processor);
                thread      : di.thread,
                ts          : di.ts,
                pc          : di.pc,
-               nextPC      : fromMaybe(di.nextPC, branchDelayNextPC[di.thread]), //correct nextPC in case of branch delay
+               // correct nextPC in case of branch delay. This is only needed for flushes
+               // to ensure we restart at the correct place.
+               nextPC      : fromMaybe(di.nextPC, branchDelayNextPC[di.thread]),
                exception   : exception,
                mmemOperation: di.mmemOperation,
                cp0Operation: di.cp0Operation,
@@ -631,7 +633,11 @@ module mkCheri(Processor);
 	`endif
 
     `ifdef CAP
-    Bool flush_after_commit <- capCop.commitWriteback(False, Invalid); // don't commit it's wrong path
+    let capResp <- capCop.commitWriteback(False, 
+`ifdef DEBUG
+       ?,
+`endif
+       ?, ?, ?); // don't commit it's wrong path
     `endif
     debug2("wb", $display("DEBUG: WB DROP [0x%h]", mi.pc));
     debug_cheri1_trace($display("    dropped\n"));
@@ -670,7 +676,10 @@ module mkCheri(Processor);
           else if (mi.getMemResp)
             begin
               debug2("wb", $display("Mem RESP!"));
-              return tuple2(memVal, ?);
+              // For stores with dest == None destVal will be thrown
+              // away, but for tracing it is useful to have the stored
+              // data from opB. Similarly destVal2 gets the address.
+              return tuple2(mi.dest matches Dest_None ? getOpValue(mi.opB) : memVal, getOpValue(mi.opA));
             end
           else if (mi.getMulResp)
             begin
@@ -683,24 +692,50 @@ module mkCheri(Processor);
               return tuple2(divLo , divHi);
             end
           else
-            return tuple2(getOpValue(mi.opA), getOpValue(mi.opB));
+            // the value returned for the second op is not used except when tracing:
+            // for clc/csc ops it contains the address.
+            return tuple2(getOpValue(mi.opA), getOpValue(mi.opA)); 
         endactionvalue;
 
     `ifdef DEBUG
     //Log for debug unit
-    //Conflicts with fetch and execute :-(
-    let debugflush <- debugUnit.completeInst(mi.inst, mi.pc, mi.nextPC, destVal, destVal2, exc, cp0result.ts.asid);
+    TraceType traceType = mi.getMemResp ? (mi.dest matches Dest_None  ? TraceType_Store : TraceType_Load) : TraceType_ALU;
+    let te = TraceEntry{
+      valid:     True,
+      entry_type: traceType, // rmn30 XXX no support for cap. insts or timestamps yet.
+      ex:        pack(exc),
+      inst:      mi.inst,
+      pc:        mi.pc,
+      regVal1:   destVal,  // data
+      regVal2:   destVal2, // addr for load/store
+      reserved:  zeroExtend(mi.thread), // squeeze tid into 3-bit field if poss.
+      asid:      cp0result.ts.asid,
+      count:     ?,
+      branch:    False // rmn30 XXX fill this in
+    };
+    `endif
+
+    `ifdef CAP
+    let capResp <- capCop.commitWriteback(True, 
+    `ifdef DEBUG
+    te,
+    `endif
+       mi.pc, exc, !isEx && isValid(cp0result.cp0_mexceptionPC)); // commit, isException?
+    Bool flush_due_to_cp2 = capResp.flush;
+    `ifdef DEBUG
+    te = capResp.te;
+    `endif
+    `else
+    Bool flush_due_to_cp2 = False;
+    `endif
+
+    `ifdef DEBUG
+    let debugflush <- debugUnit.completeInst(te,  mi.nextPC);
     `else
     let debugflush = False;
     `endif
 
-    Bool flush_after_commit = mi.flushAfterCommit || debugflush;
-    `ifdef CAP
-    let exceptionOrERET = isValid(cp0result.cp0_mexceptionPC)? Valid(isEx) : Invalid;
-    let flush_due_to_cp2 <- capCop.commitWriteback(True, exceptionOrERET); // commit, isException?
-    flush_after_commit = flush_after_commit || flush_due_to_cp2;
-    `endif
-
+    Bool flush_after_commit = mi.flushAfterCommit || debugflush || flush_due_to_cp2;
     // Blocks fetch unless threadStates is configreg
     cp0.threadStates[mi.thread] <= cp0result.ts;
 
@@ -708,7 +743,7 @@ module mkCheri(Processor);
     let deadCycles = (t - fromMaybe(t-10, lastCommitTime))/10 - 1;
     lastCommitTime <= tagged Valid t;
     commitedInsts  <= commitedInsts + 1;
-
+    trace($write("%1d\tT%1d: [%h] ", commitedInsts, mi.thread, mi.pc));
     case (cp0result.cp0_mexceptionPC) matches
       tagged Valid .epc:
         begin // take exception
@@ -717,11 +752,11 @@ module mkCheri(Processor);
           flushingPipelineP[mi.thread][0]   <= True; //blocks execute and fetch
           if (isEx)
             begin
-              trace($display("%1d\tT%1d: [%h] TAKING EXCEPTION to 0x%h code:0x%x ", commitedInsts, {1'b0, mi.thread}, mi.pc, epc, exc, fshow(exc), mi.isDelay ? " (in delay slot)" : ""," (%1d dead cycles)\n", deadCycles));
+              trace($write("TAKING EXCEPTION to 0x%h code:0x%x ", epc, exc, fshow(exc), mi.isDelay ? " (in delay slot)" : ""));
             end
           else
             begin
-              trace($display("%1d\tT%1d: [%h] EXCEPTION RETURN to 0x%h", commitedInsts, {1'b0, mi.thread}, mi.pc, epc, " (%1d dead cycles)\n", deadCycles));
+              trace($write("EXCEPTION RETURN to 0x%h", epc));
               debug_cheri1_trace($display("     ERET to 0x%x", epc));
             end
         end
@@ -747,7 +782,6 @@ module mkCheri(Processor);
         forwardrf.pc[mi.thread] <= mi.nextPC; // mark PC as the next PC. Only used by DebugUnit
         trace(
            action
-             $write("%1d\tT%1d: [%h]", commitedInsts, mi.thread, mi.pc);
              case(mi.dest) matches
                tagged Dest_Reg .r: $write(" %s<-%x", regName(r), destVal);
                tagged Dest_HI:     $write(" HI<-%x", destVal);
@@ -755,12 +789,11 @@ module mkCheri(Processor);
                tagged Dest_HILO:   $write(" HI/LO <- %x/%x", destVal2, destVal);
                default:            begin
                                      if (mi.getMemResp)
-                                       $write(" store               ");
+                                       $write(" ST<-%x", getOpValue(mi.opB));
                                      else
                                        $write(" branch/coproc       ");
                                    end
              endcase
-           $write(" inst=%x (%1d dead cycles)\n", mi.inst, deadCycles);
            endaction
            );
         debug_cheri1_trace(
@@ -779,6 +812,8 @@ module mkCheri(Processor);
            );
       end
     endcase
+    trace($write(" inst=%x asid=%x (%1d dead cycles)\n", mi.inst, cp0result.ts.asid, deadCycles));
+
     `ifndef VERIFY2
     if (mi.debug.printRegisterState)
       debugDisplay(rf_display, tuple2(mi.thread, mi.pc));
@@ -810,16 +845,17 @@ module mkCheri(Processor);
            dec2exeQ_debug.debugging.debug_display(?);
            $write("\n DEC:   %x ", fet2decQ.notEmpty  ? fet2decQ.first.pc  : 0);
            fet2decQ_debug.debugging.debug_display(?);
-	       $display("");
-           `ifdef CAP
-           capCop.debugDisplay();
-           `endif
-	       $display("");
-	   //mem.debug.debug_display(?);
+           $write("\n");
+           if (flushing(0))
+             $write("FLUSHING");
+           $write("\n");
+           //`ifdef CAP
+           //capCop.debugDisplay(); unnecessary as operates in locskstep with main pipeline
+           //`endif
+           //mem.debug.debug_display(?);
            //function getEpoch(br) = br.curEpoch();
-      	   //$display("Epoch: ", fshow(map(getEpoch, bpreds)));
+           //$display("Epoch: ", fshow(map(getEpoch, bpreds)));
           endaction);
-    //$write(""); // prevents lint failure
   endrule
 
   //ndave: Make sure we don't order ME rules
@@ -832,11 +868,7 @@ module mkCheri(Processor);
   (* execution_order =  "displayState, writeback,      mem2, memory, execute,      decode, fetch" *)
   (* execution_order =  "displayState, writeback_drop, mem2, memory, execute_drop, decode, fetch" *)
   `endif
-  `ifdef DEBUG
-  (* preempts = "memory, debugUnit_startDebugCommand_notIsolated"*)
-  (* preempts = "mem2, debugUnit_commitMem"*)
-  (* preempts = "(writeback, writeback_drop), debugUnit_endCommand_notIsolated"*)
-  `endif
+  (*descending_urgency = "restart, fetch"*)
   rule restart(isFlushedP && flushing(1));
     //clear the delay slots and flushing flags
     for(Integer i = 0; i < valueOf(NumThreads); i = i+1)

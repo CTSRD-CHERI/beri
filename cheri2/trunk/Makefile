@@ -117,6 +117,9 @@ NOTAG ?=
 #PABITS
 #PAGEBITS
 
+# Whether to run tests which use clang.
+CLANG ?= 0
+
 OPTS=\
 $(if $(DEBUG), DEBUG)\
 $(if $(CAP), CAP)\
@@ -147,7 +150,7 @@ CONFIG_STRING=$(subst $(space),,$(foreach opt,$(OPTS),_$(opt)))
 # Bluespec
 ##############################################################################
 
-BSCFLAGS= -u
+BSCFLAGS=-u
 #BSCFLAGS+=-aggressive-conditions
 BSCFLAGS+=-scheduler-effort 10000
 BSCFLAGS+=-no-warn-action-shadowing
@@ -163,12 +166,15 @@ BSCFLAGS+=-show-schedule
 #BSCFLAGS+=-sched-dot
 #BSCFLAGS+=-show-rule-rel \* \*
 #BSCFLAGS+=-show-elab-progress
+BSCFLAGS+=-suppress-warnings G0010:G0020:S0081:S0089:G0024:T0127
+BSCFLAGS+= -opt-undetermined-vals
+# for some reason stack usage increases dramatically with higher THREADSZ
+BSCFLAGS+=+RTS -K64M -RTS
 
 BSCPATH=%/Libraries/TLM3
 BSCPATH+=%/Libraries/Axi
 BSCPATH+=$(CAP_DIR)
 BSCPATH+=$(CHERILIBS_DIR)
-BSCPATH+=$(CHERILIBS_DIR)/debugging
 BSCPATH+=$(PERIPHERALS_DIR)/LoopbackUART
 BSCPATH+=$(PERIPHERALS_DIR)/Compositor
 BSCPATH+=$(PERIPHERALS_DIR)/PixelStream
@@ -219,16 +225,24 @@ EXTRA_LINK = $(PERIPHERALS_DIR)/pismdev/debug_stream/debug_stream.c	\
 
 TOP_SIM_BSV=$(CHERILIBS_DIR)/TopSimAxi.bsv
 TOP_AXI_BSV=$(CHERILIBS_DIR)/TopAxi.bsv
+SIM_DTS_IN=$(CHERILIBS_DIR)/peripherals/sim.dts.in
 
 .PHONY: sim vsim sim_debug vsim_debug sim_cap vsim_cap
+
+DTS_CPP_FLAGS=$(CONFIG_BSC_DEFS)
 
 sim: $(PISM_LIB)
 	mkdir -p $(SIMDIR)
 	mkdir -p $(BDIR)
 	$(BSC) -sim -g mkTopSimAxi $(TOP_SIM_BSV)
 	$(BSC) -sim -e mkTopSimAxi -o $(SIMBIN) $(EXTRA_LINK)
+	cpp $(DTS_CPP_FLAGS) -x assembler-with-cpp -include $(SIM_DTS_IN) /dev/null | \
+	    grep -v '^# [0-9]* "' > $(SIMDIR)/sim.dts.cpp
+	$(TOOLS_DIR)/process-dts.sh $(SIMDIR)/sim.dts.cpp $(SIMDIR)/sim.dts
+	dtc -O dtb -o $(SIMDIR)/sim.dtb -b 0 $(SIMDIR)/sim.dts
 	ln -sf $(SIMBIN) .
 	ln -sf $(SIMBIN).so .
+	ln -sf $(SIMDIR)/sim.dtb .
 
 vsim:
 	$(BSC) -verilog -g mkTopSimAxi $(TOP_SIM_BSV)
@@ -256,7 +270,9 @@ vsim_cap: CAP=1
 vsim_cap: DEBUG=1
 vsim_cap: vsim
 
+verilog: BSCFLAGS+=-unspecified-to X
 verilog:
+	mkdir -p $(SIMDIR)
 	mkdir -p $(BDIR)
 	$(BSC) -verilog -g mkTopAxi $(TOP_AXI_BSV)
 
@@ -270,7 +286,7 @@ verilog_debug_unpipelined: verilog
 sim_cap_dumpsmten: CAP=1
 sim_cap_dumpsmten: VERIFY=1
 sim_cap_dumpsmten: VERIFY2=1
-sim_cap_dumpsmten: 
+sim_cap_dumpsmten:
 	mkdir -p $(SIMDIR)
 	mkdir -p $(BDIR)
 	$(BSC) -sim -ddumpLambdaCalculus=MOD_%m.smtncolon -g mkCheri Proc.bsv
@@ -278,14 +294,14 @@ sim_cap_dumpsmten:
 	echo "module MOD_mkCheri where\n\nimport Smten.Prelude\nimport BSVPrelude\nimport Smten.Symbolic\n" >> MOD_mkCheri.hs
 	cat MOD_*.smtncolon | perl -pe 's/\;[\n]/\n/g' | perl -pe 's/#//g' >> MOD_mkCheri.hs
 
-sim_cap_verify: DEBUG=1 
-sim_cap_verify: CAP=1 
+sim_cap_verify: DEBUG=1
+sim_cap_verify: CAP=1
 sim_cap_verify: SIMPLETLB=1
 sim_cap_verify: VERIFY=1
 sim_cap_verify: sim
 
 
-sim_verify: DEBUG=1 
+sim_verify: DEBUG=1
 sim_verify: SIMPLETLB=1
 sim_verify: VERIFY=1
 sim_verify: sim
@@ -315,13 +331,15 @@ print-versions:
 	$(BSC) -print-expiration | head -n1
 	cd ../../cheritest/trunk && $(MAKE) print-versions
 
-test: sim_cap_debug
-	cd ../../cheritest/trunk && $(MAKE) -j $$(nproc) BERI_VER=2 CLANG=0 nosetest_cached
+run_tests:
+	cd ../../cheritest/trunk && $(MAKE) -j $$(nproc) BERI_VER=2 CLANG=$(CLANG) nosetest_cached
+
+test: sim_cap_debug run_tests
 
 jenkins_test: print-versions sim_cap run
 	cd ../../cheritest/trunk && \
             $(MAKE) nosetest CHERIROOT=../../cheri2/trunk NOSEFLAGS="--with-xunit --xunit-file=nosetests.xml" && \
-            $(MAKE) nosetest_cached CHERIROOT=../../cheri2/trunk NOSEFLAGS="--with-xunit --xunit-file=nosetests_cached.xml" 
+            $(MAKE) nosetest_cached CHERIROOT=../../cheri2/trunk NOSEFLAGS="--with-xunit --xunit-file=nosetests_cached.xml"
 
 run:
 	bash -c 'time echo -n "LADQ" | ./sim -m 300000 2>&1'

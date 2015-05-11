@@ -30,14 +30,17 @@ from nose.plugins.attrib import attr
 
 class test_jalr_align(BaseBERITestCase):
 
+    @attr('jump_unaligned')
     def test_jalr_align_1(self):
         '''Test that CP0.Cause.ExcCode was set to AdEL after jalr to unaligned address'''
         self.assertRegisterEqual(self.MIPS.a0, 4 << 2, "Cause.ExcCode was not set to AdEL after jalr to unaligned address")
 
+    @attr('jump_unaligned')
     def test_jalr_align_2(self):
         '''Test that BadVAddr is set after jalr to unaligned address'''
         self.assertRegisterEqual(self.MIPS.a1, self.MIPS.a3, "BadVAddr was not set correctly after jalr to unaligned address")
 
+    @attr('jump_unaligned')
     def test_jalr_align_3(self):
         '''Test that an exception is raised after jalr to unaligned address'''
         self.assertRegisterEqual(self.MIPS.a2, 1, "An exception was not raised after jalr to unaligned address")

@@ -78,6 +78,14 @@ start:
 		sw $s2, 8($s1)
 		lw $s2,12($s0)
 		sw $s2,12($s1)
+		nop										# some nops to give the data time to propagate
+		nop                   # before the instruction fetch.
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
 		jr $s1                 # jump to the branch
 		nop
 branch:

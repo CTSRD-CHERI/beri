@@ -1,7 +1,7 @@
 /*-
  * Copyright (c) 2010 Gregory A. Chadwick
  * Copyright (c) 2010-2014 Jonathan Woodruff
- * Copyright (c) 2013 Theo Markettos
+ * Copyright (c) 2013 A. Theodore Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of

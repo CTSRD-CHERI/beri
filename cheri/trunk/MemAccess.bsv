@@ -1,7 +1,7 @@
 /*-
  * Copyright (c) 2010 Gregory A. Chadwick
+ * Copyright (c) 2010-2014 Jonathan Woodruff
  * Copyright (c) 2012 Ben Thorner
- * Copyright (c) 2013 Jonathan Woodruff
  * Copyright (c) 2013 SRI International
  * Copyright (c) 2013 Robert M. Norton
  * Copyright (c) 2013 Robert N. M. Watson
@@ -37,11 +37,17 @@ import FIFO::*;
 import FIFOF::*;
 import SpecialFIFOs::*;
 import ClientServer::*;
-import CapCop::*;
+`ifdef CAP
+  import CapCop::*;
+  `define USECAP 1
+`elsif CAP128
+  import CapCop128::*;
+  `define USECAP 1
+`endif
 
 module mkMemAccess#(
   DataMemory m
-  `ifdef CAP
+  `ifdef USECAP
     , CapCopIfc capCop
   `endif
 )(PipeStageIfc);
@@ -52,7 +58,7 @@ module mkMemAccess#(
     ControlTokenT mi = er;
      
     Bool cap = False;
-    `ifdef CAP
+    `ifdef USECAP
       CoProResponse capResp <- capCop.getAddress();
       if (mi.alu == Cap || mi.mem != None) begin
         if (mi.exception == None) begin
@@ -70,20 +76,43 @@ module mkMemAccess#(
     end
     Bit#(64) addr = er.opA;
     
-    if (mi.exception == None &&
-        case (er.memSize)
-          Line:       return addr[4:0] != 5'b0;
-          DoubleWord: return addr[2:0] != 3'b0;
-          Word:       return addr[1:0] != 2'b0;
-          HalfWord:   return addr[0] != 1'b0;
-          Byte:       return False;
-        endcase) begin
-      mi.exception = (case(er.mem)
-                        Read: return DADEL;
-                        Write: return DADES;
-                        default: return None;
-                      endcase);
-    end
+    //Exception handling for unaligned accesses 
+    //(exception when crossing cache line boundaries)
+    `ifdef UNALIGNEDMEMORY
+      Bit#(6) unalignCheck = zeroExtend(addr[4:0]);
+      if (er.memSize != Line)
+        unalignCheck = unalignCheck + (case (er.memSize)
+                  DoubleWord: return 7;
+                  Word:       return 3;
+                  HalfWord:   return 1;
+                  Byte:       return 0;
+                  default:     return 0;
+                endcase);
+      else if (addr[4:0] != 5'b0) unalignCheck[5] = 1;
+      
+      if (mi.exception == None && unalignCheck[5] == 1) begin
+        mi.exception = (case(er.mem)
+                          Read: return DADEL;
+                          Write: return DADES;
+                          default: return None;
+                        endcase);
+      end
+    `else
+      if (mi.exception == None &&
+          case (er.memSize)
+            Line:       return addr[4:0] != 5'b0;
+            DoubleWord: return addr[2:0] != 3'b0;
+            Word:       return addr[1:0] != 2'b0;
+            HalfWord:   return addr[0] != 1'b0;
+            Byte:       return False;
+          endcase) begin
+        mi.exception = (case(er.mem)
+                          Read: return DADEL;
+                          Write: return DADES;
+                          default: return None;
+                        endcase);
+      end
+    `endif
     if (mi.exception == None && ((addr[57:40] ^ addr[58:41]) != 18'b0)) begin
       mi.exception = (case(er.mem)
                         Read: return DADEL;
@@ -99,13 +128,15 @@ module mkMemAccess#(
       end
       Write: begin
         debug($display("Put in Write"));
-        if (scResult || mi.exception != None) begin
+        if (scResult) begin
           Bool storeConditional = False;
           if (er.test == SC) begin
             debug($display("MemAccess Store Conditional Attempt"));
-            `ifdef MULTI
-              storeConditional = True;
-            `endif 
+            `ifndef MICRO
+              `ifdef MULTI
+                storeConditional = True;
+              `endif 
+            `endif
           end
           else begin
             debug($display("MemAccess Write Complete"));

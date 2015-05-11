@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2012 Robert M. Norton
+# Copyright (c) 2012, 2014 Robert M. Norton
 # Cipyright (c) 2014 Michael Roe
 # All rights reserved.
 #
@@ -27,8 +27,10 @@
 #
 
 #
-# Test that trying to load a capability raises an exception if the
+# Test that trying to load a capability clears the tag if the
 # 'disable capability load' bit is set in the TLB entry for the page.
+# Note that this used to throw an exception but ISA was changed to allow
+# copying data using clc/csc in no-cap regions.
 #
 
 .set mips64
@@ -91,9 +93,11 @@ test:   .ent    test
 		dmtc0	$a0, $3			# TLB EntryLow1
 		tlbwi				# Write Indexed TLB Entry
 
-		dli	$a5, 0			# Initialise test flag
-	
-		and     $k0, $a1, 0xfff		# Get offset of testcode within page.
+		dli	$a5, 0			# Initialise test flags
+		li      $a6, 1
+		li      $a0, 0
+
+	and     $k0, $a1, 0xfff		# Get offset of testcode within page.
 	        dmtc0   $k0, $14		# Put EPC
                 dmfc0   $t2, $12                # Read status
                 ori     $t2, 0x12               # Set user mode, exl
@@ -148,31 +152,31 @@ testcode:
 		cmove	$c2, $c0
 
 		#
-		# This should raise an exception
+		# This should not raise an exception but tag of c2
+		# should be cleared
 		#
 
 		clcr	$c2, $a2($c0)
 
+		cgetbase $a3, $c2
+		cgetlen  $a4, $c2
+		cgettag  $a6, $c2
+	
 		dli	$a5, 5
 
-		#
-		# If it doesn't, return to kernel mode anyway
-		#
-
+		# Return to kernel mode to finish test
 		syscall	0
 		nop
 
 exception_handler:
-
 		#
 		# Check to see if the capability load succeeded
-		#
-
-		cgetbase $a3, $c2
-		cgetlen	 $a4, $c2
-
-                dmfc0   $a6, $12                # Read status
-                dmfc0   $a7, $13                # Read cause
+		# exception handler should not be called for clc,
+		# but will be called for syscall to end test.
+		# increment a0 to count number of exceptions
+		add     $a0, 1
+		li      $a5, 6
+		dmfc0   $a7, $13                # Read cause
 		dla	$t0, the_end
 		jr	$t0
 		nop

@@ -61,16 +61,16 @@ test:		.ent test
 
 		dli	$a2, 0	# a2 will be set to 1 if an exception happens
 
-                # Make $c1 a template capability for a user-defined type
-		# whose otype is equal to the address of sandbox.
-		dla      $t0, sandbox
-		csettype $c1, $c0, $t0
+                # Make $c1 a template capability for a user-defined type 0x1111
+		li       $t0, 0x1111
+		csetoffset $c1, $c0, $t0
 
                 # Make $c2 a data capability for the array at address data
 		dla      $t0, data
 		cincbase $c2, $c0, $t0
-                dli      $t0, 8
-                csetlen  $c2, $c2, $t0
+		li       $t0, 8
+		csetlen  $c2, $c2, $t0
+		
 		# Permissions Non_Ephemeral, Permit_Load, Permit_Store,
 		# Permit_Store.
 		# NB: Permit_Execute must not be included in the set of
@@ -78,18 +78,22 @@ test:		.ent test
 		dli      $t0, 0xd
 		candperm $c2, $c2, $t0
 
-		# Seal data capability $c2 to the otype of $c1, and store
-		# result in $c3.
-                csealdata $c3, $c2, $c1
+		# Seal data capability $c2 to the base+offset of $c1, and store
+		# result back in $c2.
+                cseal	 $c2, $c2, $c1
+
+		# Make c3 a template capability for otype 0x2222
+		dli	$t0, 0x2222
+		csetoffset $c3, $c0, $t0
 
 		# Make c4 a sealed code capability for sandbox2
 		dla	 $t0, sandbox2
-		csettype $c4, $c0, $t0
-		csealcode $c4, $c4
+		csetoffset $c4, $c0, $t0
+		cseal	 $c4, $c4, $c3
 
-		# Check that c4 and c3 have the same otype
+		# Check that c4 and c2 have the same otype
 		# This should raise an exception
-		cchecktype $c4, $c3
+		cchecktype $c4, $c2
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

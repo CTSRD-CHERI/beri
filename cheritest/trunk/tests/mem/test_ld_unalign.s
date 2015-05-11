@@ -74,8 +74,8 @@ test:
 		#
 		dla	$s0, bytes
 desired_epc:
-		ld	$a7, 1($s0)
-		daddi $s0, $s0, 1
+		ld	$a7, -1($s0)
+		daddi $s0, $s0, -1
 
 		#
 		# Exception return.

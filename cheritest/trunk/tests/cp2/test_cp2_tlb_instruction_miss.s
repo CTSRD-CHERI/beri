@@ -74,7 +74,7 @@ test:		.ent test
 	dli	$a7, 0
 	
 	# Jump to new PCC
-	cjalr	$0($c1)
+	cjalr	$c24, $c1
 	nop
 
 	dla	$a1, return
@@ -86,7 +86,7 @@ test:		.ent test
 	#
 mapped_code:
 	# return straight away (after iTLB miss)
-	cjr	$ra($c24)
+	cjr	$c24
 	dli	$a5, 0xbeef
 
 return:

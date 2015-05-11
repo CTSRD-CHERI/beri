@@ -42,7 +42,11 @@ import Memory :: *;
 import ForwardingPipelinedRegFile :: *;
 import CP0 :: *;
 `ifdef CAP
-  import CapCop :: *;
+  import CapCop::*;
+  `define USECAP 1
+`elsif CAP128
+  import CapCop128::*;
+  `define USECAP 1
 `endif
 import FIFO :: *;
 import FIFOF :: *;
@@ -53,29 +57,33 @@ import DebugUnit::*;
 import Debug::*;
 import ConfigReg::*;
 import TraceTypes::*;
+import MemTypes::*;
 
 typedef struct {
   ControlTokenT ct;
   MIPSReg       result;
+  Address       nextPc;
   Bit#(16)      count;
 } InstructionReport deriving (Bits); // total=256
 
 module mkWriteback#(
   MIPSMemory m,
-  ForwardingPipelinedRegFileIfc#(MIPSReg) rf,
+  MIPSRegFileIfc rf,
   CP0Ifc cp0,
   BranchIfc branch,
   DebugIfc debugUnit,
   CoProIfc cop1,
-  `ifdef CAP
+  `ifdef USECAP
     CapCopIfc capCop,
   `endif
-  CoProIfc cop3,
   FIFO#(ControlTokenT) inQ
 )(WritebackIfc);
 
   FIFOF#(Bool)                   hiLoCommit <- mkFIFOF();
   Reg#(InstructionReport) instructionReport <- mkRegU;
+  `ifdef USECAP
+    Reg#(Maybe#(ShortCap))       writtenCap <- mkRegU; 
+  `endif
   Reg#(Bit#(16))               lastReportId <- mkReg(0);
   Reg#(InstId)           lastCommitReportId <- mkConfigReg(1);
   Reg#(Exception)        preMemExceptionReg <- mkConfigReg(?);
@@ -129,9 +137,11 @@ module mkWriteback#(
 
   function Action doRegisterWriteback(
     RegNum dest,
+    Address pc,
     Bit#(3) sel,
     MIPSReg result,
     CacheResponseDataT memResponse,
+    SizedWord storeData,
     WriteBack writeDest,
     Bool fromDebug,
     Exception exp,
@@ -158,6 +168,7 @@ module mkWriteback#(
       end
       if (writeDest == CoPro0) begin
         cp0.writeReg(dest, sel, result, fromDebug, instructionIsCommitting);
+        debug($display("Writeback: CoPro0 dest=%d, sel=%d, result=%x, fromDebug=%x, instructionIsCommitting=%b", dest, sel, result, fromDebug, instructionIsCommitting));
       end
       if (fromDebug) begin
         if (dest==0) begin
@@ -172,25 +183,29 @@ module mkWriteback#(
           });
         end
       end
-      `ifdef CAP
+      `ifdef USECAP
         Capability capMemResponse = ?;
-        if (memResponse.data matches tagged Line .l) begin
+        if (memResponse.data matches tagged Line .l)
           capMemResponse = unpack({pack(memResponse.capability),l});
-        end
-        capCop.commitWriteback(CapWritebackRequest{
+        Maybe#(Capability) newWC 
+              <- capCop.commitWriteback(CapWritebackRequest{
           mipsExp: exp,
           dead: dead,
           memResponse: capMemResponse,
-          instId: id
+          instId: id,
+          pc: pc
         });
+        if (memResponse.data matches tagged Line .l) 
+          writtenCap <= tagged Valid cap2short(unpack({pack(memResponse.capability),l}));
+        else if (newWC matches tagged Valid .wc) 
+          writtenCap <= tagged Valid cap2short(wc);
+        else if (storeData matches tagged Line .l)
+          writtenCap <= tagged Valid cap2short(unpack({pack(False),l}));
+        else if (storeData matches tagged CapLine .c)
+          writtenCap <= tagged Valid cap2short(unpack({pack(True),c}));
+        else writtenCap <= tagged Invalid;
       `endif
       cop1.commitWriteback(CoProWritebackRequest{
-          dead: dead,
-          commit: instructionIsCommitting,
-          instId: id,
-          data: result
-        });
-      cop3.commitWriteback(CoProWritebackRequest{
           dead: dead,
           commit: instructionIsCommitting,
           instId: id,
@@ -199,7 +214,7 @@ module mkWriteback#(
     endaction
   endfunction
 
-  function Action doPCUpdate(
+  function ActionValue#(Address) doPCUpdate(
     InstructionT inst,
     Address pc,
     Address archPc,
@@ -220,7 +235,7 @@ module mkWriteback#(
     `endif
     PCSource  newPcSource
   );
-    action
+    actionvalue
       // Do full target calculation.  I don't know which of these is used for a flush!
       Address jumpTarget = 64'b0;
       if (inst matches tagged Jump .ji) begin
@@ -266,14 +281,15 @@ module mkWriteback#(
         exp.victim = zeroExtend(pack(instCount));
       end
       cp0.putException(exp, pc, opA); // Write the appropriate CP0 registers.
-    endaction
+      return (doWritePc ? target:0);
+    endactionvalue
   endfunction
 
   rule doInstructionReport;
     InstructionReport reportInput = instructionReport;
     ControlTokenT c = reportInput.ct;
     MIPSReg result = reportInput.result;
-    Bit#(4) version = 0;
+    TraceType version = TraceType_Invalid;
     MIPSReg val1 = 64'h000000000000DEAD;
     MIPSReg val2 = 64'h000000000000DEAD;
     
@@ -287,24 +303,59 @@ module mkWriteback#(
     case (c.writeDest)
       RegFile, CoPro0, HiLo: begin
         val2 = result;
-        version = 1;
+        version = TraceType_ALU;
       end
     endcase
     case (c.mem)
       Read: begin
         val1 = c.opA;
-        version = 2;
+        version = TraceType_Load;
       end
       Write: begin
         val1 = c.opA;
         val2 = storeData;
-        version = 3;
+        version = TraceType_Store;
+      end
+      default: begin
+        // Only needed for branch case, but the field isn't used otherwise.
+        // Subtract PCC base from nextPC to the the architectural target. 
+        val1 = reportInput.nextPc - (c.pc - c.archPc);
       end
     endcase
-
+    
+    `ifdef USECAP
+      if (c.inst matches tagged Coprocessor .ci) begin
+        case (ci.op)
+          COP2: begin // Capability operation
+            if (writtenCap matches tagged Valid .sc) begin
+              val1 = pack(sc)[63:0];
+              val2 = pack(sc)[127:64];
+              version = TraceType_CapOp;
+            end
+          end
+          LDC2: begin // Load capability
+            val1 = c.opA;
+            if (writtenCap matches tagged Valid .sc) begin
+              c.archPc = pack(sc)[63:0];
+              val2 = pack(sc)[127:64];
+              version = TraceType_CapLoad;
+            end
+          end
+          SDC2: begin // Store capability
+            val1 = c.opA;
+            if (writtenCap matches tagged Valid .sc) begin
+              c.archPc = pack(sc)[63:0];
+              val2 = pack(sc)[127:64];
+              version = TraceType_CapStore;
+            end
+          end
+        endcase
+      end
+    `endif
+      
     if (reportInput.count != lastReportId) begin
       TraceEntry nextTraceEntry = TraceEntry {
-         version: version,
+         entry_type: version,
          pc: c.archPc,
          inst: pack(c.inst)[31:0],
          regVal1: val1,
@@ -312,6 +363,7 @@ module mkWriteback#(
          ex: pack(getExceptionCode(c.exception)),
          count: reportInput.count[9:0],
          asid: cp0.getAsid,
+         branch: c.branch != Never,
          reserved: ?,
          valid: !c.fromDebug && !c.dead
       };
@@ -319,12 +371,13 @@ module mkWriteback#(
       lastReportId <= reportInput.count;
     end else if (newDoCycleReport) begin
       TraceEntry nextTraceEntry = TraceEntry {
-         version: 4,
+         entry_type: TraceType_Timestamp,
          pc: ?,
          inst: ?,
          regVal1: zeroExtend(pack(cyclCount)),
          regVal2: zeroExtend(pack(instCount)),
          ex: 31,
+         branch: ?,
          count: ?,
          asid: ?,
          reserved: ?,
@@ -342,10 +395,10 @@ module mkWriteback#(
     inQ.deq();
     
     Bit#(64) virtualAddress = er.opA;
-    if (er.test == SC) begin
-      er.opA = er.opB;
-    end
     MIPSReg result = er.opA;
+    if (er.test == SC) begin
+      result = er.opB;
+    end
     
     er.dead = nextDead;
     er.exception = (lastCommitReportId == nexT.id) ? preMemExceptionReg:preMemException;
@@ -357,6 +410,9 @@ module mkWriteback#(
     `ifdef BLUESIM
       if (er.writeDest == CoPro0 && er.dest == 26) begin
         debugInst($display("======   RegFile   ======"));
+        `ifdef MULTI
+          debugInst($display("DEBUG MIPS COREID %d", er.coreID));
+        `endif
         debugInst($display("DEBUG MIPS PC 0x%x", er.pc));
         debugInst($display("DEBUG MIPS REG %2d 0x%x", 0, 64'h0));
         for (Integer i = 1; i<32; i=i+1) begin
@@ -373,26 +429,38 @@ module mkWriteback#(
     if (er.storeData matches tagged DoubleWord .d) oldWord = d;
 
     `ifndef MULTI
-      CacheResponseDataT memResult <- m.dataMemory.getResponse(oldWord, er.signExtendMem, er.opA[7:0], er.memSize, (er.exception!=None) || er.dead);
+      CacheResponseDataT memResult <- m.dataMemory.getResponse(oldWord, er.signExtendMem, er.opA[7:0], er.memSize, (er.exception!=None) || er.dead, (er.dest == 28 && er.writeDest == CoPro0 && er.cop.cache != ICache)?True:False);
     `else 
-      CacheResponseDataT memResult <- m.dataMemory.getResponse(oldWord, er.signExtendMem, er.opA[7:0], er.memSize, (er.exception!=None) || er.dead, (er.test == SC && er.opB[0] == 1)?True:False); 
-      if (er.test == SC && er.opB[0] == 1 && pack(memResult.data)[0] == 1) begin
-        debug($display("Writeback: Store Conditional Success"));
-      end  
-      if (er.test == SC && (er.opB[0] != 1 || pack(memResult.data)[0] != 1)) begin
-        er.opA = 0;
-        result = er.opA;
-      end 
+      CacheResponseDataT memResult <- m.dataMemory.getResponse(oldWord, er.signExtendMem, er.opA[7:0], er.memSize, (er.exception!=None) || er.dead, (er.test == SC && er.opB[0] == 1)?True:False, (er.dest == 28 && er.writeDest == CoPro0 && er.cop.cache != ICache)?True:False); 
+      `ifndef MICRO
+        if (er.test == SC && er.opB[0] == 1 && pack(memResult.data)[0] == 1) begin
+          debug($display("Writeback: Store Conditional Success"));
+        end  
+        if (er.test == SC && (er.opB[0] != 1 || pack(memResult.data)[0] != 1)) begin
+          er.opA = 0;
+          result = er.opA;
+          er.mem = None;
+        end
+      `endif
     `endif
+
+    if (er.dest == 28 && er.writeDest == CoPro0 && er.cop.cache != ICache) begin
+      result = pack(memResult.data)[63:0];
+      debug($display("Writeback: CacheLoadTag (DCache||L2) %x", pack(memResult.data)[31:0]));
+    end 
+    else if (er.dest == 28 && er.writeDest == CoPro0 && er.cop.cache == ICache) begin
+      result = 64'hdeaddeaddeaddead;
+      debug($display("Writeback: CacheLoadTag (ICache) %x", pack(memResult.data)[31:0]));
+    end
     
     // If this one had a valid memory operation, look at the exception.
     if (er.mem != None && er.mem != ICacheOp && 
         memResult.exception != None && er.exception == None) begin
       er.exception = memResult.exception;
     end
-    // The memory response in a word type, which is th common case.
+    // The memory response in a word type, which is the common case.
     if (memResult.data matches tagged DoubleWord .d &&& er.mem == Read) result = d;
-    else if (er.mem == Write) result = er.opA;
+    //else if (er.mem == Write) result = er.opA;
     
     // Prepare to exception report for CP0
     Address entry = (cp0ExpRpt.bev) ? getExceptionEntryROM(er.exception)
@@ -407,7 +475,7 @@ module mkWriteback#(
       dead: er.dead
     };
 
-    doPCUpdate(
+    Address nextPc <- doPCUpdate(
       er.inst, er.pc, er.archPc, er.pcUpdate, virtualAddress, er.opB, result, er.epoch, er.fromDebug, exp,
       er.branch, er.dead, er.writePC, er.flushPipe,
       er.branchDelay, 
@@ -416,14 +484,17 @@ module mkWriteback#(
       `endif
       er.newPcSource
     );
+
     Bit#(3) sel = 0;
     if (er.inst matches tagged Coprocessor .cp) begin
       sel = cp.select;
     end
+
     if (er.inst matches tagged Register .ri) begin
       sel = zeroExtend(pack(ri.f)[2:0]);
     end
-    doRegisterWriteback(er.dest, sel, result, memResult, er.writeDest, 
+
+    doRegisterWriteback(er.dest, er.pc, sel, result, memResult, er.storeData, er.writeDest, 
                         er.fromDebug, er.exception, er.dead, er.id);
 
     if (!er.dead && exp.exception == None) begin // If we had an exception, flush the pipe with no effect on register file.
@@ -433,7 +504,8 @@ module mkWriteback#(
         trace(displayTrace(er, result, instCount, inQ.first.coreID));
       `endif
     end
-    instructionReport <= InstructionReport{ct:er, result:result, count:pack(cyclCount)[15:0]};
+    instructionReport <= InstructionReport{ct:er, result:result,
+                         nextPc: nextPc, count:pack(cyclCount)[15:0]};
   endrule
 
   interface getHiLoCommit = hiLoCommit;

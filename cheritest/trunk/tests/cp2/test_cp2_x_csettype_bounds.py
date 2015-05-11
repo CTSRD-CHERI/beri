@@ -35,18 +35,21 @@ from nose.plugins.attrib import attr
 
 class test_cp2_x_csettype_bounds(BaseBERITestCase):
     @attr('capabilities')
+    @attr('csettype')
     def test_cp2_x_csettype_bounds_1(self):
         '''Test csettype did not set the type when it was outside the bounds of the capability'''
         self.assertRegisterEqual(self.MIPS.a0, 0,
             "csettype set the type when it was outside the bounds of the capability")
 
     @attr('capabilities')
+    @attr('csettype')
     def test_cp2_x_csettype_bounds_2(self):
         '''Test csettype raises an exception when rt is outside the bounds of the capability'''
         self.assertRegisterEqual(self.MIPS.a2, 1,
             "csettype did not raise an exception when rt was outside the bounds of the capability")
 
     @attr('capabilities')
+    @attr('csettype')
     def test_cp2_x_csettype_bounds_3(self):
         '''Test CSetType sets capability cause correctly when rt is outside the bounds of the capability'''
         self.assertRegisterEqual(self.MIPS.a3, 0x0101,

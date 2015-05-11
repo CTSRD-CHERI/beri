@@ -52,9 +52,10 @@ void example_init(void)
 {
 /*
  * example_key will be used to seal and unseal variables of type example_t.
- * Initialize its otype field to &entry, like this: 
+ * Set its base+offset to the otype we want to use. Note that otypes must
+ * be in the range 0 to 2^24-1.
  */
-  example_key = __builtin_cheri_set_cap_type((__capability void *) entry, 0);
+  example_key = (__capability void *) 4;
 }
 
 example_t example_constructor(void)
@@ -64,15 +65,10 @@ example_t example_constructor(void)
 
   ptr = &example_object;
 
-  /*
-   * csealdata can only be used to seal capabilities which don't have execute
-   * permission, so here we explicitly take away execute permission from the
-   * capability for example_object.
-   */
   result = (example_t) __builtin_cheri_and_cap_perms((__capability void *) ptr,
     0xd);
 
-  result = __builtin_cheri_seal_cap_data(result, example_key);
+  result = __builtin_cheri_seal_cap(result, example_key);
 
   return result;
 }

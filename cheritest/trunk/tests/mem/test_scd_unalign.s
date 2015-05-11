@@ -77,8 +77,8 @@ test:		.ent test
 		#
 		dla	$s0, bytes
 desired_epc:
-		scd	$a7, 1($s0)
-		daddi $s0, $s0, 1
+		scd	$a7, -1($s0)
+		daddi $s0, $s0, -1
 
 		#
 		# Exception return.

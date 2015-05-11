@@ -2,6 +2,7 @@
  * Copyright (c) 2012-2013 Robert M. Norton
  * Copyright (c) 2013 Philip Withnall
  * Copyright (c) 2013 Bjoern A. Zeeb
+ * Copyright (c) 2014 Simon Moore
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -43,11 +44,15 @@
  ******************************************************************************/
 
 import FIFO::*;
+import FIFOF::*;
 import SpecialFIFOs::*;
 import Vector::*;
 import ClientServer::*;
 import GetPut::*;
 import Assert::*;
+import MemTypes::*;
+import MasterSlave::*;
+import DefaultValue::*;
 
 import Library::*;
 import Debug::*;
@@ -73,8 +78,8 @@ typedef struct {
 } LocalIRQID#(type tid) deriving(FShow,Bits,Eq);
 
 interface IRQMapper#(numeric type inputs, type tid);
-  method Action  putExtIrqs(Bit#(inputs) irqs);
-  method Bit#(8) getMIPSIrqs(tid id);
+(* always_ready, always_enabled *) method Action  putExtIrqs(Bit#(inputs) irqs);
+(* always_ready, always_enabled *) method Bit#(8) getMIPSIrqs(tid id);
 endinterface
 
 interface PIC#(numeric type inputs, type tid);
@@ -83,18 +88,21 @@ interface PIC#(numeric type inputs, type tid);
 endinterface
 
 // Offset (in bytes) of the control registers.
-`define PIC_CONFIG_BASE  23'h0000
-`define PIC_IP_READ_BASE 23'h2000
-`define PIC_IP_SET_BASE  23'h2080
-`define PIC_IP_CLR_BASE  23'h2100
+`define PIC_CONFIG_BASE  14'h0000
+`define PIC_IP_READ_BASE 14'h2000
+`define PIC_IP_SET_BASE  14'h2080
+`define PIC_IP_CLR_BASE  14'h2100
 
-`define NUM_HARD_IRQS 64
-`define NUM_SOFT_IRQS 64
+`define NUM_HARD_IRQS 32
+`define NUM_SOFT_IRQS 32
 `define TOT_IRQS (`NUM_HARD_IRQS+`NUM_SOFT_IRQS)
 
 module mkPIC(PIC#(`NUM_HARD_IRQS, tid)) provisos(Bits#(tid, tsz),Add#(a__,tsz,23),Eq#(tid));
   // Functions to provide a backwards compatible initial value
   // for configuration of first 5 interrupts
+  
+  FIFOF#(CheriMemRequest64)   req_fifo <- mkFIFOF1;
+  FIFOF#(CheriMemResponse64) resp_fifo <- mkFIFOF1;
 
   module mkMaskReg#(Integer irq)(Reg#(Bool));
     let x <- mkReg(irq < 5);
@@ -111,11 +119,10 @@ module mkPIC(PIC#(`NUM_HARD_IRQS, tid)) provisos(Bits#(tid, tsz),Add#(a__,tsz,23
   Vector#(128, Reg#(LocalIRQID#(tid))) maps <- genWithM(mkMapReg);
   // NUM_HARD_IRQS hard irqs plus NUM_SOFT_IRQS wires stuck at zero
   Vector#(128, Wire#(Bool))  hardIrqs <- replicateM(mkDWire(False));
-  let                         picFifo <- mkPipelineFIFO;
 
 
-  function Bool sourceVal(Reg#(Bool) ip, Reg#(Bool) maskReg, Wire#(Bool) w)
-     = (ip || w) && maskReg;
+  function Bool sourceVal(Reg#(Bool) nip, Reg#(Bool) maskReg, Wire#(Bool) w)
+     = (nip || w) && maskReg;
 
   let maskedIrqs = zipWith3(sourceVal, ip, mask, hardIrqs);
 
@@ -135,6 +142,75 @@ module mkPIC(PIC#(`NUM_HARD_IRQS, tid)) provisos(Bits#(tid, tsz),Add#(a__,tsz,23
     return pack(mapped);
   endfunction
 
+  rule handle_request;
+    CheriMemRequest64 req <- toGet(req_fifo).get;
+    Bit#(64) writeData = 0;
+    CheriMemResponse64 resp = defaultValue;
+    resp.masterID = req.masterID;
+    resp.transactionID = req.transactionID;
+    if (req.operation matches tagged Write .wreq) begin
+      writeData = reverseBytes(wreq.data.data);
+      resp.operation = tagged Write;
+    end
+    let response = 64'hebadbadbadbadbad;
+    Bit#(14) offset = pack(req.addr)[13:0];
+    trace($display("PIC: req ", fshow(req)));
+    if (offset < `PIC_IP_READ_BASE)
+      begin
+        // Config Regs
+        if (offset[12:10] == 0) // we only support 128 sources
+          begin
+            let irqNo = offset[9:3];
+            case (req.operation) matches
+              tagged Read .rreq: begin
+                let en    = mask[irqNo];
+                let map   = maps[irqNo];
+                response  = {32'b0,pack(en),zeroExtend(pack(map.thread)), 5'b0, pack(map.irq)};
+              end
+              tagged Write .wreq: begin
+                if (pack(wreq.byteEnable) != 0) begin
+                  mask[irqNo] <= unpack(writeData[31]);
+                  maps[irqNo] <= LocalIRQID{thread: unpack(truncate(writeData[30:8])), irq:unpack(writeData[2:0])};       
+                end
+              end
+            endcase
+          end
+        else
+          dynamicAssert(False, "Only 128 PIC Sources Supported");
+      end
+    else if (req.operation matches tagged Read .rreq &&& offset < `PIC_IP_SET_BASE)
+      begin
+        // IP Read, we only support the first 128 (16 bytes) yet, return 0 for the rest.
+        if (offset < (`PIC_IP_READ_BASE + 16))
+          response = offset[3]==1 ? pack(maskedIrqs)[127:64] : pack(maskedIrqs)[63:0];
+        else
+          response = 64'h0000000000000000;
+      end
+    else if (req.operation matches tagged Write .wreq &&& pack(wreq.byteEnable) != 0 &&& offset < `PIC_IP_CLR_BASE)
+      begin
+        // IP Set
+        Vector#(64, Reg#(Bool)) ips = offset[3] == 1 ? takeAt(64,ip) : take(ip);
+        writeVReg(ips, unpack(pack(readVReg(ips))|writeData));
+      end
+    else if (req.operation matches tagged Write .wreq &&& pack(wreq.byteEnable) != 0 &&& offset < (`PIC_IP_CLR_BASE + 128))
+      begin
+        // IP Clear
+        Vector#(64, Reg#(Bool)) ips = offset[3] == 1 ? takeAt(64,ip) : take(ip);
+        writeVReg(ips, unpack(pack(readVReg(ips)) & ~writeData));
+      end
+    if (req.operation matches tagged Read .rreq)  resp.operation = 
+            tagged Read{
+              data: Data{
+                      `ifdef CAP
+                        cap: unpack(0),
+                      `endif
+                      data: reverseBytes(response)
+              }, 
+              last: True
+            };
+    resp_fifo.enq(resp);
+  endrule
+  
   interface IRQMapper irqMapper;
     method Action putExtIrqs(Bit#(n) newIrqs);
       for(Integer i = 0; i < `NUM_HARD_IRQS; i = i+1)
@@ -145,67 +221,12 @@ module mkPIC(PIC#(`NUM_HARD_IRQS, tid)) provisos(Bits#(tid, tsz),Add#(a__,tsz,23
       return doMapping(t);
     endmethod
   endinterface
-
+  
   interface Peripheral regs;
-    interface Server regs;
-      interface Put request;
-        method Action put(PerifReq r);
-          let response = 64'hebadbadbadbadbad;
-          let offset   = r.offset;
-          debug2("pic", $display("PIC: req ", fshow(r)));
-          if (offset < `PIC_IP_READ_BASE)
-            begin
-              // Config Regs
-              if (offset[12:10] == 0) // we only support 128 sources
-                begin
-                  let irqNo = offset[9:3];
-                  if (r.read)
-                    begin
-                      let en    = mask[irqNo];
-                      let map   = maps[irqNo];
-                      response  = {32'b0,pack(en),zeroExtend(pack(map.thread)), 5'b0, pack(map.irq)};
-                      end
-                  else
-                    begin
-                      mask[irqNo] <= unpack(r.data[31]);
-                      maps[irqNo] <= LocalIRQID{thread: unpack(truncate(r.data[30:8])), irq:unpack(r.data[2:0])};
-                    end
-                end
-              else
-                dynamicAssert(False, "Only 128 PIC Sources Supported");
-            end
-          else if (offset < `PIC_IP_SET_BASE && r.read)
-            begin
-              // IP Read, we only support the first 128 (16 bytes) yet, return 0 for the rest.
-              if (offset < (`PIC_IP_READ_BASE + 16))
-                response = offset[3]==1 ? pack(maskedIrqs)[127:64] : pack(maskedIrqs)[63:0];
-              else
-                response = 64'h0000000000000000;
-            end
-          else if (offset < `PIC_IP_CLR_BASE && !r.read)
-            begin
-              // IP Set
-              Vector#(64, Reg#(Bool)) ips = offset[3] == 1 ? takeAt(64,ip) : take(ip);
-              writeVReg(ips, unpack(pack(readVReg(ips))|r.data));
-            end
-          else if (offset < (`PIC_IP_CLR_BASE + 128) && !r.read)
-            begin
-              // IP Clear
-              Vector#(64, Reg#(Bool)) ips = offset[3] == 1 ? takeAt(64,ip) : take(ip);
-              writeVReg(ips, unpack(pack(readVReg(ips)) & ~r.data));
-            end
-          if(r.read)
-            picFifo.enq(response);
-        endmethod
-      endinterface
-      interface Get response;
-        method ActionValue#(PerifResp) get;
-          let r <- popFIFO(picFifo);
-          debug2("pic", $display("PIC: response 0x%x", r));
-          return r;
-        endmethod
-      endinterface //Get
-    endinterface //Server
+    interface Slave slave;
+      interface request  = toCheckedPut(req_fifo);
+      interface response = toCheckedGet(resp_fifo);
+    endinterface
 
     method Bit#(0) getIrqs();
       return 0;

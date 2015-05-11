@@ -45,7 +45,7 @@ test:		.ent test
 		csetlen  $c1, $c1, $t0
 		candperm $c1, $c1, $t0
 		
-		cgetpcc  $t0($c1)
+		cgetpcc  $c1
 
 		cgetperm $a0, $c1
 		cgettype $a1, $c1

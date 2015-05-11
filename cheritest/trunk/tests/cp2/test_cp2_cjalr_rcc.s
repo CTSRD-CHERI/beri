@@ -51,29 +51,31 @@ test:		.ent test
 		# Clear RCC. so that we can tell when PCC has been saved there
 		dli      $t0, 4
 		cincbase $c24, $c24, $t0
-		csettype $c24, $c24, $t0
+		csetoffset $c24, $c24, $t0
 		csetlen  $c24, $c24, $t0
 		dli      $t0, 0
 		candperm $c24, $c24, $t0
 		
 		# Jump to L1, with $pcc replaced with $c1
 		dla	$t0, L1
-		cjalr	$t0($c1)
-		# branch delay slot
-		nop
+		csetoffset $c1, $c1, $t0
+		cjalr	$c24, $c1
+		nop			# branch delay slot
 
 L1:
 		# Check that PCC was copied to RCC
 		cgetperm $a0, $c24
-		cgettype $a1, $c24
+		cgetoffset $a1, $c24
+		dla	 $t0, L1
+		dsubu	 $a1, $a1, $t0
 		cgetbase $a2, $c24
 		cgetlen  $a3, $c24
 		
 		# Restore the old PCC
 		dla     $t0, L2
-		cjr     $t0($c24)
-		# branch delay slot
-		nop
+		csetoffset $c24, $c24, $t0
+		cjr     $c24
+		nop 		#  branch delay slot
 
 L2:
 		ld	$fp, 16($sp)
@@ -82,11 +84,3 @@ L2:
 		jr	$ra
 		nop			# branch-delay slot
 		.end	test
-
-		.data
-		.align	5                  # Must 256-bit align capabilities
-cap1:		.dword	0x0123456789abcdef # uperms/reserved
-		.dword	0x0123456789abcdef # otype/eaddr
-		.dword	0x0123456789abcdef # base
-		.dword	0x0123456789abcdef # length
-

@@ -41,19 +41,19 @@ import FIFO::*;
 import FloatingPoint::*;
 
 module [Module] mkCoProFPExecute(Server#(ExecuteRequest, MIPSReg));
-    let floatAbsServer <- mkBufferOutputServer(mkFloatAbsServer, 2);
-    let doubleAbsServer <- mkBufferOutputServer(mkDoubleAbsServer, 2);
-    let pairedSingleAbsServer <- mkBufferOutputServer(mkPairedSingleAbsServer, 2);
+    let floatAbsServer <- mkBufferOutputServer(mkFloatAbsServer, 1);
+    let doubleAbsServer <- mkBufferOutputServer(mkDoubleAbsServer, 1);
+    let pairedSingleAbsServer <- mkBufferOutputServer(mkPairedSingleAbsServer, 1);
 
     let addServers <- mkConcreteAddServers();
 
-    let compareServers <- mkCompareServers(2);
+    let compareServers <- mkCompareServers(1);
 
     //Conversion servers
     FloatingPointServer#(MonadFPRequest#(Float), Double) floatToDoubleServer <-
-        mkFPConversionServer(floatToDouble, 2);
+        mkFPConversionServer(floatToDouble, 1);
     FloatingPointServer#(MonadFPRequest#(Double), Float) doubleToFloatServer <- 
-        mkFPConversionServer(doubleToFloat, 2);
+        mkFPConversionServer(doubleToFloat, 1);
     let floatToLongServer <- mkFloatingPointToLongServer();
     let doubleToLongServer <- mkFloatingPointToLongServer();
     Server#(Int#(64), Float) longToFloatServer <- mkIntToFloatingPointServer();
@@ -64,10 +64,10 @@ module [Module] mkCoProFPExecute(Server#(ExecuteRequest, MIPSReg));
 
     let mulServers <- mkConcreteMulServers();
 
-    let floatNegServer <- mkBufferOutputServer(mkNegateServer, 2);
-    let doubleNegServer <- mkBufferOutputServer(mkNegateServer, 2);
+    let floatNegServer <- mkBufferOutputServer(mkNegateServer, 1);
+    let doubleNegServer <- mkBufferOutputServer(mkNegateServer, 1);
     let pairedSingleNegServer <-
-        mkBufferOutputServer(mkNegatePairedSingleServer, 2);
+        mkBufferOutputServer(mkNegatePairedSingleServer, 1);
 
     let doubleRecipServer <- mkUseDivForRecip(doubleDivServer);
     let floatRecipServer <- mkUseDivForRecip(floatDivServer);
@@ -275,6 +275,7 @@ module [Module] mkCoProFPExecute(Server#(ExecuteRequest, MIPSReg));
                         S: compareServers.float.request.put(compare);
                         D: compareServers.double.request.put(compare);
                         PS: compareServers.pairedSingle.request.put(compare);
+                        default: compareServers.float.request.put(compare);
                     endcase
             endcase
         endaction
@@ -444,6 +445,7 @@ function ExecuteArgType getArgType(ExecuteArgs args);
                 S: return CompareFloat;
                 D: return CompareDouble;
                 PS: return ComparePairedSingle;
+                default: return CompareFloat;
             endcase
     endcase
 endfunction

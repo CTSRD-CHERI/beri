@@ -16,3 +16,4 @@ vpi_wrapper_*
 ip
 build*/
 trace_info
+rename_qsys.sh

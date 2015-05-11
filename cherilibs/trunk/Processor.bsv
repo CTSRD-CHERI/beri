@@ -5,6 +5,7 @@
  * Copyright (c) 2013 Robert M. Norton
  * Copyright (c) 2013 Colin Rothwell
  * Copyright (c) 2014 Alexandre Joannou
+ * Copyright (c) 2015 Paul J. Fox
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -52,11 +53,17 @@ import PIC::*;
 import Peripheral::*;
 import MemTypes::*;
 
-`include "CheriTLM.defines"
+`ifdef RMA
+import AvalonStreaming::*;
+`endif
+
+`ifdef DMA_VIRT
+    import MIPS::*;
+`endif
 
 interface Processor;
   method Action putIrqs(Bit#(32) interruptLines);
-  interface Master#(`TLM_RR_CHERI) extMemory;
+  interface Master#(CheriMemRequest, CheriMemResponse) extMemory;
   interface Vector#(CORE_COUNT, Server#(Bit#(8), Bit#(8))) debugStream;
   interface Vector#(CORE_COUNT, Peripheral#(0)) pic;
   method Bool reset_n();
@@ -64,5 +71,14 @@ interface Processor;
   `ifdef CP1X
   method Action cp1xdIn(Value v);
   method ActionValue#(Value) cp1xdOut;
+  `endif
+
+  `ifdef RMA
+  interface AvalonStreamSourcePhysicalIfc#(Bit#(76)) networkRx;
+  interface AvalonStreamSinkPhysicalIfc#(Bit#(76)) networkTx;
+  `endif
+
+  `ifdef DMA_VIRT
+  interface Vector#(2, Server#(TlbRequest, TlbResponse)) tlbs;
   `endif
 endinterface

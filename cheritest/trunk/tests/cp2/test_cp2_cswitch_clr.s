@@ -146,125 +146,125 @@ test:		.ent test
 		#
 		dli	$t0, 0xffffffffffffffff
 		dli	$t1, 0
-		dli	$t2, 0x0101010101010101
+		dli	$t2, 0x010101
 
-		csettype	$c0, $c0, $t2
+		csetoffset	$c0, $c0, $t2
 		cincbase	$c0, $c0, $t0
 		candperm	$c0, $c0, $t1
 
-		csettype	$c1, $c1, $t2
+		csetoffset	$c1, $c1, $t2
 		cincbase	$c1, $c1, $t0
 		candperm	$c1, $c1, $t1
 
-		csettype	$c2, $c2, $t2
+		csetoffset	$c2, $c2, $t2
 		cincbase	$c2, $c2, $t0
 		candperm	$c2, $c2, $t1
 
-		csettype	$c3, $c3, $t2
+		csetoffset	$c3, $c3, $t2
 		cincbase	$c3, $c3, $t0
 		candperm	$c3, $c3, $t1
 
-		csettype	$c4, $c4, $t2
+		csetoffset	$c4, $c4, $t2
 		cincbase	$c4, $c4, $t0
 		candperm	$c4, $c4, $t1
 
-		csettype	$c5, $c5, $t2
+		csetoffset	$c5, $c5, $t2
 		cincbase	$c5, $c5, $t0
 		candperm	$c5, $c5, $t1
 
-		csettype	$c6, $c6, $t2
+		csetoffset	$c6, $c6, $t2
 		cincbase	$c6, $c6, $t0
 		candperm	$c6, $c6, $t1
 
-		csettype	$c7, $c7, $t2
+		csetoffset	$c7, $c7, $t2
 		cincbase	$c7, $c7, $t0
 		candperm	$c7, $c7, $t1
 
-		csettype	$c8, $c8, $t2
+		csetoffset	$c8, $c8, $t2
 		cincbase	$c8, $c8, $t0
 		candperm	$c8, $c8, $t1
 
-		csettype	$c9, $c9, $t2
+		csetoffset	$c9, $c9, $t2
 		cincbase	$c9, $c9, $t0
 		candperm	$c9, $c9, $t1
 
-		csettype	$c10, $c10, $t2
+		csetoffset	$c10, $c10, $t2
 		cincbase	$c10, $c10, $t0
 		candperm	$c10, $c10, $t1
 
-		csettype	$c11, $c11, $t2
+		csetoffset	$c11, $c11, $t2
 		cincbase	$c11, $c11, $t0
 		candperm	$c11, $c11, $t1
 
-		csettype	$c12, $c12, $t2
+		csetoffset	$c12, $c12, $t2
 		cincbase	$c12, $c12, $t0
 		candperm	$c12, $c12, $t1
 
-		csettype	$c13, $c13, $t2
+		csetoffset	$c13, $c13, $t2
 		cincbase	$c13, $c13, $t0
 		candperm	$c13, $c13, $t1
 
-		csettype	$c14, $c14, $t2
+		csetoffset	$c14, $c14, $t2
 		cincbase	$c14, $c14, $t0
 		candperm	$c14, $c14, $t1
 
-		csettype	$c15, $c15, $t2
+		csetoffset	$c15, $c15, $t2
 		cincbase	$c15, $c15, $t0
 		candperm	$c15, $c15, $t1
 
-		csettype	$c16, $c16, $t2
+		csetoffset	$c16, $c16, $t2
 		cincbase	$c16, $c16, $t0
 		candperm	$c16, $c16, $t1
 
-		csettype	$c17, $c17, $t2
+		csetoffset	$c17, $c17, $t2
 		cincbase	$c17, $c17, $t0
 		candperm	$c17, $c17, $t1
 
-		csettype	$c18, $c18, $t2
+		csetoffset	$c18, $c18, $t2
 		cincbase	$c18, $c18, $t0
 		candperm	$c18, $c18, $t1
 
-		csettype	$c19, $c19, $t2
+		csetoffset	$c19, $c19, $t2
 		cincbase	$c19, $c19, $t0
 		candperm	$c19, $c19, $t1
 
-		csettype	$c20, $c20, $t2
+		csetoffset	$c20, $c20, $t2
 		cincbase	$c20, $c20, $t0
 		candperm	$c20, $c20, $t1
 
-		csettype	$c21, $c21, $t2
+		csetoffset	$c21, $c21, $t2
 		cincbase	$c21, $c21, $t0
 		candperm	$c21, $c21, $t1
 
-		csettype	$c22, $c22, $t2
+		csetoffset	$c22, $c22, $t2
 		cincbase	$c22, $c22, $t0
 		candperm	$c22, $c22, $t1
 
-		csettype	$c23, $c23, $t2
+		csetoffset	$c23, $c23, $t2
 		cincbase	$c23, $c23, $t0
 		candperm	$c23, $c23, $t1
 
-		csettype	$c24, $c24, $t2
+		csetoffset	$c24, $c24, $t2
 		cincbase	$c24, $c24, $t0
 		candperm	$c24, $c24, $t1
 
-		csettype	$c25, $c25, $t2
+		csetoffset	$c25, $c25, $t2
 		cincbase	$c25, $c25, $t0
 		candperm	$c25, $c25, $t1
 
-		csettype	$c26, $c26, $t2
+		csetoffset	$c26, $c26, $t2
 		cincbase	$c26, $c26, $t0
 		candperm	$c26, $c26, $t1
 
-		csettype	$c27, $c27, $t2
+		csetoffset	$c27, $c27, $t2
 		cincbase	$c27, $c27, $t0
 		candperm	$c27, $c27, $t1
 
-		csettype	$c28, $c28, $t2
+		csetoffset	$c28, $c28, $t2
 		cincbase	$c28, $c28, $t0
 		candperm	$c28, $c28, $t1
 
-		csettype	$c31, $c31, $t2
+		csetoffset	$c31, $c31, $t2
 		cincbase	$c31, $c31, $t0
 		candperm	$c31, $c31, $t1
 

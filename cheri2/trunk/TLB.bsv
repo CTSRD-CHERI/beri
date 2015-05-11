@@ -60,9 +60,6 @@ typedef struct {
   ThreadID      thread;
   ThreadState       ts;
   Bool           write; // is the access a write access?
-`ifdef CAP
-  Bool           capop; // is this a read/write of capability operation
-`endif
   VAddress        addr;
 } TLBRequest deriving (Bits, Eq, FShow);
 
@@ -70,6 +67,10 @@ typedef struct {
   Address        addr;
   Exception exception;
   CacheCA       cache;
+`ifdef CAP
+  Bool     nostorecap;
+  Bool      noloadcap;
+`endif
 } TLBResponse deriving(Bits, Eq, FShow);
 
 `ifndef TLBSIZE
@@ -143,7 +144,7 @@ typedef TAdd#(TLBCacheBits, 12) TLBCacheIndexTop;
 typedef TAdd#(TLBCacheBits, 13) TLBCacheTagStart;
 typedef TSub#(59, TLBCacheBits) TLBCacheTagSize;
 
-typedef enum {TLB_STATE_READY, TLB_STATE_SEARCHING, TLB_STATE_READ, TLB_STATE_WRITE_1, TLB_STATE_WRITE_2} TLBState deriving (Bits, Eq);
+typedef enum {TLB_STATE_READY, TLB_STATE_SEARCHING, TLB_STATE_SEARCHING_BUSY, TLB_STATE_READ, TLB_STATE_WRITE_1, TLB_STATE_WRITE_2} TLBState deriving (Bits, Eq);
 
 interface TLB;
   interface Vector#(2, TLBLookup)  lookups; //VA -> PA lookup
@@ -183,24 +184,22 @@ function TLBResponse getTLBResponse(TLBRequest x, Maybe#(TLBEntry) m_entry);
       exception = tlbInvEx;
     else if (x.write && !entryLo.dirty)
       exception = Ex_Modify;
-`ifdef CAP
-    else if (x.capop && x.write && entryLo.nostorecap)
-      exception = Ex_TLBStoreCap;
-    else if (x.capop && !x.write && entryLo.noloadcap)
-      exception = Ex_TLBLoadCap;
-`endif
   end else if (translatedAddr > 64'h7fffffff)
     // XXX rmn30 kill access to invalid addresses that will cause AXI to hang.
-    // These addresses can be generated during instruction fetch of cancelled 
+    // These addresses can be generated during instruction fetch of cancelled
     // instructions due to a hazard with pcc.
     exception = Ex_DataBusErr;
   return TLBResponse {
+`ifdef CAP
+     nostorecap: mapped ? entryLo.nostorecap : False,
+     noloadcap : mapped ? entryLo.noloadcap  : False,
+`endif
      addr      : translatedAddr,
      exception : exception,
      cache     : mapped ? entryLo.cacheAlgorithm : cacheCA
-  };
+     };
 endfunction
-  
+
 //----------------------------------------------------------------------------
 
 `ifdef SIMPLE_TLB
@@ -272,7 +271,7 @@ module mkTLB(TLB);
   module mkTLBCache#(TLBSearch nextLevel)(TLBSearch) provisos (Add#(ThreadSZ, TLBCacheBits, iSZ));
     function Bit#(iSZ) getTLBCacheIndex(TLBSearchReq req) = pack(tuple2(req.thread, req.va[valueOf(TLBCacheIndexTop):13]));
     function Bit#(TLBCacheTagSize) getTLBCacheTag(TLBSearchReq req)   = pack(tuple2(req.asid, req.va[63:valueOf(TLBCacheTagStart)]));
-    function Bool      isTLBCacheable(TLBSearchReq req, TLBSearchResp resp)   = isValid(resp);
+    function Bool      isTLBCacheable(TLBSearchReq req, TLBSearchResp resp)   = True;
 
     // XXX rmn30 for now these are identify functions, should save space by eliminating index and tag bits from getData...
     function TLBSearchResp getTLBCacheData(TLBSearchResp resp) = resp;
@@ -311,6 +310,9 @@ module mkTLB(TLB);
       begin
         if (writeQ.notEmpty)
           begin
+            // For writes, first read the entry we are overwriting so
+            // that we can invalidate the TLB caches, which are
+            // indexed by VPN
             match {.thread, .idx, .entry} = writeQ.first;
             debug_tlb($display("TLB Write Entry thread=%d idx=0x%x", {1'b0, thread}, idx));
             entries.readReq(pack(tuple2(thread, idx)));
@@ -329,7 +331,7 @@ module mkTLB(TLB);
             debug_tlb($display("TLB Search Start thread=%d idx=%d", {1'b0, searchReqQ.first.thread}, startIndex));
             entries.readReq(pack(tuple2(searchReqQ.first.thread, startIndex)));
             searchIndex <= startIndex;
-            tlbState[0] <= TLB_STATE_SEARCHING;
+            tlbState[0] <= TLB_STATE_SEARCHING_BUSY;
           end
       end
     endcase
@@ -340,12 +342,13 @@ module mkTLB(TLB);
     debug_tlb($display("TLB Search Read Next thread=%d idx=%d", {1'b0, searchReqQ.first.thread}, nextIndex));
     entries.readReq(pack(tuple2(searchReqQ.first.thread, nextIndex)));
     searchIndex <= nextIndex;
+    tlbState[1] <= TLB_STATE_SEARCHING_BUSY;
   endrule
 
   rule readTLBEntry;
     TLBEntry           e <- entries.readResp();
     case (tlbState[0]) matches
-      TLB_STATE_SEARCHING:
+      TLB_STATE_SEARCHING_BUSY:
       begin
         TLBSearchReq request = searchReqQ.first();
         Bool matched = entryMatches(e, request.asid, request.va);
@@ -360,6 +363,7 @@ module mkTLB(TLB);
             searchReqQ.deq();
             tlbState[0] <= TLB_STATE_READY;
           end
+	else tlbState[0] <= TLB_STATE_SEARCHING;
       end
       TLB_STATE_READ:
       begin
@@ -372,6 +376,7 @@ module mkTLB(TLB);
         match {.thread, .idx, .entry} = writeQ.first;
         if (e.assoc.valid)
           begin
+            // Invalidate the caches for the entry which was stored in the TLB index we are writing.
             let toInvalidate = TLBSearchReq{thread:thread, asid:e.assoc.entryHi.asid, va: {e.assoc.entryHi.r, zeroExtend(e.assoc.entryHi.vpn2), 13'b0}};
             tlbCaches[0].invalidate(toInvalidate);
             tlbCaches[1].invalidate(toInvalidate);
@@ -386,6 +391,11 @@ module mkTLB(TLB);
   rule tlbWriteStage2 if (tlbState[0] == TLB_STATE_WRITE_2);
     match {.thread, .idx, .entry} <- popFIFOF(writeQ);
     entries.write(pack(tuple2(thread, idx)), entry);
+    // In addition to the invalidate above, invalidate the caches for the entry being written.
+    // This ensures that any cached response for a TLB miss is also invalidated.
+    let toInvalidate = TLBSearchReq{thread:thread, asid:entry.assoc.entryHi.asid, va: {entry.assoc.entryHi.r, zeroExtend(entry.assoc.entryHi.vpn2), 13'b0}};
+    tlbCaches[0].invalidate(toInvalidate);
+    tlbCaches[1].invalidate(toInvalidate);
     tlbState[0] <= TLB_STATE_READY;
   endrule
 

@@ -28,21 +28,24 @@
  ******************************************************************************
  *
  * Author: Asif Khan <asif.khan@sri.com>
- *         Nirav Dave <ndave@csl.sri.com> 
+ *         Nirav Dave <ndave@csl.sri.com>
  *         Robert M. Norton <robert.norton@cl.cam.ac.uk>
- * 
+ *
  ******************************************************************************
  *
  * Description: Unguarded and guarded implementations of Block RAM
- * 
+ *
  ******************************************************************************/
 
 import RegFile::*;
-import ConfigReg::*;
 import FIFO::*;
 import FIFOF::*;
 import SpecialFIFOs::*;
 import Library::*;
+import EHR::*;
+import BRAM::*;
+import DefaultValue::*;
+import MEM::*;
 
 interface Fifo#(type dataT);
   method Action enq(dataT d);
@@ -52,45 +55,37 @@ interface Fifo#(type dataT);
   method Action upd(dataT d);
 endinterface
 
-//XXX ndave: If we can clean this up a bit, we could use it for verification
-
 module mkBypassFifo(Fifo#(dataT))
-  provisos(Bits#(dataT, dataSz));
+   provisos(Bits#(dataT, dataSz));
 
-  Reg#(dataT)            data <- mkRegU;
-  Reg#(Bool)            valid <- mkReg(False);
-  Wire#(Maybe#(dataT)) enqing <- mkDWire(Invalid);
-  Wire#(Bool)          deqing <- mkDWire(False);
-  Wire#(Maybe#(dataT)) upding <- mkDWire(Invalid);
+   EHR#(3, Maybe#(dataT))  mvalue <- mkEHR(Invalid);
+   function full(n) = isValid(mvalue[n]);
 
-  rule doValid;
-    valid <= isValid(enqing) && !deqing ? True : deqing ? False : valid;
-  endrule
+   // -----
 
-  rule doData;
-    data <= isValid(enqing) && !deqing ? validValue(enqing) :
-            isValid(upding) ? validValue(upding) : data;
-  endrule
+   method Action enq(x) if (!full(0));
+      mvalue[0] <= tagged Valid x;
+   endmethod
 
-  method Action enq(dataT d) if(!valid);
-    enqing <= Valid(d);
-  endmethod
+   // -----
 
-  method dataT first if(valid || isValid(enqing));
-    return valid ? data : validValue(enqing);
-  endmethod
+   method dataT search if (mvalue[1] matches tagged Valid .x);
+      return x;
+   endmethod
 
-  method Action deq if(valid || isValid(enqing));
-    deqing <= True;
-  endmethod
+   method Action upd(dataT d) if (full(1));
+      mvalue[1] <= tagged Valid d;
+   endmethod
 
-  method dataT search if(valid);
-    return data;
-  endmethod
+   // -----
 
-  method Action upd(dataT d) if(valid && !deqing);
-    upding <= Valid(d);
-  endmethod
+   method dataT first() if (mvalue[2] matches tagged Valid .x);
+      return x;
+   endmethod
+
+   method Action deq() if (full(2));
+      mvalue[2] <= Invalid;
+   endmethod
 endmodule
 
 interface Bram#(type indexT, type dataT);
@@ -98,7 +93,7 @@ interface Bram#(type indexT, type dataT);
   method ActionValue#(dataT) readResp();
   method Action write(indexT index, dataT data);
 
-  method Action readReqD(indexT index);
+  method Action readReqD(indexT index); // for debug unit
   method ActionValue#(dataT) readRespD();
   method Action writeD(indexT index, dataT data);
 endinterface
@@ -108,113 +103,60 @@ interface InitialisedBram#(type indexT, type dataT);
   method Bool isInitialised;
 endinterface
 
-`ifndef VERIFY2
-
-module mkUnguardedBram(Bram#(indexT, dataT))
-  provisos(Bits#(dataT, dataSz), Bits#(indexT, indexSz), Bounded#(indexT));
-
-  RegFile#(indexT, dataT) mem <- mkRegFileWCF(minBound, maxBound);
-  Reg#(dataT)         dataReg <- mkRegU;
-
-  method Action readReq(indexT index);
-    dataReg <= mem.sub(index);
-  endmethod
-
-  method ActionValue#(dataT) readResp;
-    return dataReg;
-  endmethod
-  
-  method Action write(indexT index, dataT data);
-    mem.upd(index, data);
-  endmethod
-  
-  method Action readReqD(index) if (False) = noAction;
-  method readRespD if (False);
-    return (?);
-	endmethod
-  method Action writeD(index, data) if (False) = noAction;
-endmodule
-
-// Bram with implicit conditions on reads but absolutely no write
-// forwarding i.e. reads during writes will see stale value.
-module mkBramNoWriteForward(Bram#(indexT, dataT))
-  provisos(Bits#(dataT, dataSz), Bits#(indexT, indexSz), Bounded#(indexT), Eq#(indexT));
-
-  Bram#(indexT, dataT)  bram <- mkUnguardedBram;
-  FIFOF#(void)         tokenQ <- mkLFIFOF; // this ensures at most one outstanding read.
-
-  method Action readReq(indexT index);
-    bram.readReq(index);
-    tokenQ.enq(?);
-  endmethod
-
-  method ActionValue#(dataT) readResp;
-    let bramData <- bram.readResp();
-    tokenQ.deq();
-    return bramData;
-  endmethod
-  
-  method Action write(indexT index, dataT data);
-    bram.write(index, data);
-  endmethod
-  
-  method Action readReqD(index) if (False) = noAction;
-  method readRespD if (False) = ?;
-  method Action writeD(index, data) if (False) = noAction;
-endmodule
+`ifndef VERIFY
 
 module mkBram(Bram#(indexT, dataT))
-  provisos(Bits#(dataT, dataSz), Bits#(indexT, indexSz), Bounded#(indexT), Eq#(indexT));
+  provisos(Bits#(dataT, dataSz), Bits#(indexT, indexSz),
+	   Bounded#(indexT), Eq#(indexT));
 
-  Bram#(indexT, dataT)              bram <- mkUnguardedBram;
-  FIFO#(indexT)                readIndex <- mkLFIFO;
-  FIFO#(Maybe#(dataT))       forwardData <- mkLFIFO;
+  MEM#(indexT, dataT)               bram <- mkMEM;
+  FIFO#(indexT)                readIndex <- mkPipelineFIFO;
+  FIFO#(Maybe#(dataT))       forwardData <- mkPipelineFIFO;
   Fifo#(Tuple2#(indexT, dataT)) readData <- mkBypassFifo;
-  Reg#(indexT)                writeIndex <- mkConfigReg(minBound);
-  Reg#(dataT)                  writeData <- mkConfigRegU;
-  RWire#(indexT)          writeIndexWire <- mkRWire();
-  RWire#(dataT)            writeDataWire <- mkRWire();
+  EHR#(2, indexT)             writeIndex <- mkEHR(minBound);
+  EHR#(2, dataT)               writeData <- mkEHRU;
 
   rule fill;
     let forwarded <- popFIFO(forwardData);
     let index     <- popFIFO(readIndex);
-    let bramData  <- bram.readResp();
-    let data      =  isValid(forwarded) ? validValue(forwarded) : bramData;
+    let bramData  <- bram.read.get();
+    let data      =  (forwarded matches tagged Valid .x ? x : bramData);
     readData.enq(tuple2(index, data));
   endrule
 
   rule update;
     match {.i, .d} = readData.search;
-    readData.upd(tuple2(i, (Valid(i) == writeIndexWire.wget()) ? validValue(writeDataWire.wget) : (i==writeIndex) ? writeData : d));
+    readData.upd(tuple2(i, (i == writeIndex[1] ? writeData[1] : d)));
   endrule
 
   method Action readReq(indexT index);
-    forwardData.enq((Valid(index) == writeIndexWire.wget()) ? writeDataWire.wget() : Invalid);
-    bram.readReq(index);
+    forwardData.enq(index == writeIndex[1] ? tagged Valid writeData[1] : Invalid);
+    bram.read.put(index);
     readIndex.enq(index);
   endmethod
 
-  method ActionValue#(dataT) readResp();
-    readData.deq;
+  method ActionValue#(dataT) readResp;
     match {.i, .d} = readData.first;
-    return (Valid(i)==writeIndexWire.wget()) ? validValue(writeDataWire.wget()) : (i==writeIndex) ? writeData : d;
+    readData.deq;
+     return d;
+     //(i==writeIndex[1] ? writeData[1] : d);
   endmethod
-  
+
   method Action write(indexT index, dataT data);
     bram.write(index, data);
-    writeIndex <= index;
-    writeData <= data;
-    writeIndexWire.wset(index);
-    writeDataWire.wset(data);
+    writeIndex[0] <= index;
+    writeData[0] <= data;
   endmethod
+
+   // =======
 
   method Action readReqD(indexT index);
     forwardData.enq(Invalid);
-    bram.readReq(index);
+    bram.read.put(index);
     readIndex.enq(index);
   endmethod
 
-  method ActionValue#(dataT) readRespD();
+  method ActionValue#(dataT) readRespD;
     match {.i, .d} = readData.first;
     readData.deq;
     return (d);
@@ -225,6 +167,23 @@ module mkBram(Bram#(indexT, dataT))
   endmethod
 endmodule
 
+module mkBramNoWriteForward(Bram#(indexT, dataT))
+                            provisos(Bits#(dataT, dataSz), Bits#(indexT, indexSz), Bounded#(indexT), Eq#(indexT));
+   MEM#(indexT, dataT) mem <- mkMEM;
+   Bram#(indexT, dataT) the_bram = (
+      interface Bram;
+	 method readReq  = mem.read.put;
+	 method readResp = mem.read.get;
+	 method write    = mem.write;
+
+	 method readReqD  = mem.read.put;
+	 method readRespD = mem.read.get;
+	 method writeD    = mem.write;
+      endinterface );
+
+   return the_bram;
+endmodule
+
 `else // VERIFY
 
 module mkBram(Bram#(indexT, dataT))
@@ -232,9 +191,9 @@ module mkBram(Bram#(indexT, dataT))
 
   RegFile#(indexT, dataT)             rf <- mkRegFileFull();
   Reg#(Bool)                       valid <- mkReg(False);
-  Reg#(indexT)                     addr  <- mkRegU; 
-  Reg#(dataT)                      value <- mkRegU; 
-  
+  Reg#(indexT)                     addr  <- mkRegU;
+  Reg#(dataT)                      value <- mkRegU;
+
   method Action readReq(indexT index) if (!valid);
     addr  <= index;
     value <= rf.sub(index);
@@ -243,7 +202,7 @@ module mkBram(Bram#(indexT, dataT))
 
   method ActionValue#(dataT) readResp if (valid);
     valid <= False;
-		return value;
+	return value;
   endmethod
 
   method Action write(indexT index, dataT data);
@@ -252,15 +211,17 @@ module mkBram(Bram#(indexT, dataT))
 	  value <= data;
   endmethod
 
-  method Action readReqD(indexT index);
-		addr  <= index;
-		value <= rf.sub(index);
-		valid <= True;
+// =======
+
+  method Action readReqD(indexT index) if (!valid);
+    addr  <= index;
+    value <= rf.sub(index);
+    valid <= True;
   endmethod
 
-  method ActionValue#(dataT) readRespD();
+  method ActionValue#(dataT) readRespD if (valid);
     valid <= False;
-		return value;
+	return value;
   endmethod
 
   method Action writeD(indexT index, dataT data);
@@ -268,6 +229,7 @@ module mkBram(Bram#(indexT, dataT))
     if (valid && (addr == index))
 	  value <= data;
   endmethod
+
 endmodule
 
 module mkBramNoWriteForward(Bram#(indexT, dataT))
@@ -280,7 +242,7 @@ endmodule
 
 module mkInitialisedBramWrapper#(Bram#(indexT, dataT) the_bram, function dataT getInitialValue(indexT idx))(InitialisedBram#(indexT, dataT))
                             provisos(Bits#(dataT, dataSz), Bits#(indexT, indexSz), Bounded#(indexT), Eq#(indexT), Arith#(indexT));
-  Reg#(Bool)        initialised <- mkConfigReg(False);
+  Reg#(Bool)        initialised <- mkReg(False);
   Reg#(indexT)        initIndex <- mkReg(minBound);
 
   rule initialiseBram if (!initialised);
@@ -289,19 +251,19 @@ module mkInitialisedBramWrapper#(Bram#(indexT, dataT) the_bram, function dataT g
     if (initIndex == maxBound)
       initialised <= True;
   endrule
-  
+
   method Bool isInitialised;
     return initialised;
   endmethod
-  
+
   interface Bram bram;
     method Action readReq(indexT index) if (initialised);
       the_bram.readReq(index);
     endmethod
 
     method ActionValue#(dataT) readResp if (initialised);
-			let r <- the_bram.readResp();
-			return r;
+      let r <- the_bram.readResp();
+      return r;
     endmethod
 
     method Action write(indexT idx, dataT data) if (initialised);
@@ -313,8 +275,8 @@ module mkInitialisedBramWrapper#(Bram#(indexT, dataT) the_bram, function dataT g
     endmethod
 
     method ActionValue#(dataT) readRespD if (initialised);
-			let r <- the_bram.readRespD();
-			return r;
+      let r <- the_bram.readRespD();
+      return r;
     endmethod
 
     method Action writeD(indexT idx, dataT data) if (initialised);
@@ -324,7 +286,8 @@ module mkInitialisedBramWrapper#(Bram#(indexT, dataT) the_bram, function dataT g
 endmodule
 
 module mkInitialisedBram#(function dataT getInitialValue(indexT idx))(InitialisedBram#(indexT, dataT))
-                            provisos(Bits#(dataT, dataSz), Bits#(indexT, indexSz), Bounded#(indexT), Eq#(indexT), Arith#(indexT));
+                            provisos(Bits#(dataT, dataSz), Bits#(indexT, indexSz),
+				     Bounded#(indexT), Eq#(indexT), Arith#(indexT));
   Bram#(indexT, dataT) the_bram <- mkBram;
   InitialisedBram#(indexT, dataT) wrapped_bram <- mkInitialisedBramWrapper(the_bram, getInitialValue);
   return wrapped_bram;
@@ -332,7 +295,18 @@ endmodule
 
 module mkInitialisedBramNoWriteForward#(function dataT getInitialValue(indexT idx))(InitialisedBram#(indexT, dataT))
                             provisos(Bits#(dataT, dataSz), Bits#(indexT, indexSz), Bounded#(indexT), Eq#(indexT), Arith#(indexT));
-  Bram#(indexT, dataT) the_bram <- mkBramNoWriteForward;
-  InitialisedBram#(indexT, dataT) wrapped_bram <- mkInitialisedBramWrapper(the_bram, getInitialValue);
-  return wrapped_bram;
+   MEM#(indexT, dataT) mem <- mkMEM;
+   Bram#(indexT, dataT) the_bram = (
+      interface Bram;
+	 method readReq  = mem.read.put;
+	 method readResp = mem.read.get;
+	 method write    = mem.write;
+
+	 method readReqD  = ?;
+	 method readRespD = ?;
+	 method writeD    = ?;
+      endinterface
+				    );
+   InitialisedBram#(indexT, dataT) wrapped_bram <- mkInitialisedBramWrapper(the_bram, getInitialValue);
+   return wrapped_bram;
 endmodule

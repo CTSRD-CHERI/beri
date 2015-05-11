@@ -36,12 +36,12 @@ CHERIROOT_ABS:=$(realpath $(CHERIROOT))
 CHERILIBS?=../../../cherilibs/trunk
 CHERILIBS_ABS:=$(realpath $(CHERILIBS))
 CHERICONF?=simconfig
-CHERI_SIM_OPTS?=+regDump +trace +instructionBasedCycleCounter
+CHERI_SIM_OPTS?=+regDump +btrace +cTrace +instructionBasedCycleCounter
 TOOLS_DIR=${CHERILIBS_ABS}/tools
 TOOLS_DIR_ABS:=$(realpath $(TOOLS_DIR))
+TRACE_NAMES_ABS:=$(TOOLS_DIR_ABS)/tracing/trace_names.py
 KERNEL?=kernel
 GZIP?=
-
 COMPRESS_TRACE:=$(if $(GZIP),| gzip -c -,)
 TRACE_SUFFIX:=$(if $(GZIP),.gz,)
 
@@ -62,13 +62,46 @@ all: simboot.elf mem.bin simboot.dump
 %.dump : %.elf
 	mips64-objdump -xsSD $< > $@
 
+# PHONY because KERNEL can change making dependency wrong
+.PHONY: kernel_nm.txt
+kernel_nm.txt: $(KERNEL)
+	nm $(KERNEL) > $@
+
 mem.bin: simboot.mem
 	cp $< $@
 	$(MEMCONV)
 
+.PHONY: run
 run: mem.bin
+ifndef BERI_DEBUG_SOCKET_0
+	@echo "Must set BERI_DEBUG_SOCKET_0 to use trace default target"
+	@exit 1
+endif
+ifndef BERI_DEBUG_SOCKET_1
+	@echo "Warning: BERI_DEBUG_SOCKET_1 not set, only the default target will be traced"
+endif
 ifndef CHERI_CONSOLE_SOCKET
-	@echo "Must set CHERI_CONSOLE_SOCKET to use target"
+	@echo "Warning: CHERI_CONSOLE_SOCKET not set, using stdio"
+	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals			\
+	    CHERI_KERNEL=$(KERNEL)					\
+	    CHERI_CONFIG=$(CHERICONF)					\
+	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
+	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
+	    ${CHERIROOT_ABS}/sim
+else
+	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals			\
+	    CHERI_KERNEL=$(KERNEL)					\
+	    CHERI_CONFIG=$(CHERICONF)					\
+	    CHERI_CONSOLE_SOCKET=$(CHERI_CONSOLE_SOCKET)		\
+	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
+	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
+	    ${CHERIROOT_ABS}/sim
+endif
+
+.PHONY: trace
+trace: mem.bin
+ifndef CHERI_TRACE_LOG
+	@echo "Must set CHERI_TRACE_LOG to use trace target"
 	@exit 1
 endif
 ifndef BERI_DEBUG_SOCKET_0
@@ -78,15 +111,26 @@ endif
 ifndef BERI_DEBUG_SOCKET_1
 	@echo "Warning: BERI_DEBUG_SOCKET_1 not set, only the default target will be traced"
 endif
+ifndef CHERI_CONSOLE_SOCKET
+	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals			\
+	    CHERI_KERNEL=$(KERNEL)					\
+	    CHERI_CONFIG=$(CHERICONF)					\
+	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
+	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
+	    ${CHERIROOT_ABS}/sim					\
+	    $(CHERI_SIM_OPTS) $(COMPRESS_TRACE) > $(CHERI_TRACE_LOG)$(TRACE_SUFFIX)
+else
 	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals			\
 	    CHERI_KERNEL=$(KERNEL)					\
 	    CHERI_CONFIG=$(CHERICONF)					\
 	    CHERI_CONSOLE_SOCKET=$(CHERI_CONSOLE_SOCKET)		\
 	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
 	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
-	    ${CHERIROOT_ABS}/sim
+	    ${CHERIROOT_ABS}/sim					\
+	    $(CHERI_SIM_OPTS) $(COMPRESS_TRACE) > $(CHERI_TRACE_LOG)$(TRACE_SUFFIX)
+endif
 
-trace: mem.bin
+annotate_trace: mem.bin kernel_nm.txt
 ifndef CHERI_TRACE_LOG
 	@echo "Must set CHERI_TRACE_LOG to use trace target"
 	@exit 1
@@ -105,7 +149,9 @@ endif
 	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
 	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
 	    ${CHERIROOT_ABS}/sim					\
-	    $(CHERI_SIM_OPTS) $(COMPRESS_TRACE) > $(CHERI_TRACE_LOG)$(TRACE_SUFFIX)
+	    $(CHERI_SIM_OPTS)						\
+	    | $(TRACE_NAMES_ABS) --nm=kernel_nm.txt 			\
+	    $(COMPRESS_TRACE) > $(CHERI_TRACE_LOG)$(TRACE_SUFFIX)
 
 gxemul:
 	../../../cheritest/trunk/tools/gxemul/CTSRD-CHERI-gxemul-8d92b42/gxemul -V -E oldtestmips -M 3072 $(KERNEL) simboot.elf

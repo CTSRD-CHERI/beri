@@ -776,7 +776,8 @@ function ActionValue#(DecodedResult) decodeFN(Bit#(32) i, Address pc);
                 end
                 CP0_WAIT:
                 begin
-                  // Currently a nop
+                  op_cp0 = CP0_WAIT;
+                  flushOnCommit = True;
                 end
                 default:
                   exception = Ex_RI;

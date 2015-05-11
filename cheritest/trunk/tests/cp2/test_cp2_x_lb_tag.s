@@ -42,6 +42,13 @@ test:		.ent test
 		daddu	$fp, $sp, 32
 
 		#
+		# Clear the BEV flag
+		#
+
+		jal bev_clear
+		nop
+
+		#
 		# Set up exception handler
 		#
 

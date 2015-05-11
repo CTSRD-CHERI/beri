@@ -36,13 +36,11 @@
 
 sandbox:
 		dli     $a0, 1
-		move	$a5, $ra
 		jal	12
 		nop	# branch delay slot
 		nop
 		move	$a4, $ra
-		move 	$ra, $a5
-		cjr     $ra($c24)
+		cjr     $c24
 		nop	# branch delay slot
 
 		.global test
@@ -64,7 +62,8 @@ test:		.ent test
 
 		dla     $t0, sandbox
 		cincbase	$c1, $c0, $t0
-		cjalr   $0($c1)
+		csetoffset $c1, $c1, $zero	# Shouldn't be needed
+		cjalr   $c24, $c1
 		nop			# Branch delay slot
 
 finally:
@@ -72,7 +71,7 @@ finally:
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		nop			# Branch delay slot
 		.end	test
 
 

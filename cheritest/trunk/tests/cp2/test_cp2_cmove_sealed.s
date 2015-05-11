@@ -31,7 +31,7 @@
 .set noat
 
 #
-# Test that cmove can move a register even if its unsealed bit is cleared.
+# Test that cmove can move a register even if its sealed bit is set.
 #
 
 sandbox:
@@ -48,21 +48,26 @@ test:		.ent test
 		# c2 has been changed.
 		dli		$t0, 0x100
 		cincbase	$c1, $c0, $t0
+
+		dli		$t0, 8
+		csetlen		$c1, $c1, $t0
+
 		# Need to remove execute permission before we seal it
 		dli		$t0, 0x5
 		candperm 	$c1, $c1, $t0
 
-		cmove		$c3, $c0
-		dla		$t0, sandbox
-		csettype	$c3, $c3, $t0
+		dli		$t0, 0x1234
+		csetoffset	$c3, $c0, $t0
 
-		csealdata	$c1, $c1, $c3
+		cseal		$c1, $c1, $c3
 
 		# Move should copy c1 (base=0x100) into c2.
 		cmove		$c2, $c1
 
-		cgetunsealed 	$a0, $c2 	# Should be 0
+		cgetsealed 	$a0, $c2 	# Should be 1
 		cgetbase 	$a1, $c2     	# Should be 0x100
+		cgetlen		$a2, $c2	# Should be 8
+		cgettype	$a3, $c2	# Should be 0x1234
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

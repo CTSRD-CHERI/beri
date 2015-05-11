@@ -35,31 +35,31 @@ from nose.plugins.attrib import attr
 class test_cp2_csealdata(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_csealdata1(self):
-        '''Test that csealdata clears the unsealed bit'''
-        self.assertRegisterEqual(self.MIPS.a0, 0,
-            "csealdata did not clear the u bit")
+        '''Test that cseal sets the sealed bit'''
+        self.assertRegisterEqual(self.MIPS.a0, 1,
+            "cseal did not set the sealed bit")
 
     @attr('capabilities')
     def test_cp2_sealdata2(self):
-        '''Test that csealdata sets the otype field'''
-        self.assertRegisterEqual(self.MIPS.a1, 0,
-            "csealdata did not set the otype field correctly")
+        '''Test that cseal sets the otype field'''
+        self.assertRegisterEqual(self.MIPS.a1, 0x123456,
+            "cseal did not set the otype field correctly")
 
     @attr('capabilities')
     def test_cp2_sealdata3(self):
-        '''Test that csealdata sets the base field'''
+        '''Test that cseal sets the base field'''
         self.assertRegisterEqual(self.MIPS.a2, 0,
-            "csealdata did not set the base field correctly")
+            "cseal did not set the base field correctly")
 
     @attr('capabilities')
     def test_cp2_sealdata4(self):
-        '''Test that csealdata sets the length field'''
+        '''Test that cseal sets the length field'''
         self.assertRegisterEqual(self.MIPS.a3, 8,
-            "csealdata did not set the length field correctly")
+            "cseal did not set the length field correctly")
 
     @attr('capabilities')
     def test_cp2_sealdata5(self):
-        '''Test that csealdata sets the perms field'''
+        '''Test that cseal sets the perms field'''
         self.assertRegisterEqual(self.MIPS.a4, 0xd,
-            "csealdata did not set the perms field correctly")
+            "cseal did not set the perms field correctly")
 

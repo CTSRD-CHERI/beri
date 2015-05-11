@@ -40,15 +40,15 @@ class test_raw_fpu_trunc_single(BaseBERITestCase):
 
     def test_raw_fpu_trunc_single_1(self):
         '''Test trunc operation'''
-	self.assertRegisterEqual(self.MIPS.a1 & 0xffffffff, 0, "-0.75 did not round up to 0")
+	self.assertRegisterMaskEqual(self.MIPS.a1, 0xffffffff, 0, "-0.75 did not round up to 0")
 
     def test_raw_fpu_trunc_single_2(self):
         '''Test trunc operation'''
-	self.assertRegisterEqual(self.MIPS.a2 & 0xffffffff, 0, "-0.5 did not round up to 0")
+	self.assertRegisterMaskEqual(self.MIPS.a2, 0xffffffff, 0, "-0.5 did not round up to 0")
 
     def test_raw_fpu_trunc_single_3(self):
         '''Test trunc operation'''
-	self.assertRegisterEqual(self.MIPS.a3 & 0xffffffff, 0, "-0.25 did not round up to 0")
+	self.assertRegisterMaskEqual(self.MIPS.a3, 0xffffffff, 0, "-0.25 did not round up to 0")
 
     def test_raw_fpu_trunc_single_4(self):
         '''Test trunc operation'''

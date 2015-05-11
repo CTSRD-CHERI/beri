@@ -16,7 +16,7 @@
  * "License"); you may not use this file except in compliance with the
  * License.  You may obtain a copy of the License at:
  *
- *   http://www.beri-open-systems.org/legal/license-1-0.txt
+ *  http://www.beri-open-systems.org/legal/license-1-0.txt
  *
  * Unless required by applicable law or agreed to in writing, Work distributed
  * under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
@@ -26,9 +26,13 @@
  * @BERI_LICENSE_HEADER_END@
  */
 
-import FIFO    :: *;
-import Vector  :: *;
+import FIFO :: *;
+import Vector :: *;
 import RegFile :: *;
+import FIFOF :: *;
+import SpecialFIFOs :: *;
+import DReg :: *;
+import ConfigReg :: *;
 
 interface ReadIfc#(type addr, type data);
   method Action              put(addr a);
@@ -38,26 +42,79 @@ endinterface
 
 interface MEM#(type addr, type data);
   interface ReadIfc#(addr, data) read;
-  method Action                  write(addr a, data x);
+  method Action write(addr a, data x);
 endinterface
 
-module mkMEM(MEM#(addr, data))
-   provisos(Bits#(addr, addr_sz),
-            Bounded#(addr),
-            Bits#(data, data_sz));
+// Fast memory module
+// This one synthesises with forwarding logic but always
+// sees upldates in the next cycle.
+module mkMEMfast(MEM#(addr, data))
+  provisos(Bits#(addr, addr_sz),
+        Bounded#(addr),
+        Bits#(data, data_sz));
 
 	RegFile#(addr,data) regFile <- mkRegFileWCF(minBound, maxBound); // BRAM
 	FIFO#(addr)         readReq <- mkSizedFIFO(4);
 
 	interface ReadIfc read;
-    method Action put(addr a) = readReq.enq(a);
-    method data peek() = regFile.sub(readReq.first());
-    method ActionValue#(data) get();
-      readReq.deq();
-      return regFile.sub(readReq.first());
-    endmethod
+   method Action put(addr a) = readReq.enq(a);
+   method data peek() = regFile.sub(readReq.first());
+   method ActionValue#(data) get();
+    readReq.deq();
+    return regFile.sub(readReq.first());
+   endmethod
   endinterface
   method Action write(addr a, data x) = regFile.upd(a,x);
+endmodule
+
+// Efficient memory module.  This one synthesises to a single
+// BRAM with no forwarding logic, but deleays reads to locations
+// that are written in the same cycle.
+module mkMEMsmall(MEM#(addr, data))
+  provisos(Bits#(addr, addr_sz),
+        Bounded#(addr),
+        Bits#(data, data_sz),
+        Eq#(addr));
+
+	RegFile#(addr,data) regFile <- mkRegFileWCF(minBound, maxBound); // BRAM
+	FIFOF#(addr)        readReq <- mkSizedBypassFIFOF(4);
+	FIFO#(Bit#(0))      outReady <- mkLFIFO;
+	Reg#(data)            outReg <- mkConfigRegU;
+	Reg#(addr)       readAddr[2] <- mkCReg(2,?);
+	Reg#(Maybe#(addr)) writeAddr <- mkDReg(tagged Invalid);
+
+	rule doRead;
+	  readAddr[0] <= readReq.first();
+	  readReq.deq();
+	  outReady.enq(?);
+	endrule
+	rule updateRead;
+	  outReg <= regFile.sub(readAddr[1]);
+	endrule
+ 
+	Bool readReady = !isValid(writeAddr) || (readAddr[0] != fromMaybe(?,writeAddr));
+
+	interface ReadIfc read;
+   method Action put(addr a) = readReq.enq(a);
+   method data peek() if (readReady) = outReg;
+   method ActionValue#(data) get() if (readReady);
+     outReady.deq;
+     return outReg;
+   endmethod
+  endinterface
+  method Action write(addr a, data d);
+    regFile.upd(a,d);
+    writeAddr <= tagged Valid a;
+  endmethod
+endmodule
+
+module mkMEM(MEM#(addr, data))
+  provisos(Bits#(addr, addr_sz),
+        Bounded#(addr),
+        Bits#(data, data_sz),
+        Eq#(addr));
+  MEM#(addr,data) ifc <- mkMEMfast;
+  return ifc;
 endmodule
 
 
@@ -89,7 +146,7 @@ provisos(
 );
 
   Vector#(data_bytes,RegFile#(addr,Byte))
-    regFiles <- replicateM(mkRegFileWCF(minBound, maxBound));
+   regFiles <- replicateM(mkRegFileWCF(minBound, maxBound));
   FIFO#(addr) readReq <- mkSizedFIFO(4);
 
   function readF(rf) = rf.sub(readReq.first);
@@ -98,21 +155,21 @@ provisos(
 
 
   method Action write(addr a, data x, Vector#(data_bytes,Bool) be);
-    Vector#(data_bytes,Byte) bytes = unpack(pack(x));
-    function writeF(rf, b, en) = action
-      if (en) begin
-        rf.upd(a,b);
-      end
-    endaction;
-    let _ <- zipWith3M(writeF,regFiles,bytes,be);
+   Vector#(data_bytes,Byte) bytes = unpack(pack(x));
+   function writeF(rf, b, en) = action
+    if (en) begin
+      rf.upd(a,b);
+    end
+   endaction;
+   let _ <- zipWith3M(writeF,regFiles,bytes,be);
   endmethod
 
   interface ReadIfc read;
-    method Action put(addr a) = readReq.enq(a);
-    method ActionValue#(data) get();
-      readReq.deq();
-      return readResult;
-    endmethod
-    method data peek = readResult;
+   method Action put(addr a) = readReq.enq(a);
+   method ActionValue#(data) get();
+    readReq.deq();
+    return readResult;
+   endmethod
+   method data peek = readResult;
   endinterface
 endmodule

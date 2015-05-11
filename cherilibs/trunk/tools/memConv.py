@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 #-
 # Copyright (c) 2010 Gregory A. Chadwick
 # Copyright (c) 2010-2013 Jonathan Woodruff
@@ -30,8 +31,9 @@
 import os;
 import array;
 import sys;
+import optparse;
 
-def writeMem8(memArray, memSize):
+def writeMem8(memArray, memSize, prefix):
 	numDWords = memSize / 8;
 	
 	if(memSize % 8):
@@ -43,7 +45,7 @@ def writeMem8(memArray, memSize):
 	mems = []
 	
 	for i in range(0, 8):
-		mems.append(open("mem" + str(i) + ".hex", "w"))
+		mems.append(open(prefix + str(i) + ".hex", "w"))
 		
 	for i in range(0, numDWords):
 		for j in range(0, 8):
@@ -55,7 +57,7 @@ def writeMem8(memArray, memSize):
 	for i in range(0, 8):
 		mems[i].close()
 
-def writeMem64(memArray, memSize):
+def writeMem64(memArray, memSize, prefix):
 	numDWords = memSize / 8;
 	
 	if(memSize % 8):
@@ -64,7 +66,7 @@ def writeMem64(memArray, memSize):
 	else:
 		lastDWordMaxByte = 8
 	
-	mem64 = open("mem64.hex", "w")
+	mem64 = open(prefix + "64.hex", "w")
 	
 	for i in range(0, numDWords):
 		value = 0L
@@ -80,7 +82,7 @@ def writeMem64(memArray, memSize):
 		
 	mem64.close()
 	
-def writeMem32(memArray, memSize):
+def writeMem32(memArray, memSize, prefix):
 	numWords = memSize / 4;
 	
 	if(memSize % 4):
@@ -89,7 +91,7 @@ def writeMem32(memArray, memSize):
 	else:
 		lastWordMaxByte = 4
 	
-	mem64 = open("mem32.hex", "w")
+	mem64 = open(prefix + "32.hex", "w")
 	
 	for i in range(0, numWords):
 		value = 0L
@@ -105,13 +107,13 @@ def writeMem32(memArray, memSize):
 		
 	mem64.close()
 	
-def writeMem256(memArray, memSize):
+def writeMem256(memArray, memSize, prefix):
 	print "memSize = ",memSize," bytes"
 		
 	mems = []
 	
 	for i in range(0, 8):
-		mems.append(open("mem" + str(i) + ".hex", "w"))
+		mems.append(open(prefix + str(i) + ".hex", "w"))
 
 	for i in range(0, memSize, 32):
 		for j in range(7, -1, -1):
@@ -129,7 +131,7 @@ def writeMem256(memArray, memSize):
 	for i in range(0, 8):
 		mems[i].close()
 	
-def writeMem256C2(memArray, memSize):
+def writeMem256C2(memArray, memSize, prefix):
 	numDWords = memSize / 32;
 	
 	if(memSize % 32):
@@ -138,7 +140,7 @@ def writeMem256C2(memArray, memSize):
 	else:
 		lastDWordMaxByte = 32
 	
-	memHex = open("mem.hex", "w")
+	memHex = open(prefix + ".hex", "w")
 	
 	for i in range(0, numDWords):
 		value = 0L
@@ -163,7 +165,7 @@ def writeHex256(memArray, memSize):
 	else:
 		lastDWordMaxByte = 32
 	
-	memHex = open("initial.hex", "w")
+	memHex = open(prefix + ".hex", "w")
 	
 	addr = 0
 	
@@ -200,7 +202,7 @@ def writeHex64(memArray, memSize):
 	else:
 		lastDWordMaxByte = 8
 	
-	memHex = open("initial.hex", "w")
+	memHex = open(prefix + ".hex", "w")
 	
 	addr = 0
 	
@@ -228,7 +230,7 @@ def writeHex64(memArray, memSize):
 	memHex.write(':00000001FF')
 	memHex.close()
 
-def writeHex32(memArray, memSize):
+def writeHex32(memArray, memSize, prefix):
 	numDWords = memSize / 4;
 	
 	if(memSize % 4):
@@ -237,7 +239,7 @@ def writeHex32(memArray, memSize):
 	else:
 		lastDWordMaxByte = 4
 	
-	memHex = open("initial.hex", "w")
+	memHex = open(prefix + ".hex", "w")
 	
 	addr = 0
 	
@@ -265,33 +267,36 @@ def writeHex32(memArray, memSize):
 	memHex.write(':00000001FF')
 	memHex.close()
 
-memory = open("mem.bin", 'rb')
-memStats = os.stat("mem.bin")
-memSize = memStats.st_size
-
-memArray = array.array('B')
-memArray.read(memory, memSize)
-
-#
-# Pad out to 128-byte line size
-#
-for i in range (memSize, (memSize + 255) & ~127, 1):
-	memArray.append(0);
-memSize = (memSize + 255) & ~127;
-
-#for i in range(0, memSize, 4):
-#	print i,": ",hex(memArray[i]),hex(memArray[i+1]),hex(memArray[i+2]),hex(memArray[i+3])," ",
-
-if(len(sys.argv) == 2):
-	if(sys.argv[1] == "bsim"):
-		writeMem256(memArray, memSize)
-		writeMem64(memArray, memSize)
-		writeMem256C2(memArray, memSize)
-	elif(sys.argv[1] == "bsimc2"):
-		writeMem256C2(memArray, memSize)
-	elif(sys.argv[1] == "verilog"):
-		writeHex32(memArray, memSize)
-	else:
-		print "Please pass either bsim or bsimc2 or verilog"
-else:
-	writeMem64(memArray, memSize)
+if __name__=="__main__":
+	parser = optparse.OptionParser()
+	parser.add_option('-b','--bin', dest="bin_file", help=".bin file containing the input", default="mem.bin")
+	parser.add_option('-S','--sim-prefix', dest="simulator_prefix", help="Prefix for simulator output files", default="mem")
+	parser.add_option('-v','--verilog-prefix', dest="verilog_prefix", help="Prefix for verilog output files", default="initial")
+	(opts, args) = parser.parse_args()
+	
+	memory = open(opts.bin_file, 'rb')
+	memStats = os.stat(opts.bin_file)
+	memSize = memStats.st_size
+	
+	memArray = array.array('B')
+	memArray.read(memory, memSize)
+	
+	#
+	# Pad out to 128-byte line size
+	#
+	for i in range (memSize, (memSize + 255) & ~127, 1):
+		memArray.append(0);
+	memSize = (memSize + 255) & ~127;
+	if not	args:
+		writeMem64(memArray, memSize, opts.simulator_prefix)
+	for arg in args:
+		if(arg == "bsim"):
+			writeMem256(memArray,	memSize, opts.simulator_prefix)
+			writeMem64(memArray,	memSize, opts.simulator_prefix)
+			writeMem256C2(memArray, memSize, opts.simulator_prefix)
+		elif(arg == "bsimc2"):
+			writeMem256C2(memArray, memSize, opts.simulator_prefix)
+		elif(arg == "verilog"):
+			writeHex32(memArray, memSize, opts.verilog_prefix)
+		else:
+			print "Unrecognised output mode: %s. Use bsim, bsimc2 or verilog." % arg

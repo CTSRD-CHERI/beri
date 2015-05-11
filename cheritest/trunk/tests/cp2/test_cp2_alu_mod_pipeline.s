@@ -66,11 +66,11 @@ test:		.ent test
 		candperm	$c4, $c4, $t2
 		cgetperm	$a2, $c4
 
-		# Test csettype
+		# Test csetoffset
 		dli	$t3, 0
 		daddiu	$t3, $t3, 0x100
-		csettype	$c5, $c5, $t3
-		cgettype	$a3, $c5
+		csetoffset	$c5, $c5, $t3
+		cgetoffset	$a3, $c5
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

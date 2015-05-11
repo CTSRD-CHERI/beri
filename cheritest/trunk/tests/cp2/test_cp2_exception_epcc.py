@@ -70,7 +70,7 @@ class test_cp2_exception_epcc(BaseBERITestCase):
     #
     @attr('capabilities')
     def test_trap_excode(self):
-        self.assertRegisterEqual((self.MIPS.s1 >> 2) & 0x1f, 13, "last exception not a trap")
+        self.assertRegisterMaskEqual(self.MIPS.s1, 0x1f << 2, 13 << 2, "last exception not a trap")
 
     #
     # Check that the exception handler is returning PCC-relative PCs rather
@@ -99,7 +99,7 @@ class test_cp2_exception_epcc(BaseBERITestCase):
     #
     @attr('capabilities')
     def test_presandbox_epcc_unsealed(self):
-        self.assertRegisterEqual(self.MIPS.cp2[31].u, 1, "pre-sandbox EPCC unsealed incorrect")
+        self.assertRegisterEqual(self.MIPS.cp2[31].u, 0, "pre-sandbox EPCC unsealed incorrect")
 
     @attr('capabilities')
     def test_presandbox_epcc_perms(self):
@@ -108,6 +108,10 @@ class test_cp2_exception_epcc(BaseBERITestCase):
     @attr('capabilities')
     def test_presandbox_epcc_ctype(self):
         self.assertRegisterEqual(self.MIPS.cp2[31].ctype, 0x0, "pre-sandbox EPCC ctype incorrect")
+        
+    @attr('capabilities')
+    def test_presandbox_epcc_offset(self):
+        self.assertRegisterEqual(self.MIPS.cp2[31].offset, 0x0, "pre-sandbox EPCC offset incorrect")
 
     @attr('capabilities')
     def test_presandbox_epcc_base(self):
@@ -122,7 +126,7 @@ class test_cp2_exception_epcc(BaseBERITestCase):
     #
     @attr('capabilities')
     def test_sandbox_epcc_unsealed(self):
-        self.assertRegisterEqual(self.MIPS.cp2[3].u, 1, "sandbox EPCC unsealed incorrect")
+        self.assertRegisterEqual(self.MIPS.cp2[3].u, 0, "sandbox EPCC unsealed incorrect")
 
     @attr('capabilities')
     def test_sandbox_epcc_perms(self):
@@ -130,7 +134,11 @@ class test_cp2_exception_epcc(BaseBERITestCase):
 
     @attr('capabilities')
     def test_sandbox_epcc_ctype(self):
-        self.assertRegisterEqual(self.MIPS.cp2[3].ctype, 0x0, "sandbox EPCC ctype incorrect")
+        self.assertRegisterEqual(self.MIPS.cp2[3].ctype, 0, "sandbox EPCC ctype incorrect")
+        
+    @attr('capabilities')
+    def test_sandbox_epcc_offset(self):
+        self.assertRegisterEqual(self.MIPS.cp2[3].offset, 0x14, "sandbox EPCC offset incorrect")
 
     @attr('capabilities')
     def test_sandbox_epcc_base(self):

@@ -1,0 +1,3 @@
+set_global_assignment -library "DE4_SOC" -name VERILOG_FILE [file join $::quartus(qip_path) "i2c_touch_config.v"]
+set_global_assignment -library "DE4_SOC" -name SDC_FILE [file join $::quartus(qip_path) "tse_mac_user_constraints.sdc"]
+set_global_assignment -library "DE4_SOC" -name SDC_FILE [file join $::quartus(qip_path) "DE4_BERI.sdc"]

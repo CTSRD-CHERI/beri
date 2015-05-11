@@ -63,7 +63,9 @@ class BaseBERITestCase(unittest.TestCase):
         self.cached = bool(int(os.environ.get("CACHED", "0")))
         self.multi = bool(int(os.environ.get("MULTI1", "0")))
         if self.LOG_FN is None:
-            if self.multi:
+            if self.multi and self.cached:
+                self.LOG_FN = self.__name__ + "_cachedmulti.log"
+            elif self.multi:
                 self.LOG_FN = self.__name__ + "_multi.log"
             elif self.cached:
                 self.LOG_FN = self.__name__ + "_cached.log"
@@ -147,6 +149,36 @@ class BaseBERITestCase(unittest.TestCase):
             self.fail(msg + "0x%016x is outside of [0x%016x,0x%016x]"%(
                 reg_val, expected_min, expected_max))
 
+    def assertRegisterMaskEqual(self, first, mask, second, msg=None):
+        '''Convenience method which outputs the values of first and second if
+        they are not equal on the bits selected by the mask (preceded by msg,
+        if given)'''
+        if self.ALWAYS_FAIL:
+            first = 1
+            second = 2
+            mask = 0x3
+        if first & mask != second:
+            if msg is None:
+                msg = ""
+            else:
+                msg = msg + ": "
+            self.fail(msg + "0x%016x and 0x%016x != 0x%016x"%(first, mask, second))
+
+    def assertRegisterMaskNotEqual(self, first, mask, second, msg=None):
+        '''Convenience method which outputs the values of first and second if
+        they are equal on the bits selected by the mask (preceded by msg,
+        if given)'''
+        if self.ALWAYS_FAIL:
+            first = 1
+            second = 1
+            mask = 0x3
+        if first & mask == second:
+            if msg is None:
+                msg = ""
+            else:
+                msg = msg + ": "
+            self.fail(msg + "0x%016x and 0x%016x == 0x%016x"%(first, mask, second))
+
 class BaseICacheBERITestCase(BaseBERITestCase):
     '''Abstract base class for test cases for the BERI Instruction Cache.'''
 
@@ -164,7 +196,9 @@ class BaseICacheBERITestCase(BaseBERITestCase):
         self.cached = bool(int(os.environ.get("CACHED", "0")))
         self.multi = bool(int(os.environ.get("MULTI1", "0")))
         if self.LOG_FN is None:
-            if self.multi:
+            if self.multi and self.cached:
+                self.LOG_FN = self.__name__ + "_cachedmulti.log"
+            elif self.multi:
                 self.LOG_FN = self.__name__ + "_multi.log"
             elif self.cached:
                 self.LOG_FN = self.__name__ + "_cached.log"

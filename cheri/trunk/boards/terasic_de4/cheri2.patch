@@ -1,0 +1,146 @@
+diff --git a/cheri/trunk/boards/terasic_de4/DE4_SOC_template.qsys b/cheri/trunk/boards/terasic_de4/DE4_SOC_template.qsys
+index ed3d4b6..031b9d9 100644
+--- a/cheri/trunk/boards/terasic_de4/DE4_SOC_template.qsys
++++ b/cheri/trunk/boards/terasic_de4/DE4_SOC_template.qsys
+@@ -152,8 +152,8 @@
+    dir="end" />
+  <interface name="sd" internal="peripherals_0.sd" type="conduit" dir="end" />
+  <interface name="usb" internal="peripherals_0.usb" type="conduit" dir="end" />
+- <interface name="fan" internal="peripherals_0.fan" type="conduit" dir="end" />
+- <interface name="rs232" internal="peripherals_0.rs232" type="conduit" dir="end" />
++ <interface name="fan" internal="peripherals_0.fan" />
++ <interface name="rs232" internal="peripherals_0.rs232" />
+  <interface
+    name="mac_mac_mdio"
+    internal="peripherals_0.tse_mac_mac_mdio_connection"
+@@ -429,7 +429,7 @@
+   <parameter name="DEFAULT_FAST_SIM_MODEL" value="true" />
+   <parameter name="PLL_SHARING_MODE" value="None" />
+   <parameter name="NUM_PLL_SHARING_INTERFACES" value="1" />
+-  <parameter name="EXPORT_AFI_HALF_CLK" value="false" />
++  <parameter name="EXPORT_AFI_HALF_CLK" value="true" />
+   <parameter name="ABSTRACT_REAL_COMPARE_TEST" value="false" />
+   <parameter name="INCLUDE_BOARD_DELAY_MODEL" value="false" />
+   <parameter name="INCLUDE_MULTIRANK_BOARD_DELAY_MODEL" value="false" />
+@@ -534,7 +534,7 @@
+   <parameter name="AUTO_UNIQUE_ID">$${FILENAME}_debug_stream</parameter>
+   <parameter name="AUTO_DEVICE_FAMILY" value="Stratix IV" />
+   <parameter name="AUTO_DEVICE" value="EP4SGX230KF40C2" />
+-  <parameter name="AUTO_CLK_CLOCK_RATE" value="100000000" />
++  <parameter name="AUTO_CLK_CLOCK_RATE" value="50000000" />
+   <parameter name="AUTO_CLK_CLOCK_DOMAIN" value="7" />
+   <parameter name="AUTO_CLK_RESET_DOMAIN" value="7" />
+  </module>
+@@ -550,12 +550,12 @@
+   <parameter name="AUTO_DEVICE_FAMILY" value="Stratix IV" />
+   <parameter name="AUTO_DEVICE" value="EP4SGX230KF40C2" />
+   <parameter name="AUTO_CLK_50_CLOCK_RATE" value="50000000" />
+-  <parameter name="AUTO_CLK_50_CLOCK_DOMAIN" value="3" />
+-  <parameter name="AUTO_CLK_50_RESET_DOMAIN" value="3" />
++  <parameter name="AUTO_CLK_50_CLOCK_DOMAIN" value="7" />
++  <parameter name="AUTO_CLK_50_RESET_DOMAIN" value="7" />
+   <parameter name="AUTO_CLK_27_CLOCK_RATE" value="27000000" />
+   <parameter name="AUTO_CLK_27_CLOCK_DOMAIN" value="2" />
+   <parameter name="AUTO_CLK_27_RESET_DOMAIN" value="2" />
+-  <parameter name="AUTO_CLK_100_CLOCK_RATE" value="100000000" />
++  <parameter name="AUTO_CLK_100_CLOCK_RATE" value="50000000" />
+   <parameter name="AUTO_CLK_100_CLOCK_DOMAIN" value="7" />
+   <parameter name="AUTO_CLK_100_RESET_DOMAIN" value="7" />
+   <parameter name="AUTO_CLK_125_CLOCK_RATE" value="125000000" />
+@@ -575,11 +575,11 @@
+   <parameter name="AUTO_DEVICE_FAMILY" value="Stratix IV" />
+   <parameter name="AUTO_DEVICE" value="EP4SGX230KF40C2" />
+  </module>
+- <module kind="BERI" version="1.0" enabled="1" name="CPU">
++ <module name="CPU" kind="BERI" version="1.0" enabled="1">
+   <parameter name="AUTO_CLOCK_CLOCK_RATE" value="100000000" />
+  </module>
+  <module kind="altera_clock_bridge" version="13.1" enabled="1" name="sysclk">
+-  <parameter name="DERIVED_CLOCK_RATE" value="100000000" />
++  <parameter name="DERIVED_CLOCK_RATE" value="50000000" />
+   <parameter name="EXPLICIT_CLOCK_RATE" value="0" />
+   <parameter name="NUM_CLOCK_OUTPUTS" value="1" />
+  </module>
+@@ -600,11 +600,6 @@
+    start="clk_50.clk_reset"
+    end="debug_stream.reset" />
+  <connection
+-   kind="clock"
+-   version="13.1"
+-   start="clk_50.clk"
+-   end="peripherals_0.clk_50" />
+- <connection
+    kind="reset"
+    version="13.1"
+    start="clk_50.clk_reset"
+@@ -634,11 +629,6 @@
+   <parameter name="defaultConnection" value="false" />
+  </connection>
+  <connection
+-   kind="clock"
+-   version="13.1"
+-   start="ddr2.afi_clk"
+-   end="jtag_to_dram.clk" />
+- <connection
+    kind="reset"
+    version="13.1"
+    start="clk_50.clk_reset"
+@@ -774,17 +764,6 @@
+   <parameter name="baseAddress" value="0x0000" />
+   <parameter name="defaultConnection" value="false" />
+  </connection>
+- <connection kind="clock" version="13.1" start="ddr2.afi_clk" end="CPU.clock" />
+- <connection
+-   kind="clock"
+-   version="13.1"
+-   start="ddr2.afi_clk"
+-   end="peripherals_0.clk_100" />
+- <connection
+-   kind="clock"
+-   version="13.1"
+-   start="ddr2.afi_clk"
+-   end="debug_stream.clk" />
+  <connection
+    kind="clock"
+    version="13.1"
+@@ -805,7 +784,6 @@
+    version="13.1"
+    start="CPU.reset_n_out"
+    end="CPU.reset_n_in" />
+- <connection kind="clock" version="13.1" start="ddr2.afi_clk" end="sysclk.in_clk" />
+  <connection
+    kind="avalon"
+    version="13.1"
+@@ -815,6 +793,32 @@
+   <parameter name="baseAddress" value="0x40000000" />
+   <parameter name="defaultConnection" value="false" />
+  </connection>
++ <connection
++   kind="clock"
++   version="13.1"
++   start="ddr2.afi_half_clk"
++   end="sysclk.in_clk" />
++ <connection kind="clock" version="13.1" start="ddr2.afi_half_clk" end="CPU.clock" />
++ <connection
++   kind="clock"
++   version="13.1"
++   start="ddr2.afi_half_clk"
++   end="peripherals_0.clk_100" />
++ <connection
++   kind="clock"
++   version="13.1"
++   start="ddr2.afi_half_clk"
++   end="jtag_to_dram.clk" />
++ <connection
++   kind="clock"
++   version="13.1"
++   start="ddr2.afi_half_clk"
++   end="debug_stream.clk" />
++ <connection
++   kind="clock"
++   version="13.1"
++   start="ddr2.afi_half_clk"
++   end="peripherals_0.clk_50" />
+  <interconnectRequirement for="$system" name="qsys_mm.clockCrossingAdapter" value="AUTO" />
+  <interconnectRequirement for="$system" name="qsys_mm.maxAdditionalLatency" value="2" />
+ </system>

@@ -2,10 +2,11 @@
  * Copyright (c) 2011-2012 Robert N. M. Watson
  * Copyright (c) 2011-2013 Jonathan Woodruff
  * Copyright (c) 2012-2013 SRI International
- * Copyright (c) 2012-2013 Robert Nortion
+ * Copyright (c) 2012-2013 Robert Norton
  * Copyright (c) 2012-2014 Bjoern A. Zeeb
  * Copyright (c) 2013 David T. Chisnall
  * Copyright (c) 2013 Colin Rothwell
+ * Copyright (c) 2015 A. Theodore Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -78,13 +79,13 @@ usage(void)
 #else
 	fprintf(stderr, "cherictl [-qw] [-a addr] [-p path_to_socket|port] "
 #endif
-	    "[-c cable] [-r regnum] [-v value]\n"
+	    "[-c cable] [-D JTAG device#] [-r regnum] [-v value]\n"
 	    "    [-f filename] command\n"
 	    "\tbreakpoint\tset breakpoint at adddr (-w to wait on it)\n"
 	    "\tboot\ttell miniboot to proceed to the next kernel/loader\n"
 	    "\tcleanup\tclean up external processes and files\n"
 	    "\tc0regs\tlist CP0 registers\n"
-	    "\tc2regs*\tlist capability registers\n"
+	    "\tc2regs\tlist capability registers\n"
 	    "\tconsole\tconnect to BERI PISM UART at filename\n"
 	    "\tdrain\tdrain debug socket\n"
 	    "\tdumpatse\tdump all atse(4) MAC control registers in one go\n"
@@ -115,14 +116,13 @@ usage(void)
 	    "\tunpipeline\tresume execution unpipelined\n"
 	    "\tmemtrace\ttrace the execution of some number of instructions\n");
 	printf("\n");
-	printf("\t* has side effects on software execution\n");
 	exit(EXIT_FAILURE);
 }
 
 int
 main(int argc, char *argv[])
 {
-	const char *addrp, *cablep, *filep, *pathp, *real_filep, *regnump, *valuep;
+	const char *addrp, *cablep, *devicep, *filep, *pathp, *real_filep, *regnump, *valuep;
 	int opt, ret, waitflag, zflag, binary;
 	uint32_t oflags;
 
@@ -131,6 +131,7 @@ main(int argc, char *argv[])
 	addrp = NULL;
 	binary = 0;
 	cablep = NULL;
+	devicep = NULL;
 	filep = NULL;
 	pathp = NULL;
 	regnump = NULL;
@@ -152,7 +153,7 @@ main(int argc, char *argv[])
 "\n"
 	);
 
-	while ((opt = getopt(argc, argv, "2a:bc:f:Nnp:r:v:qwz")) != -1) {
+	while ((opt = getopt(argc, argv, "2a:bc:D:f:Nnp:r:v:qwz")) != -1) {
 		switch (opt) {
 		case '2':
 			oflags |= BERI_DEBUG_CLIENT_OPEN_FLAGS_BERI2;
@@ -167,6 +168,10 @@ main(int argc, char *argv[])
 
 		case 'c':
 			cablep = optarg;
+			break;
+
+		case 'D':
+			devicep = optarg;
 			break;
 
 		case 'f':
@@ -188,6 +193,10 @@ main(int argc, char *argv[])
 		case 'p':
 			pathp = optarg;
 			break;
+
+        case 'P':
+            oflags |= BERI_DEBUG_CLIENT_OPEN_FLAGS_PCIEXPRESS;
+            break;
 
 		case 'q':
 			quietflag++;
@@ -233,9 +242,9 @@ main(int argc, char *argv[])
 	if (strcmp(argv[0], "cleanup") == 0)
 		ret = beri_debug_cleanup();
 	else if (strcmp(argv[0], "console") == 0)
-		ret = berictl_console(NULL, filep, cablep);
+		ret = berictl_console(NULL, filep, cablep, devicep);
 	else if (strcmp(argv[0], "loadsof") == 0)
-		ret = berictl_loadsof(filep, cablep);
+		ret = berictl_loadsof(filep, cablep, devicep);
 	else {
 		if (pathp != NULL)
 			ret = beri_debug_client_open_path(&bdp, pathp, oflags);
@@ -246,7 +255,7 @@ main(int argc, char *argv[])
 				ret = beri_debug_client_open_sc(&bdp, oflags);
 			else
 				ret = beri_debug_client_open_nios(&bdp,
-				    cablep, oflags);
+				    cablep, devicep, 0, oflags);
 		}
 		atexit(close_bdp);
 		if (ret != BERI_DEBUG_SUCCESS) {
@@ -268,7 +277,7 @@ main(int argc, char *argv[])
 		else if (strcmp(argv[0], "dumpfifo") == 0)
 			ret = berictl_dumpfifo(bdp, addrp);
 		else if (strcmp(argv[0], "dumppic") == 0)
-			ret = berictl_dumppic(bdp);
+			ret = berictl_dumppic(bdp, 0);
 		else if (strcmp(argv[0], "loadbin") == 0)
 			ret = berictl_loadbin(bdp, addrp, filep);
 		else if (strcmp(argv[0], "loaddram") == 0)
@@ -310,10 +319,12 @@ main(int argc, char *argv[])
 		else if (strcmp(argv[0], "streamtrace") == 0) {
 			int streamTimes = 4;
 			if (waitflag) streamTimes = 256;
-			ret = berictl_stream_trace(bdp, streamTimes, binary);
+			ret = berictl_stream_trace(bdp, streamTimes, binary, 0);
 		}
 		else if (strcmp(argv[0], "settracefilter") == 0)
 			ret = berictl_set_trace_filter(bdp);
+		else if (strcmp(argv[0], "breakontracefilter") == 0)
+		  beri_break_on_trace_filter(bdp);
 		else if (strcmp(argv[0], "test") == 0) {
 			berictl_pause(bdp);
 			char test_base[20] = "0000000040000000";

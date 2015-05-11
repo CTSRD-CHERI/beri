@@ -40,9 +40,9 @@ class test_raw_fpu_mul_inf_single(BaseBERITestCase):
 
     def test_raw_fpu_mul_inf_single_2(self):
         '''Test mul.s of +Infinity and 0.0'''
-        self.assertRegisterEqual(self.MIPS.a1 & 0xff800000, 0x7f800000, "mul.s of +infinity and 0.0 did not give NaN")
+        self.assertRegisterMaskEqual(self.MIPS.a1, 0xff800000, 0x7f800000, "mul.s of +infinity and 0.0 did not give NaN")
 
     def test_raw_fpu_mul_inf_single_3(self):
         '''Test mul.s of +Infinity and 0.0'''
-        self.assertRegisterNotEqual(self.MIPS.a1 & 0x7fffff, 0, "mul.s of +infinity and 0.0 did not give NaN")
+        self.assertRegisterMaskNotEqual(self.MIPS.a1, 0x7fffff, 0, "mul.s of +infinity and 0.0 did not give NaN")
 

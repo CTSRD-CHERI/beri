@@ -37,6 +37,9 @@ int main(int argc, char *argv[])
 
 	CuSuite *suite = CuSuiteNew();
 	CuSuiteAddSuite(suite, SystemConsoleParsingSuite());
+#ifdef JTAG_ATLANTIC
+	CuSuiteAddSuite(suite, JTAGAtlanticSuite());
+#endif
 
 	/* Run the test suite with stderr redirected into memory. */
 	FILE *trueStderr = stderr;

@@ -1,0 +1,9 @@
+greybox_tmp/
+reconfig_megafunction_pll_bb.v
+reconfig_megafunction_pll_reconfig_bb.v
+reconfig_megafunction_pll_reconfig.v
+reconfig_megafunction_pll.v
+
+reconfig_megafunction_pll.qip
+reconfig_megafunction_pll_reconfig.qip
+reconfig_megafunction_pll.mif

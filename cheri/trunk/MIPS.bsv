@@ -7,7 +7,7 @@
  * Copyright (c) 2013 Robert M. Norton
  * Copyright (c) 2013 Robert N. M. Watson
  * Copyright (c) 2013 Simon W. Moore
- * Copyright (c) 2013, 2014 Alexandre Joannou
+ * Copyright (c) 2013, 2014, 2015 Alexandre Joannou
  * Copyright (c) 2013, 2014 Colin Rothwell
  * All rights reserved.
  *
@@ -38,6 +38,12 @@
  * @BERI_LICENSE_HEADER_END@
  */
 
+`ifdef CAP
+  `define USECAP 1
+`elsif CAP128
+  `define USECAP 1
+`endif
+ 
 import MemTypes :: *;
 import ClientServer :: *;
 import MasterSlave :: *;
@@ -51,7 +57,7 @@ typedef Bit#(64) MIPSReg; // A MIPS register, 64-bit for this processor
 typedef Bit#(64) Address; // A virtual address
 typedef Bit#(40) PhyAddress; // A physical address, 40 bits in standard 64-bit MIPS
 typedef Bit#(64) Word; // A memory word
-typedef Bit#(256) Line; // A memory line, 256 bits in this design
+typedef Bit#(CheriDataWidth) Line; // A full memory bus flit.
 typedef UInt#(4)  InstId; // 16 possible instruction IDs, hopefully more than can fit in the pipeline at a time to avoid duplicates
 typedef UInt#(3)  Epoch; // An epoch identifier. 8 possible values avoids potential wrap around, though 4 should be enough.
 
@@ -60,8 +66,8 @@ typedef union tagged{
   Bit#(16)  HalfWord;
   Bit#(32)  Word;
   Bit#(64)  DoubleWord;
-  Bit#(256) Line;
-  Bit#(256) CapLine;
+  Bit#(CheriDataWidth) Line;
+  Bit#(CheriDataWidth) CapLine;
 } SizedWord deriving(Bits, Eq, FShow);
 
 typedef enum {RegFile, ControlToken, Debug, None, CoPro0, CoPro1, CoPro2} FetchSrc deriving(Bits, Eq, FShow);
@@ -135,7 +141,7 @@ typedef struct {
   Bool      signExtendMem; // Sign extend the result of a memory load.
   Bool      link; // Writeback the PC+8 to a register.  Used for jump and link instructions to store the return address. 
   CacheOperation   cop; // The cache operation to perform and which cache to perform it on.  Usually a nop.
-  `ifdef CAP
+  `ifdef USECAP
     CapOp     capOp; // Capability operation to perform (if the capabiltiy unit is included)
   `endif
   Bool      fromDebug;  // Whether this instruction is from debug or not.
@@ -181,7 +187,7 @@ typedef struct {
       pcUpdate: 4,
       writePC: True,
       cop: CacheOperation{inst: CacheNop, cache: None, indexed: True},
-      `ifdef CAP
+      `ifdef USECAP
         capOp: None,
       `endif
       link: False,
@@ -243,7 +249,7 @@ typedef enum {  Add, Sub, Or, Xor,
             SLL, SRA, SRL, MovC, 
             Mul, Div, MulI, Madd, Msub,
             THi, TLo, FHi, FLo, 
-            MOVZ, MOVN, Cop1, Cap, Cop3, Nop
+            MOVZ, MOVN, Cop1, Cap, Nop
 } AluOp deriving(Bits, Eq, FShow);
 
 // Test operation, including not only arithmetic tests but also load linked and store conditional.
@@ -282,7 +288,7 @@ typedef enum {RegFile, CoPro0, CoPro2, HiLo, None} WriteBack deriving(Bits, Eq, 
 // The status of a branch operation.  If it remains to be tested, it is tagged with the appropriate condition,
 // but if the branch has been evaluated already, we set to DoneTaken or DoneNotTaken as appropriate.  Also
 // this can be "True" (do the branch unconditionally) or "False", this is not a branch.
-typedef enum {EQ, GEZ, GTZ, LEZ, LTZ, NE, DoneTaken, DoneNotTaken, `ifdef CAP CapTag, `endif Always, Never} Branch deriving(Bits, Eq, FShow);
+typedef enum {EQ, GEZ, GTZ, LEZ, LTZ, NE, DoneTaken, DoneNotTaken, `ifdef USECAP CapTag, `endif Always, Never} Branch deriving(Bits, Eq, FShow);
 
 // Values of the standard MIPS opcode field.  See the MIPS spec for details.
 typedef enum {
@@ -611,9 +617,9 @@ typedef enum {
 // Opcodes for the capability memory protection coprocessor instructions, found in bits 25:21 of a COP2 instruction.
 typedef enum {
   MFC      = 5'h00,  // Move From Capability Register Field
-  CSealCode    = 5'h01,   // Seal an executable capability
-  CSealData    = 5'h02,  // Seal a non-executable capability
-  CUnseal   = 5'h03, // Create a Data Capability from a sealed Capability
+  None01   = 5'h01,
+  CSeal    = 5'h02,  // Seal a capability
+  CUnseal  = 5'h03,  // Create a Data Capability from a sealed Capability
   MTC      = 5'h04,  // Move to Capability Register Field
   CCall    = 5'h05,  // Protected Procedure Call to cross a protection boundry. (unimplemented so far)
   CReturn  = 5'h06,  // Return to previous protection domain.
@@ -623,8 +629,8 @@ typedef enum {
   CBTS     = 5'h0a,
   Check    = 5'h0b,
   CRelBase = 5'h0c,
-  None0d   = 5'h0d,
-  None0e   = 5'h0e,
+  COffset  = 5'h0d,
+  CCompare = 5'h0e,
   None0f   = 5'h0f,
   None10   = 5'h10,
   None11   = 5'h11,
@@ -643,6 +649,16 @@ typedef enum {
   None1e   = 5'h1e,
   None1f   = 5'h1f
 } CapOpCode deriving(Bits, Eq, FShow);
+
+// Values in the select field for offset ops
+typedef enum {
+  CIncOffset = 3'h0,
+  CSetOffset = 3'h1,
+  CGetOffset = 3'h2,
+  CIncBase2  = 3'h3,
+  Unused     = 3'h4 // <- Make sure Bluespec derives this as a 3-bit value
+} OffsetOpCode deriving(Bits, Eq, FShow);
+
 
 // the CapOp type is used internally as an operation code for the capability memory protection unit.
 typedef enum {
@@ -675,15 +691,23 @@ typedef enum {
   SCD,            // Store conditional double
   JR,             // Jump capability register
   JALR,           // Jump and link capability register
-  SealCode,       // Seal an executable capability
-  SealData,       // Seal a non-executable capability
+  Seal,           // Seal a capability
   Unseal,         // Unseal a capability given possession of an unsealed executable one of the same type
   Call,           // Capability protected procedure call
   Return,         // Capability protected procedure return
   //Exception,      // 
   ERET,           // An ERET, return the entry point 
   JumpRegister,   // Perform a target offset reletive to PCC for a general purpose jump register operation
-  
+  IncOffset,      // Increment the offset value (no bounds checking)
+  SetOffset,      // Set the offset value
+  GetOffset,      // Move the offset value to an integer register
+  IncBase2,       // Increment the base *without* moving the offset.  
+  CmpEQ,          // Compare two capabilities are equal
+  CmpNE,          // Compare two capabilities are not equal
+  CmpLT,          // Compare one capability is less than another
+  CmpLE,          // Compare one capability is less than or equal to another
+  CmpLTU,         // Compare one capability is less than another unsigned
+  CmpLEU,         // Compare one capability is less than or equal to another unsigned
   ReportRegs      // Debug register report, only valid simulation.
 } CapOp deriving(Bits, Eq, FShow);
 
@@ -700,7 +724,7 @@ typedef enum {
   Return   = 8'h06, // Use of a Return instruction (if hardware implementation is not present)
   None08   = 8'h07, 
   CkPerms  = 8'h08,  
-  None09   = 8'h09,  
+  Ctlbs    = 8'h09, // Attempt to store a capability in a page that does not allow capabilities to be stored.
   None0a   = 8'h0a,
   None0b   = 8'h0b,
   None0c   = 8'h0c,
@@ -768,7 +792,11 @@ Integer assosTLBSize = valueOf(AssosTLBSize);
 Integer logAssosTLBSize = valueOf(LogAssosTLBSize);
 
 // These lines setup the number of interfaces in the TLB.
-typedef 3 NumTLBLookups; // Total number of TLB lookups
+`ifdef DMA_VIRT
+    typedef 5 NumTLBLookups; // Virtual DMA needs i and d TLB interfaces.
+`else
+    typedef 3 NumTLBLookups; // Total number of TLB lookups
+`endif
 
 // The TLBEntry type is a complete TLB record and includes flags for the interfaces in which it is used.
 // The TLBEntry type is used for both TLB writes and TLB reads.
@@ -811,7 +839,7 @@ typedef struct {
   Bool        fromDebug;  // Whether this instruction is from the debug unit
   Privilege   priv;       // The privilege level of this instruction, ie user, kernel, or supervisor
   InstId      instId;     // The id of the instruction that made this memory request.
-  `ifdef CAP
+  `ifdef USECAP
     Bool      noCapLoad;    // Allow capability load.
     Bool      noCapStore;   // Allow capability store.
   `endif
@@ -895,7 +923,7 @@ typedef struct {
   bit[5:0] z02;  // 0s
   bit[7:0] ipDummy;    // Pending interrupts corrosponding to the enabled interrupts in SR(intMask).
   Bool     z03;  // 0
-  ExpCode  excCode; // Which exception happened.
+  ExpCode  excCode; // Which exception happened, 5 bits.
   bit[1:0] z04;  // 0s
 } CauseRegister deriving(Bits, Eq, FShow); // 32 bits
 
@@ -914,7 +942,6 @@ typedef enum {
   DTLBLI, // Data TLB load is invalid, but present in the table.
   DTLBSI, // Data TLB store is invalid, but present in the table.
   CTLBS,  // Storing a capability in a TLB entry that does not allow it.
-  CTLBL,  // Loading a capability from a TLB entry that does not allow it. 
   IADEL,  // Instruction Load error
   DADEL,  // Data Load error
   DADES,  // Data Store error.  These could be attempting to access above kuseg or attempting a mis-aligned access.
@@ -957,8 +984,6 @@ typedef enum {
   Ov        = 5'd12,// Overflow from trapping arithmetic instructions (e.g. add, but not addu).
   TRAP      = 5'd13,// Condition met on a conditional trap instruction.
   FPE       = 5'd15,// Floating point exception.
-  CTLBL     = 5'd16,// Capability TLB Load Exception
-  CTLBS     = 5'd17,// Capability TLB Store Exception
   C2E       = 5'd18,// Exception from coprocessor 2, an extension to the instruction set.
   MDMX      = 5'd22,// Tried to run an MDMX instruction but SR(dspOrMdmx) is not enabled.
   Watch     = 5'd23,// Physical address of load and store matched WatchLo/WatchHi registers.
@@ -982,8 +1007,7 @@ function ExpCode getExceptionCode(Exception exc);
     DTLBS:    ret = TLBS;
     DTLBLI:   ret = TLBL;
     DTLBSI:   ret = TLBS;
-    CTLBL:    ret = CTLBL;
-    CTLBS:    ret = CTLBS;
+    CTLBS:    ret = C2E;
     IADEL:    ret = ADEL;
     DADEL:    ret = ADEL;
     DADES:    ret = ADES;
@@ -1154,11 +1178,11 @@ typedef struct {
 // The TlbEntryLo type describes the format of the EntryLo 0 & 1 CP0 register in MIPS, and also the two low records
 // of each TLB entry
 typedef struct { 
-  `ifdef CAP
+  `ifdef USECAP
     Bool    noCapStore; // Allow storing capabilities
     Bool    noCapLoad;  // Allow loading capabilities
   `endif
-  Bit#(28)  zeros;
+  //Bit#(28)  zeros;
   Bit#(28)  pfn;  // Physical address of the page.
   CacheCA   c;    // Cache algorithm or cache coherency attribute for multi-processor systems.
   Bool      d;    // Dirty - True if writes are allowed.  Writes will cause exception otherwise.
@@ -1212,6 +1236,10 @@ interface CP0Ifc;
   method Bool                               shouldTrace();
   interface Server#(TlbRequest, TlbResponse) tlbLookupInstruction; // Initiate an instruction TLB lookup
   interface Server#(TlbRequest, TlbResponse) tlbLookupData;        // Initiate a data TLB lookup
+  `ifdef DMA_VIRT
+      interface Vector#(2, Server#(TlbRequest, TlbResponse)) tlbs; // For the DMA
+  `endif
+
 endinterface
 
 // The CoProIfc interface is a generic interface for coprocessors.
@@ -1408,7 +1436,7 @@ function Action displayControlToken(ControlTokenT c);
     $write("64-bit: %X, ", pack(c.sixtyFourBitOp));
     $write("Signed Op: %X, ", pack(c.signedOp));  
     $display("Destination Register: %X", c.dest);
-    if (c.exception != None) $display("!!! There was an Exception!!! Type: %X", pack(c.exception));
+    if (c.exception != None) $display("!!! There was an Exception!!! Type: ", fshow(c.exception));
     $write("Memory operation: %s, ", memOpString(c.mem));
     $write("Store data: %X, ", c.storeData);
     $write("Memory size: %s, ", memSizeString(c.memSize));
@@ -1475,7 +1503,7 @@ function Action displayTrace(ControlTokenT c, MIPSReg writeResult, UInt#(48) ins
               default: $write("Address %x <- %x, from Reg %d", c.opA, storeDouble, ii.rt);
             endcase
             
-          `ifdef CAP
+          `ifdef USECAP
             else if (c.inst matches tagged Coprocessor .ci)
                $write("Address %x <- %x, from Reg %d", c.opA, c.storeData, ci.r1);
           `endif
@@ -1539,7 +1567,7 @@ function Action displayTrace(ControlTokenT c, MIPSReg writeResult, UInt#(48) ins
               default: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeDouble, ii.rt);
             endcase
             
-          `ifdef CAP
+          `ifdef USECAP
             else if (c.inst matches tagged Coprocessor .ci)
                $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, c.storeData, ci.r1);
           `endif
@@ -1595,13 +1623,7 @@ interface WritebackIfc;
   method ActionValue#(Bool) nextWillCommit();
 endinterface
 
-`ifndef GENERICL1
 interface CacheInstIfc;
-`else
-interface CacheInstIfc#(numeric type nb_ways,
-                        numeric type sets_per_way,
-                        numeric type bytes_per_line);
-`endif
   method Action put(CacheRequestInstT reqIn);
   method ActionValue#(CacheResponseInstT) getRead();
   method Action invalidate(PhyAddress addr);
@@ -1611,13 +1633,7 @@ interface CacheInstIfc#(numeric type nb_ways,
   interface Master#(CheriMemRequest, CheriMemResponse) memory;
 endinterface: CacheInstIfc
 
-`ifndef GENERICL1
 interface CacheDataIfc;
-`else
-interface CacheDataIfc#(numeric type nb_ways,
-                        numeric type sets_per_way,
-                        numeric type bytes_per_line);
-`endif
   method Action put(CacheRequestDataT reqIn);
   `ifdef MULTI
     method Action putStoreConditional(CacheRequestDataT reqIn);
@@ -1633,20 +1649,22 @@ endinterface: CacheDataIfc
 
 typedef struct {
   CacheOperation cop;
-  Bit#(32) byteEnable;
+  Bit#(TDiv#(data_width,8)) byteEnable;
   MemSize memSize;
   Line        data;
-  `ifdef CAP
+  `ifdef USECAP
     Bool              capability;
   `endif
   InstId      instId;
   Epoch       epoch;
   TlbResponse tr;
-} CacheRequestDataT deriving (Bits, Eq, FShow);
+} CacheRequestDataTGeneric#(numeric type data_width) deriving (Bits, Eq, FShow);
+
+typedef CacheRequestDataTGeneric#(CheriDataWidth) CacheRequestDataT;
 
 typedef struct {
   Exception   exception;
-  `ifdef CAP
+  `ifdef USECAP
     Bool        capability;
   `endif
   SizedWord     data;
@@ -1672,6 +1690,21 @@ function InstructionT classifyMIPSInstruction(Bit#(32) instBits);
   return inst;
 endfunction
 
+function BytesPerFlit memSizeTobpf(MemSize m);
+  return case (m) matches
+    Byte: BYTE_1;
+    HalfWord: BYTE_2;
+    Word:      BYTE_4;
+    WordLeft:  BYTE_4;
+    WordRight: BYTE_4;
+    DoubleWord:      BYTE_8;
+    DoubleWordLeft:  BYTE_8;
+    DoubleWordRight: BYTE_8; 
+    //: BYTE_16;
+    Line: cheriBusBytes;
+  endcase;
+endfunction
+
 function Action debug(Action a);
   action 
     `ifdef BLUESIM
@@ -1687,6 +1720,16 @@ function Action trace(Action a);
     `ifdef BLUESIM
       Bool traceB <- $test$plusargs("trace");
       if (traceB)
+        a;
+    `endif
+  endaction
+endfunction
+
+function Action cachedump(Action a); 
+  action
+    `ifdef BLUESIM
+      Bool cachedumpB <- $test$plusargs("cachedump");
+      if (cachedumpB)
         a;
     `endif
   endaction

@@ -47,7 +47,11 @@
  */
 
 #include <assert.h>
+#if defined(__linux__)
 #include <endian.h>
+#elif (__FreeBSD__)
+#include <sys/endian.h>
+#endif
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>

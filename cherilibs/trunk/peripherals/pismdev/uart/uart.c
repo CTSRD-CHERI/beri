@@ -36,6 +36,11 @@
 
 #include <assert.h>
 #include <err.h>
+#if defined(__linux__)
+#include <endian.h>
+#elif (__FreeBSD__)
+#include <sys/endian.h>
+#endif
 #include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>

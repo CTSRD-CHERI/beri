@@ -1,6 +1,6 @@
 #-
 # Copyright (c) 2011 Robert N. M. Watson
-# Copyright (c) 2012 David Chisnall
+# Copyright (c) 2012 David T. Chisnall
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -154,21 +154,90 @@ all_threads:
 		nop
 
 skip_cp2_dump:
-		# Load the exception count into k0 so that it is visible in register dump
-		ld      $k0, exception_count
 		
 		#
+		# On multithreaded/multicore, only core/thread 0 halts 
+		# the simulation.
+		#
+		# We do this check (which alters $k1) before we dump registers,
+		# because we want the final register values to be the same
+		# in both gxemul and BERI/CHERI.
+		#
+		# gxemul does not support the BERI-specific CoreId and
+		# ThreadId registers, so we also check PrId.
+		#
+
+		mfc0 $k0, $15		# PrId
+		andi $k0, $k0, 0xff00
+		xori $k0, $k0, 0x8900
+		beqz $k0, dump_core0
+		nop
+
+		mfc0 $k0, $15, 6	# CoreId
+		andi $k0, $k0, 0xffff
+		bnez $k0, dump_not_core0
+		nop
+
+		mfc0 $k0, $15, 7	# ThreadId
+		andi $k0, $k0, 0xffff
+		bnez $k0, dump_not_thread0
+		nop
+
+dump_core0:
+		#
+		# Load the exception count into k0 so that it is visible 
+		# in register dump
+		#
+
+		ld      $k0, exception_count
+
+		#
 		# Dump registers on the simulator (gxemul dumps regs on exit)
+		#
+		# We want the final register values to be the same in both
+		# gxemul and BERI -- particularly for fuzz tests -- so
+		# all modifications to registers should happen before this
+		# point.
 		#
 
 		mtc0 $at, $26
 		nop
 		nop
 
+		#
 		# Terminate the simulator
+		#
+
 		mtc0 $at, $23
 end:
 		b end
+		nop
+
+
+dump_not_thread0:
+dump_not_core0:
+
+		ld $k0, exception_count
+
+		#
+		# Dump registers even though core/thread not zero, so we
+		# can see all cores in the trace.
+		#
+
+		mtc0 $at, $26
+		nop
+		nop
+
+		#
+		# On a multicore or multithreaded CPU, loop until core0
+		# finishes its work and kills the simulation. Other cores
+		# might reach this point before core0 finishes, and we want
+		# core0 to get to the point where it dumps its registers to
+		# the trace.
+		#
+
+end_not_core0:
+		b end_not_core0
 		nop
 		.end start
 
@@ -252,6 +321,7 @@ other_threads_go:
 
 	        .data
 		.align 3
+.globl exception_count
 exception_count:
 		.dword	0x0
 reset_barrier:

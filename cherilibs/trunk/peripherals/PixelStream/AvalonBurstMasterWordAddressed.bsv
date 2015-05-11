@@ -57,7 +57,7 @@ import ConfigReg::*;
 
 // Type for avalon bus data
 typedef UInt#(256) AvalonBurstWordT;
-typedef 8 DDR2_Max_Burst_Length;
+typedef 4 DDR2_Max_Burst_Length;
 typedef UInt#(TAdd#(TLog#(DDR2_Max_Burst_Length), 1)) BurstLength;
 typedef 2 RequestBufferSize; // was 32 which seemed to be huge!
 typedef TMul#(TAdd#(RequestBufferSize,1), DDR2_Max_Burst_Length) ResponseBufferSize;

@@ -69,7 +69,7 @@ test:		.ent test
 
                 # Calculate offset of cap1 from data
                 dla     $a4, cap1
-                sub     $t0, $a4, $t1
+                dsub    $t0, $a4, $t1
         
 		# Store $c1 to an unaligned address (cap1)
 		cscr    $c1, $t0($c1) # This should raise an exception

@@ -52,6 +52,12 @@ import CP0::*;
   import CoProFPInst::*;
 `endif
 
+`ifdef CAP
+  `define USECAP 1
+`elsif CAP128
+  `define USECAP 1
+`endif
+
 // This is the file for the mkDecode unit, though much of its logic is in functions
 // here at the top.  This module fills in the flags in the control token (ControlTokenT
 // type) given the instruction from the Scheduler stage to setup for a very simple
@@ -343,19 +349,19 @@ module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
                 di.alu = Add;
                 di.opB = signExtend(ii.imm);
                 di.sixtyFourBitOp = True;
-                di.cop.inst = (case (ii.rt[4:2]) // Which cache operation?
+                di.cop.inst = (case (ii.rt[4:2])            // Which cache operation?
                         0: return CacheInvalidateWriteback; // Invalidate index in the cache.
-                        1: return CacheNop;        // Load tag is unsupported
-                        2: return CacheNop;        // Store tag is unsupported
-                        3: return CacheNop;        // Not defined.
-                        4: return CacheInvalidate; // Invalidate on a match.  We just invalidate anyway.
+                        1: return CacheLoadTag;             // Load tag 
+                        2: return CacheNop;                 // Store tag is unsupported
+                        3: return CacheNop;                 // Not defined.
+                        4: return CacheInvalidate;          // Invalidate on a match.  We just invalidate anyway.
                         5: return CacheInvalidateWriteback; // Writeback and invalidate.
-                        6: return CacheWriteback;        // Just writeback.
-                        7: return CacheNop;        // Fetch and Lock.  Not implemented.
+                        6: return CacheWriteback;           // Just writeback.
+                        7: return CacheNop;                 // Fetch and Lock.  Not implemented.
                     endcase);
                 di.cop.indexed = (case (ii.rt[4:2]) // Is address index or virtual address?
                         0: return True;        // Invalidate index in the cache.
-                        1: return True;        // Load tag is unsupported
+                        1: return True;        // Load tag 
                         2: return True;        // Store tag is unsupported
                         3: return True;        // Not defined.
                         4: return False;       // Invalidate on a match.  We just invalidate anyway.
@@ -380,6 +386,7 @@ module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
                     di.mem = DCacheOp;
                   end
                 endcase
+                debug($display("Decode: Cache Operation ii.rt=%x, cache=%x, inst=%x", ii.rt[1:0], di.cop.cache, di.cop.inst));
               end else begin
                 if (di.exception == None) di.exception = CP0;
               end
@@ -418,9 +425,9 @@ module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
                     //1: synci_step not implemented yet.
                     2: begin
                       if (!hwrena.cc && !privileged) di.exception = RI;
-                      di.sixtyFourBitOp = True;
                       di.opA = rc;
                       di.alu = Nop;
+                      di.sixtyFourBitOp = False;
                     end
                     3: begin
                       if (!hwrena.ccres && !privileged) di.exception = RI;
@@ -497,17 +504,22 @@ module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
                 if (!coProAvailable && di.exception==None) di.exception = CP3;
               end
             `endif
-            `ifdef CAP
+            `ifdef USECAP
               COP2,LWC2,LDC2,SWC2,SDC2: begin
                 if (!cpEn.cu2 && !i.fromDebug && di.exception==None) di.exception = CP2;
-                // The capability unit will return 1 or 0, depending on whether
-                // we should take the branch, so we tell the execute and
-                // writeback stages just to branch on that result.
-                // We're going to treat this as a branch instruction in the
-                // execute stage, so set the tags to indicate that it has an
-                // immediate field that we can use.
-                if (ci.op == COP2 && (ci.cOp == CBTS || ci.cOp == CBTU))
-                  di.inst = tagged Immediate unpack(pack(ci));
+                if (ci.op == COP2) begin
+                  case (ci.cOp)
+                    // The capability unit will return 1 or 0, depending on whether
+                    // we should take the branch, so we tell the execute and
+                    // writeback stages just to branch on that result.
+                    // We're going to treat this as a branch instruction in the
+                    // execute stage, so set the tags to indicate that it has an
+                    // immediate field that we can use.
+                    //if (ci.op == COP2 && (ci.cOp == CBTS || ci.cOp == CBTU))
+                    CBTS, CBTU: di.inst = tagged Immediate unpack(pack(ci));
+                    CJALR: di.opB = pc + 8;
+                  endcase
+                end
               end
             `endif
           endcase  

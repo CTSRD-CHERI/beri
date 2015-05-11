@@ -37,7 +37,7 @@
 #
 
 CC=$(CHERI_SDK)/bin/clang
-CFLAGS=--sysroot=$(CHERI_SDK) -target cheri-unknown-freebsd
+CFLAGS=--sysroot=$(CHERI_SDK)/sysroot -target cheri-unknown-freebsd
 
 AS=$(CHERI_SDK)/bin/as
 AFLAGS=-EB -march=mips64 -mabi=64
@@ -71,7 +71,7 @@ clean:
 	 rm -f *.o hello.elf hello.mem
 
 hello.elf: test.o cheri_io.o init.o lib.o prog_link.ld
-	$(LD) $(LDFLAGS) -T prog_link.ld -o hello.elf lib.o cheri_io.o -L $(CHERI_SDK)/usr/lib -l stand
+	$(LD) $(LDFLAGS) -T prog_link.ld -o hello.elf lib.o cheri_io.o -L $(CHERI_SDK)/sysroot/usr/lib -l stand
 
 test_uart.elf: test_uart.o prog_link2.ld
 	$(LD) $(LDFLAGS) -T prog_link2.ld -o test_uart.elf

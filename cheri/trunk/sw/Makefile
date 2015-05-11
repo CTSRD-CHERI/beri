@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2013 Theo Markettos
+# Copyright (c) 2013 A. Theodore Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of

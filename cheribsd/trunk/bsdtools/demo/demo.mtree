@@ -1,0 +1,93 @@
+#mtree 2.0
+./demo type=dir uname=root gname=wheel mode=0755
+./demo/slides type=dir uname=root gname=wheel mode=0755
+./demo/slides/briefing.cpt type=dir uname=root gname=wheel mode=0755
+./demo/slides/demo.cpt type=dir uname=root gname=wheel mode=0755
+./demo/slides/isca.cpt/ type=dir uname=root gname=wheel mode=0755
+./demo/bad type=dir uname=root gname=wheel mode=0755
+./demo/good type=dir uname=root gname=wheel mode=0755
+./demo/slides/briefing.cpt/20121129-de4-briefing-cover-640.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing-cover-640.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.001-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.001-001.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.002-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.002-001.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.003-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.003-001.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.004-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.004-001.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.005-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.005-001.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.006-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.006-001.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.007-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.007-001.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.008-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.008-001.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.009-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.009-001.png
+./demo/slides/briefing.cpt/20121129-de4-briefing.010-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/briefing.cpt/20121129-de4-briefing.010-001.png
+./demo/slides/demo.cpt/20121129-de4-demo-cover-640.png type=file uname=root gname=wheel mode=0444 contents=./slides/demo.cpt/20121129-de4-demo-cover-640.png
+./demo/slides/demo.cpt/20121129-de4-demo.001-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/demo.cpt/20121129-de4-demo.001-001.png
+./demo/slides/demo.cpt/20121129-de4-demo.002-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/demo.cpt/20121129-de4-demo.002-001.png
+./demo/slides/demo.cpt/20121129-de4-demo.003-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/demo.cpt/20121129-de4-demo.003-001.png
+./demo/slides/demo.cpt/20121129-de4-demo.004-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/demo.cpt/20121129-de4-demo.004-001.png
+./demo/slides/demo.cpt/20121129-de4-demo.005-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/demo.cpt/20121129-de4-demo.005-001.png
+./demo/slides/demo.cpt/20121129-de4-demo.006-001.png type=file uname=root gname=wheel mode=0444 contents=./slides/demo.cpt/20121129-de4-demo.006-001.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.001.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.001.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.002.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.002.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.003.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.003.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.004.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.004.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.005.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.005.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.006.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.006.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.007.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.007.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.008.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.008.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.009.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.009.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.010.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.010.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.011.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.011.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.012.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.012.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.013.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.013.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.014.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.014.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.015.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.015.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.016.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.016.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.017.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.017.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.018.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.018.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.019.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.019.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.020.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.020.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.021.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.021.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.022.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.022.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.023.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.023.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.024.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.024.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.025.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.025.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.026.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.026.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.027.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.027.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.028.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.028.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.029.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.029.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.030.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.030.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.031.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.031.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.032.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.032.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.033.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.033.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.034.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.034.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.035.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.035.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.036.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.036.png
+./demo/slides/isca.cpt/20140618-jdw57-isca-cheri.037.png type=file uname=root gname=wheel mode=644 contents=./slides/isca.cpt/20140618-jdw57-isca-cheri.037.png
+./demo/bad/badfile type=file uname=root gname=wheel mode=0444 contents=./bad/badfile
+./demo/README type=file uname=root gname=wheel mode=0444 contents=./README
+./demo/bad/3816.png type=link uname=root gname=wheel mode=755 link=/usr/share/images/Canon-5DII-3816.png
+./demo/bad/4717.png type=link uname=root gname=wheel mode=755 link=/usr/share/images/Canon-5DII-4717.png
+./demo/bad/5487.png type=link uname=root gname=wheel mode=755 link=/usr/share/images/Canon-5DII-5487.png
+./demo/bad/20121129-de4-briefing-cover-640.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing-cover-640.png
+./demo/bad/20121129-de4-briefing.001-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.001-001.png
+./demo/bad/20121129-de4-briefing.002-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.002-001.png
+./demo/bad/20121129-de4-briefing.003-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.003-001.png
+./demo/bad/20121129-de4-briefing.004-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.004-001.png
+./demo/bad/20121129-de4-briefing.005-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.005-001.png
+./demo/bad/20121129-de4-briefing.006-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.006-001.png
+./demo/bad/20121129-de4-briefing.007-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.007-001.png
+./demo/bad/20121129-de4-briefing.008-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.008-001.png
+./demo/bad/20121129-de4-briefing.009-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.009-001.png
+./demo/bad/20121129-de4-briefing.010-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.010-001.png
+./demo/good/3816.png type=link uname=root gname=wheel mode=755 link=/usr/share/images/Canon-5DII-3816.png
+./demo/good/4717.png type=link uname=root gname=wheel mode=755 link=/usr/share/images/Canon-5DII-4717.png
+./demo/good/5487.png type=link uname=root gname=wheel mode=755 link=/usr/share/images/Canon-5DII-5487.png
+./demo/good/20121129-de4-briefing-cover-640.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing-cover-640.png
+./demo/good/20121129-de4-briefing.001-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.001-001.png
+./demo/good/20121129-de4-briefing.002-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.002-001.png
+./demo/good/20121129-de4-briefing.003-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.003-001.png
+./demo/good/20121129-de4-briefing.004-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.004-001.png
+./demo/good/20121129-de4-briefing.005-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.005-001.png
+./demo/good/20121129-de4-briefing.006-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.006-001.png
+./demo/good/20121129-de4-briefing.007-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.007-001.png
+./demo/good/20121129-de4-briefing.008-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.008-001.png
+./demo/good/20121129-de4-briefing.009-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.009-001.png
+./demo/good/20121129-de4-briefing.010-001.png type=link uname=root gname=wheel mode=755 link=/demo/slides/briefing.cpt/20121129-de4-briefing.010-001.png

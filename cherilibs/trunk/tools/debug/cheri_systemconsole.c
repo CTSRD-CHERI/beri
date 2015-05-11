@@ -2,6 +2,7 @@
  * Copyright (c) 2012-2013 Bjoern A. Zeeb
  * Copyright (c) 2013 SRI International
  * Copyright (c) 2013 Jonathan Anderson
+ * Copyright (c) 2015 A. Theodore Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -54,7 +55,9 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
+#include "macosx.h"
 #include "../../include/cheri_debug.h"
 #include "altera_systemconsole.h"
 #include "cherictl.h"
@@ -221,13 +224,68 @@ berictl_get_service_path(struct beri_debug *bdp, const char *cablep,
 	if (ret != BERI_DEBUG_SUCCESS)
 		return (ret);
 
-	memcpy(path, begin, end - begin);
+	memmove(path, begin, end - begin);
 	path[end - begin] = '\0';
 
 	if (!quietflag)
 		fprintf(stderr, "%ju Path: %s\n", (uintmax_t) time(NULL), path);
 
 	return (ret);
+}
+
+int
+berictl_loaddram_sockit(struct beri_debug *bdp, const char *addrp,
+    const char *filep)
+{
+	char *realfilep;
+	uint32_t filefd;
+	struct stat st;
+	uint32_t memfd;
+	uint32_t *map;
+	uint32_t *buf;
+	uint32_t addr;
+	int filesize;
+
+	if (filep == NULL)
+		return (BERI_DEBUG_USAGE_ERROR);
+	if (addrp == NULL)
+		return (BERI_DEBUG_USAGE_ERROR);
+
+	if ((realfilep = realpath(filep, NULL)) == NULL) {
+		warn("realpath(%s)", filep);
+		return (BERI_DEBUG_USAGE_ERROR);
+	}
+
+	memfd = open("/dev/beri_mem", O_RDWR);
+	filefd = open(realfilep, O_RDONLY);
+
+	hex2addr(addrp, (uint64_t *)&addr);
+
+	stat(realfilep, &st);
+	filesize = st.st_size;
+
+	fprintf(stdout, "Writing %d bytes at 0x%08x\n",
+					filesize, addr);
+
+	buf = malloc(filesize);
+	if (buf == NULL) {
+		fprintf(stderr, "Failed to malloc(%d)\n", filesize);
+		return (BERI_DEBUG_ERROR_MALLOC);
+	}
+	read(filefd, buf, filesize);
+	map = mmap(0, filesize, PROT_READ | PROT_WRITE, MAP_SHARED,
+					memfd, addr);
+	if (map == MAP_FAILED) {
+		fprintf(stderr, "Failed to mmap()\n");
+		return (BERI_DEBUG_ERROR_ADDR_INVALID);
+	};
+
+	memcpy(map, buf, filesize);
+
+	free(buf);
+	close(filefd);
+	close(memfd);
+	return (BERI_DEBUG_SUCCESS);
 }
 
 int
@@ -338,7 +396,7 @@ altera_sc_start(pid_t *pidp, int *portp)
 		close(fds[0]);
 
 		if (len <= strlen(port_prefix) && strncmp(buf,
-		    port_prefix, strlen(port_prefix) != 0)) {
+		    port_prefix, strlen(port_prefix)) != 0) {
 			warnx("unexpected output from system-console");
 			warnx("expected '%s...'", port_prefix);
 			warnx("got '%.*s'", (int)len, buf);

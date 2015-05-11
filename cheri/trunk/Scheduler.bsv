@@ -42,13 +42,16 @@ import FIFO::*;
 import SpecialFIFOs::*;
 import LevelFIFO::*;
 import ClientServer::*;
-import Vector::*;
 `ifdef COP1
   import CoProFPTypes::*;
   import CoProFPInst::*;
 `endif
 `ifdef CAP
   import CapCop::*;
+  `define USECAP 1
+`elsif CAP128
+  import CapCop128::*;
+  `define USECAP 1
 `endif
 
 // The unknownInstruction function returns a control token appropriate for an 
@@ -75,15 +78,14 @@ module mkScheduler#(
   BranchIfc branch,
   // The scheduler needs the register file interface because it submits the
   // register fetches that are retrieved in the decode stage.
-  ForwardingPipelinedRegFileIfc#(MIPSReg) theRF,
+  MIPSRegFileIfc theRF,
   // The scheduler needs the CP0 interface because it also submits potential register
   // reads to the CP0 interface, which are also retrieved in the decode stage.
   CP0Ifc cp0,
   CoProIfc cop1,
-  `ifdef CAP
+  `ifdef USECAP
     CapCopIfc capCop,
   `endif
-  CoProIfc cop3,
   // The scheduler needs the instruction memory interface because it pulls the next
   // instruction out of the instruction memory to begin pre-decode analysis.
   InstructionMemory m
@@ -164,8 +166,7 @@ module mkScheduler#(
     coProInst.op = None;
     coProInst.instId = cti.id;
     CoProInst coProInst1 = coProInst;
-    CoProInst coProInst3 = coProInst;
-    `ifdef CAP
+    `ifdef USECAP
       CapInst capInst = CapInst{
         op: None,
         r0: 0,
@@ -344,6 +345,12 @@ module mkScheduler#(
           end
           CACHE: begin
             cto.opBsrc = ControlToken;
+            // If the instruction is a Cache Load Tag
+            if (ii.rt[4:2] == 1) begin
+              cto.writeDest = CoPro0;
+              cto.dest = 28;
+            end    
+            debug($display("Scheduler: Cache Operation ii.rt=%x, writeDest=%x, cto.dest=%d", ii.rt[4:2], cto.writeDest, cto.dest));        
           end
           default: begin
             cto.writeDest = RegFile;
@@ -536,7 +543,7 @@ module mkScheduler#(
                   ERET: begin
                     cto.opBsrc = CoPro0;
                     reqC = 14; // request the PC for an exception return.
-                    `ifdef CAP
+                    `ifdef USECAP
                       capInst.op = ERET;
                     `endif
                     cto.flushPipe = True;
@@ -652,50 +659,8 @@ module mkScheduler#(
                 end
               endcase
             end
-          `else
-            COP3: begin
-              cto.dest = ci.r1;
-              cto.opAsrc = RegFile;
-              cto.opBsrc = RegFile;
-              reqA = ci.r2;
-              reqB = ci.r3;
-              CoProXOp coProOp = unpack(pack(ci.cOp));
-              case (coProOp)
-                MFC, DMFC: cto.writeDest = RegFile;
-                MTC, DMTC: cto.writeDest = None;
-              endcase
-              cto.mem = None;
-              coProInst = CoProInst{
-                mipsOp: ?,
-                op: coProOp,
-                regNumA: ci.r2,
-                regNumB: ci.r3,
-                regNumDest: ci.r1,
-                imm: {ci.spacer,ci.select},
-                instId: cti.id
-              };
-              debug($display("CoProInst: op:%x, regNumA:%x, regNumB:%x, regNumDest:%x, imm:%x, instId:%x",
-              coProInst.op, coProInst.regNumA, coProInst.regNumB, coProInst.regNumDest, coProInst.imm, coProInst.instId));
-              coProInst3 = coProInst;
-              case (coProOp)
-                DMFC, DMTC:
-                  cto.sixtyFourBitOp = True;
-                MFC, MTC:
-                  cto.sixtyFourBitOp = False;
-              endcase
-
-              case (coProOp)
-                MFC, DMFC: begin
-                  cto.alu = Cop3;
-                end
-                MTC, DMTC: begin
-                  cto.alu = Nop;
-                end
-              endcase
-              debug($display("In the COPX %b, opA=%x", coProOp, cto.opA));
-            end
           `endif
-          `ifdef CAP
+          `ifdef USECAP
             COP2,LWC2,LDC2,SWC2,SDC2: begin
               reqA = ci.r3;
               reqB = ci.r2;
@@ -708,6 +673,44 @@ module mkScheduler#(
                 COP2: begin
                   reqB = ci.r1;
                   case (ci.cOp) // This case statement checks dependencies
+                    // Offset manipulation instructions 
+                    COffset: begin
+                      OffsetOpCode op = unpack(ci.select);
+                      case(op)
+                        CIncOffset: begin
+                          cto.coProSelect = ci.select;
+                          cto.capOp = IncOffset;
+                        end
+                        CSetOffset: begin
+                          cto.capOp = SetOffset;
+                        end
+                        CGetOffset: begin
+                          cto.writeDest = RegFile;
+                          cto.dest = ci.r1;
+                          cto.capOp = GetOffset;
+                        end
+                        CIncBase2: begin
+                          cto.coProSelect = ci.select;
+                          cto.capOp = IncBase2;
+                        end
+                        default: begin
+                          cto <- unknownInstruction(cto);
+                        end
+                      endcase
+                    end
+                    CCompare: begin
+                      cto.writeDest = RegFile;
+                      cto.dest = ci.r1;
+                      case (ci.select)
+                        0: cto.capOp = CmpEQ;
+                        1: cto.capOp = CmpNE;
+                        2: cto.capOp = CmpLT;
+                        3: cto.capOp = CmpLE;
+                        4: cto.capOp = CmpLTU;
+                        5: cto.capOp = CmpLEU;
+                        default: cto.capOp = CmpEQ;
+                      endcase
+                    end
                     MFC: begin
                       cto.writeDest = RegFile;
                       cto.dest = ci.r1;
@@ -741,6 +744,7 @@ module mkScheduler#(
                         5: cto.capOp = ClearTag;
                         6: cto.capOp = ReportRegs;
                         7: cto.capOp = IncBaseNull;
+                        //default: cto <- unknownInstruction(cto);
                       endcase
                     end
                     CRelBase: begin
@@ -749,23 +753,17 @@ module mkScheduler#(
                       cto.capOp = GetRelBase;
                     end
                     CJR: begin
-                      reqB = ci.r3;
                       branchType = JumpReg;
                       cto.branch = Always;
                       cto.capOp = JR;
                       cto.newPcSource = OpB;
                     end
                     CJALR: begin
-                      reqB = ci.r3;
-                      if (ci.cOp == CJALR) begin
-                        cto.writeDest = RegFile;
-                        cto.dest = 5'd31;
-                        link = True;
-                      end
                       branchType = JumpReg;
                       cto.branch = Always;
-                      cto.alu = Nop;
                       cto.capOp = JALR;
+                      // We will manually feed PC + 8 into operand B
+                      cto.opBsrc = ControlToken;
                       cto.newPcSource = OpB;
                     end
                     CBTS,CBTU: begin
@@ -784,8 +782,7 @@ module mkScheduler#(
                         CBTU: cto.capOp = BranchTagUnset;
                       endcase
                     end
-                    CSealCode: cto.capOp = SealCode;
-                    CSealData: cto.capOp = SealData;
+                    CSeal: cto.capOp = Seal;
                     CUnseal: cto.capOp = Unseal;
                     Check: begin
                       case(ci.select)
@@ -991,7 +988,7 @@ module mkScheduler#(
     // Put a "pre-decode" report into the branch predictor so that it can
     // predict the next fetch.
     branch.putTarget(branchType, branchCertain, cti.pc, 
-                     cti.inst, cti.epoch, cti.id, cti.fromDebug, link);
+                     cto.inst, cti.epoch, cti.id, cti.fromDebug, link);
     // If this is a branch from the debug unit, just flush, no branch delay.
     if (branchType!=None && cto.fromDebug) begin
       cto.flushPipe = True;
@@ -1036,8 +1033,7 @@ module mkScheduler#(
     cp0.readReq(reqC, reqSel);
     // Submit read requests to other coprocessors.
     cop1.putCoProInst(coProInst1);
-    cop3.putCoProInst(coProInst3);
-    `ifdef CAP
+    `ifdef USECAP
       if (cto.capOp==None) begin
         if (cto.mem!=None) capInst.memSize = cto.memSize;
         if (cto.mem==Read) capInst.op = L;

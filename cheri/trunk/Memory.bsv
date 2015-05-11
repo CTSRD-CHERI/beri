@@ -1,9 +1,9 @@
 /*-
  * Copyright (c) 2010 Gregory A. Chadwick
+ * Copyright (c) 2010-2014 Jonathan Woodruff
  * Copyright (c) 2011 Steven J. Murdoch
  * Copyright (c) 2013 Colin Rothwell
  * Copyright (c) 2013 Robert M. Norton
- * Copyright (c) 2013 Jonathan Woodruff
  * Copyright (c) 2013 Alan A. Mujumdar
  * Copyright (c) 2013 SRI International
  * Copyright (c) 2013 Robert N. M. Watson
@@ -46,13 +46,16 @@ import GetPut :: *;
 import FIFO :: *;
 import FIFOF :: *;
 import SpecialFIFOs::*;
-import Vector:: *;
-`ifndef GENERICL1
-import ICache :: *;
-import DCache :: *;
+import Vector::*;
+`ifndef DCACHECORE
+  import DCacheClassic :: *;
 `else
-import GenericICache :: *;
-import GenericDCache :: *;
+  import DCache :: *;
+`endif
+`ifndef ICACHECORE
+  import ICacheClassic :: *;
+`else
+  import ICache :: *;
 `endif
 import MemTypes :: *;
 import Merge :: *;
@@ -65,6 +68,11 @@ import GetPut :: *;
 `ifdef CAP
   import CapCop :: *;
   import TagCache :: *;
+  `define USECAP
+`elsif CAP128
+  import CapCop128 :: *;
+  import TagCache :: *;
+  `define USECAP
 `endif
 
 interface DataMemory;
@@ -73,11 +81,10 @@ interface DataMemory;
   method Action startNull(InstId instId, Epoch epoch);
   method Action startCacheOp(Bit#(64) addr, CacheOperation cop, InstId id, Epoch epoch);
   `ifndef MULTI
-    method ActionValue#(CacheResponseDataT) getResponse(MIPSReg oldReg, Bool signExtend, Bit#(8) addr, MemSize size, Bool exception);
+    method ActionValue#(CacheResponseDataT) getResponse(MIPSReg oldReg, Bool signExtend, Bit#(8) addr, MemSize size, Bool exception, Bool cacheOpResponse);
   `else 
-    method ActionValue#(CacheResponseDataT) getResponse(MIPSReg oldReg, Bool signExtend, Bit#(8) addr, MemSize size, Bool exception, Bool scStatus);
+    method ActionValue#(CacheResponseDataT) getResponse(MIPSReg oldReg, Bool signExtend, Bit#(8) addr, MemSize size, Bool exception, Bool scStatus, Bool cacheOpResponse);
   `endif
-  //method ActionValue#(Exception)        confirmWrite(Bool exception);
 endinterface
 
 interface InstructionMemory;
@@ -91,7 +98,7 @@ interface MemConfiguration;
   method L1ChCfg iCacheGetConfig();
 endinterface
 
-`ifdef CAP
+`ifdef USECAP
   interface CapabilityMemory;
     interface Server#(CapMemAccess, Capability) server;
     method ActionValue#(Exception) getException(InstId instId);
@@ -105,9 +112,6 @@ interface MIPSMemory;
   interface MemConfiguration configuration;
   `ifdef COP1
     interface Server#(CoProMemAccess, CoProReg) cop1Memory;
-  `endif
-  `ifdef COP3
-    interface Server#(CoProMemAccess, CoProReg) cop3Memory;
   `endif
   // Interface below is required for the multiport L2Cache
   //interface Client#(MemoryRequest#(35, 32), BigMemoryResponse#(256)) memory;
@@ -127,29 +131,9 @@ typedef struct {
   InstId    instId;
 } ExceptionAndId deriving (Bits, Eq);
 
-//XXX ndave: remove this loop in favor of simpler folds
-function Bit#(lineSize) insert(Bit#(lineSize) line, Bit#(insertSize) toInsert, Bit#(addrSize) addr)
-  //Needed to satisfy type system I think it's just saying insertSize < lineSize
-  provisos(Add#(a__, insertSize, lineSize),
-    Log#(lineSize, addrSize));
-
-
-  Integer i;
-  Integer insertSizeI = valueOf(insertSize);
-
-  Bit#(lineSize) result = 0;
-  Bit#(insertSize) partResult = 0;
-
-  for(i = 0;i < valueOf(lineSize); i = i + insertSizeI) begin
-    if(addr == fromInteger(i)) begin
-      result[i + insertSizeI - 1 : i] = toInsert;
-    end else begin
-      partResult = line[i + insertSizeI - 1: i];
-      result[i + insertSizeI - 1: i] = partResult;
-    end
-  end
-
-  return result;
+function Bit#(lineSize) insert(Bit#(insertSize) toInsert, Bit#(addrSize) addr)
+  provisos(Add#(a__, insertSize, lineSize)); 
+  return zeroExtend(toInsert) << addr;
 endfunction
 
 function Bit#(outSize) selectF(Bit#(lineSize) val, Bit#(lineAddrSize) off) provisos (Add#(a__, outSize, lineSize));
@@ -161,26 +145,27 @@ function Bit#(n) reverseBytes(Bit#(n) x) provisos (Mul#(8,n8,n));
   return pack(Vector::reverse(vx));
 endfunction
 
-function SizedWord selectWithSize(Bit#(64) oldReg, Line line, Bit#(8) addr, MemSize size);
+function SizedWord selectWithSize(Bit#(64) oldReg, Line line, CheriPhyBitOffset addr, MemSize size);
 
-  // A line is 256 bits.
   // Addr is the BIT ADDRESS of the desired data item.
+  CheriPhyBitOffset addrMask = truncate(8'hF8);
   case(size)
     Byte:
-      return tagged Byte selectF(line, addr & 8'hF8);
+      return tagged Byte selectF(line, addr & addrMask);
     HalfWord: begin
-      Bit#(16) temp = selectF(line, addr & 8'hF0);
+      Bit#(16) temp = selectF(line, addr & addrMask);
       return tagged HalfWord (reverseBytes(temp));
     end
     Word: begin
-      Bit#(32) temp = selectF(line, addr & 8'hE0);
+      Bit#(32) temp = selectF(line, addr & addrMask);
       return tagged Word (reverseBytes(temp));
     end
     WordLeft: begin
       Bit#(32) orig = oldReg[31:0];
-      Bit#(32) temp = selectF(line, addr & 8'hE0);
+      addrMask = truncate(8'hE0);
+      Bit#(32) temp = selectF(line, addr & addrMask);
       temp = reverseBytes(temp);
-      Bit#(5) shift = addr[4:0];
+      Bit#(5) shift = truncate(addr);
       temp = temp << shift;
       Bit#(32) mask = 32'hFFFFFFFF << shift;
       temp = (temp & mask) | (orig & ~mask);
@@ -188,24 +173,25 @@ function SizedWord selectWithSize(Bit#(64) oldReg, Line line, Bit#(8) addr, MemS
     end
     WordRight: begin
       Bit#(32) orig = oldReg[31:0];
-      Bit#(32) temp = selectF(line, addr & 8'hE0);
+      addrMask = truncate(8'hE0);
+      Bit#(32) temp = selectF(line, addr & addrMask);
       temp = reverseBytes(temp);
-      Bit#(5) shift = 24 - addr[4:0];
-      //debug($display("Shift: %d, orig: %x, temp: %x", shift, orig, temp));
+      Bit#(5) shift = 24 - truncate(addr);
       temp = temp >> shift;
       Bit#(32) mask = 32'hFFFFFFFF >> shift;
       temp = (temp & mask) | (orig & ~mask);
       return tagged Word (temp);
     end
     DoubleWord: begin
-      Bit#(64) temp = selectF(line, addr & 8'hC0);
+      Bit#(64) temp = selectF(line, addr & addrMask);
       return tagged DoubleWord (reverseBytes(temp));
     end
     DoubleWordLeft: begin
       Bit#(64) orig = oldReg;
-      Bit#(64) temp = selectF(line, addr & 8'hC0);
+      addrMask = truncate(8'hC0);
+      Bit#(64) temp = selectF(line, addr & addrMask);
       temp = reverseBytes(temp);
-      Bit#(6) shift = addr[5:0];
+      Bit#(6) shift = truncate(addr);
       temp = temp << shift;
       Bit#(64) mask = 64'hFFFFFFFFFFFFFFFF << shift;
       temp = (temp & mask) | (orig & ~mask);
@@ -213,24 +199,36 @@ function SizedWord selectWithSize(Bit#(64) oldReg, Line line, Bit#(8) addr, MemS
     end
     DoubleWordRight: begin
       Bit#(64) orig = oldReg;
-      Bit#(64) temp = selectF(line, addr & 8'hC0);
+      addrMask = truncate(8'hC0);
+      Bit#(64) temp = selectF(line, addr & addrMask);
       temp = reverseBytes(temp);
-      Bit#(6) shift = 56 - addr[5:0];
+      Bit#(6) shift = 56 - truncate(addr);
       temp = temp >> shift;
       Bit#(64) mask = 64'hFFFFFFFFFFFFFFFF >> shift;
       temp = (temp & mask) | (orig & ~mask);
       return tagged DoubleWord (temp);
     end
     Line: begin
-      Bit#(256) temp = reverseBytes(line);
+      Bit#(CheriDataWidth) temp = reverseBytes(line);
       return tagged Line (temp);
     end
   endcase
 endfunction
 
-`ifdef COP3
-  `define Coprocessors
-`endif
+function Address alignAddress(Address addr, MemSize size);
+  case(size)
+    Byte:
+      return addr;
+    HalfWord: 
+      return addr & signExtend(~8'b1);
+    Word,WordLeft,WordRight: 
+      return addr & signExtend(~8'b11);
+    DoubleWord,DoubleWordLeft,DoubleWordRight: 
+      return addr & signExtend(~8'b111);
+    Line: 
+      return addr & signExtend(~8'b11111);
+  endcase
+endfunction
 
 module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
   FIFOF#(CacheRequestInstT)   iCacheFetch  <- mkBypassFIFOF;
@@ -239,89 +237,41 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
   FIFOF#(CacheRequestDataT) dCacheStd  <- mkBypassFIFOF;
 
   `ifndef MULTI
-    MergeIfc#(2)            theMemMerge  <- mkMergeFast(); // This module merges the Memory interfaces of the instruction and data caches.
-  `endif
-  `ifdef Coprocessors
-    MergeIfc#(2)          dramMerge <- mkMergeFast();
-  `endif
-  `ifdef CAP
-    `ifndef MULTI         // Tagcache is instantiated in Multicore.bsv
+    MergeIfc#(2)          theMemMerge  <- mkMergeFast(); // This module merges the Memory interfaces of the instruction and data caches.
+    `ifdef USECAP
       TagCacheIfc         tagCache  <- mkTagCache();
     `endif
   `endif
-  `ifndef GENERICL1
-  CacheInstIfc            iCache    <- mkICache(coreId);
-  CacheDataIfc            dCache    <- mkDCache(coreId);
+  
+  `ifndef DCACHECORE
+    CacheDataIfc            dCache    <- mkDCacheClassic(coreId);
   `else
-  //CacheInstIfc#(1,512,32)   iCache  <- mkGenericICache(coreId);
-  CacheInstIfc#(4,128,32)   iCache  <- mkGenericICache(coreId);
-  //CacheDataIfc#(1,512,32)   dCache  <- mkGenericDCache(coreId);
-  CacheDataIfc#(4,128,32)   dCache  <- mkGenericDCache(coreId);
-  `endif
-  `ifndef MICRO
-    `ifndef MULTI         // L2Cache is instantiated in Multicore.bsv
-      L2CacheIfc          l2Cache   <- mkL2Cache();
-    `endif
+    CacheDataIfc            dCache    <- mkDCache(truncate({coreId,1'b1}));
   `endif
 
-  `ifndef MULTI
-    mkConnection(iCache.memory, theMemMerge.server[0]);
-    mkConnection(dCache.memory, theMemMerge.server[1]);
+  `ifndef ICACHECORE
+    CacheInstIfc            iCache    <- mkICacheClassic(truncate({coreId,1'b0}));
+  `else
+    CacheInstIfc            iCache    <- mkICache(coreId);
+  `endif
+  `ifndef MULTI         // L2Cache is instantiated in Multicore.bsv
+    L2CacheIfc          l2Cache   <- mkL2Cache();
   `endif
   
-  `ifdef MICRO
-    `ifdef Coprocessor
-      mkConnection(theMemMerge.merged, dramMerge.server[0]);
-      `ifdef CAP
-        // CAP, MICRO, Coprocessors
-        mkConnection(dramMerge.merged, tagCache.cache);
-      `endif
-    `else
-      `ifdef CAP
-        // CAP, MICRO, !Coprocessors
-        mkConnection(theMemMerge.merged, tagCache.cache);
-      `endif
-    `endif
-  `else // !MICRO
-    `ifndef MULTI // All connections are made in Multicore.bsv
-      mkConnection(theMemMerge.merged, l2Cache.cache);
-      `ifdef Coprocessors
-        mkConnection(l2Cache.memory, dramMerge.server[0]);
-        `ifdef CAP
-          // CAP, !MICRO, Coprocessors
-          mkConnection(dramMerge.merged, tagCache.cache);
-        `endif
-      `else
-        `ifdef CAP
-          // CAP, !MICRO, !Coprocessors
-          mkConnection(l2Cache.memory, tagCache.cache);
-        `endif
-      `endif
-    `endif
-  `endif
-
-  `ifdef CAP
-    `ifndef MULTI
-      let topMemIfc = tagCache.memory;
-    `else // MULTI defined
-      let topImem = iCache.memory;
-      let topDmem = dCache.memory;
+  `ifndef MULTI
+    //OrderingLimiterIfc ordLim <- mkOrderingLimiter();
+    mkConnection(iCache.memory, theMemMerge.slave[0]);
+    mkConnection(dCache.memory, theMemMerge.slave[1]);
+    mkConnection(theMemMerge.merged, l2Cache.cache);
+    //mkConnection(l2Cache.memory, ordLim.slave);
+    let topMemIfc = l2Cache.memory;
+    `ifdef USECAP
+      mkConnection(l2Cache.memory, tagCache.cache);
+      topMemIfc = tagCache.memory;
     `endif
   `else
-    `ifdef Coprocessors
-      let topMemIfc = dramMerge.merged;
-    `else
-      `ifdef MICRO
-        let topMemIfc = theMemMerge.merged;
-      `else // !CAP && !MICRO && !MULTI
-        `ifndef MULTI
-          let topMemIfc = l2Cache.memory;
-        `else // !CAP && !MICRO && MULTI 
-          let topImem = iCache.memory;
-          let topDmem = dCache.memory;
-        `endif
-      `endif
-    `endif
+    let topImem = iCache.memory;
+    let topDmem = dCache.memory;
   `endif
 
   rule iCacheOperation(iCacheOp.notEmpty);
@@ -340,6 +290,7 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
     //trace($display("<%0t> <Memory.IFetch> Submitting Instruction Fetch.  Index = %X", $time, cReq.tr.addr));
   endrule
 
+  //(* descending_urgency = "dCacheStdAccess, dCache_core_runLookup" *)
   rule dCacheStdAccess;
       dCacheStd.deq();
       CacheRequestDataT req = dCacheStd.first;
@@ -352,7 +303,7 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
       Exception exception = None;
 
       CacheRequestDataT req = CacheRequestDataT{
-            `ifdef CAP
+            `ifdef USECAP
               capability: cap,
             `endif
             cop: CacheOperation{inst: Read, indexed: False, cache: DCache},
@@ -367,7 +318,7 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
       dCacheStd.enq(req);
 
       tlb.tlbLookupData.request.put(TlbRequest{
-          addr: addr,
+          addr: alignAddress(addr,size),
           write: False,
           ll: ll,
           exception: exception,
@@ -380,7 +331,7 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
     
     method Action startNull(InstId instId, Epoch epoch);
       dCacheStd.enq(CacheRequestDataT{
-            `ifdef CAP
+            `ifdef USECAP
               capability: False,
             `endif
             cop: CacheOperation{inst: CacheNop, indexed: False, cache: DCache},
@@ -403,74 +354,82 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
     endmethod
 
     method Action startWrite(Bit#(64) addr, SizedWord sizedData, MemSize size, InstId instId, Epoch epoch, Bool fromDebug, Bool storeConditional);
-      Bit#(256) writeLine = ?;
-      Bit#(32) byteMask = 0;
+      Bit#(CheriDataWidth) writeLine = ?;
+      Bit#(TDiv#(CheriDataWidth,8)) byteMask = 0;
       Exception exception = None;
       Bit#(64) data = ?;
       if (sizedData matches tagged DoubleWord .d) data = d;
       Bool cap = False;
-     
+      CheriPhyByteOffset offset = truncate(addr);
+      // These are only used in Left/Right operations and make the width of selectors unambigious.
+      CheriPhyByteOffset maskSelect = {truncateLSB(offset), 3'b0};
+      CheriPhyBitOffset  dataSelect = {truncateLSB(offset), 6'b0};
+      
       case(size)
         Byte: begin
-          writeLine = insert(writeLine, reverseBytes(data[ 7:0]), {addr[4:0], 3'b0});
-          byteMask  = insert(byteMask, 1'b1, addr[4:0]);
+          writeLine = insert(reverseBytes(data[ 7:0]), {offset, 3'b0});
+          byteMask  = insert(1'b1, offset);
         end
         HalfWord: begin
-          writeLine = insert(writeLine, reverseBytes(data[15:0]), {addr[4:1], 4'b0});
-          byteMask  = insert(byteMask, 2'b11, {addr[4:1], 1'b0});
+          writeLine = insert(reverseBytes(data[15:0]), {offset, 3'b0});
+          byteMask  = insert(2'b11, offset);
         end
         Word: begin
-          writeLine = insert(writeLine, reverseBytes(data[31:0]), {addr[4:2]  , 5'b0});
-          byteMask  = insert(byteMask, 4'hF, {addr[4:2], 2'b0});
+          writeLine = insert(reverseBytes(data[31:0]), {offset, 3'b0});
+          byteMask  = insert(4'hF, offset);
         end
         WordLeft: begin
           data[31:0] = reverseBytes(data[31:0]);
-          Bit#(5) shift = {addr[1:0],3'b0};
+          Bit#(5) shift = {truncate(offset),3'b0};
           data[31:0] = data[31:0] << shift;
           Bit#(4) mask = 4'hF;
-          mask = mask << addr[1:0];
-          writeLine = insert(writeLine, data[31:0], {addr[4:2], 5'b0});
-          byteMask  = insert(32'h0, mask, {addr[4:2], 2'b0});
+          mask = mask << offset[1:0];
+          dataSelect = {truncateLSB(offset), 5'b0};
+          writeLine = insert(data[31:0], dataSelect);
+          maskSelect = {truncateLSB(offset), 2'b0};
+          byteMask  = insert(mask, maskSelect);
         end
         WordRight: begin
           data[31:0] = reverseBytes(data[31:0]);
-          Bit#(5) shift = {(2'd3 - addr[1:0]),3'b0};
+          Bit#(5) shift = {(2'd3 - truncate(offset)),3'b0};
           data[31:0] = data[31:0] >> shift;
           Bit#(4) mask = 4'hF;
-          mask = mask >> (2'd3 - addr[1:0]);
-          writeLine = insert(writeLine, data[31:0], {addr[4:2], 5'b0});
-          byteMask  = insert(32'h0, mask, {addr[4:2], 2'b0});
+          mask = mask >> (2'd3 - offset[1:0]);
+          dataSelect = {truncateLSB(offset), 5'b0};
+          writeLine = insert(data[31:0], dataSelect);
+          maskSelect = {truncateLSB(offset), 2'b0};
+          byteMask  = insert(mask, maskSelect);
         end
         DoubleWord: begin
-          writeLine = insert(writeLine, reverseBytes(data), {addr[4:3], 6'b0});
-          byteMask  = insert(32'h0, 8'hFF, {addr[4:3], 3'b0});
+          writeLine = insert(reverseBytes(data), {offset, 3'b0});
+          byteMask  = insert(8'hFF, offset);
         end
         DoubleWordLeft: begin
           data = reverseBytes(data);
-          Bit#(6) shift = {3'b0,addr[2:0]}*6'h8;
-          writeLine = insert(writeLine, data << shift, {addr[4:3], 6'b0});
+          Bit#(6) shift = {3'b0,truncate(offset)}*6'h8;
+          writeLine = insert(data << shift, dataSelect);
           Bit#(8) mask  = 8'hFF;
-          mask = mask << addr[2:0];
-          byteMask  = insert(32'h0, mask, {addr[4:3], 3'b0});
+          mask = mask << offset[2:0];
+          byteMask  = insert(mask, maskSelect);
         end
         DoubleWordRight: begin
           data = reverseBytes(data);
-          Bit#(6) shift = (6'd7 - {3'b0,addr[2:0]})*6'h8;
-          writeLine = insert(writeLine, data >> shift, {addr[4:3], 6'b0});
+          Bit#(6) shift = (6'd7 - {3'b0,truncate(offset)})*6'h8;
+          writeLine = insert(data >> shift, dataSelect);
           Bit#(8) mask  = 8'hFF;
-          mask = mask >> (3'd7 - addr[2:0]);
-          byteMask  = insert(32'h0, mask, {addr[4:3], 3'b0});
+          mask = mask >> (3'd7 - offset[2:0]);
+          byteMask  = insert(mask, maskSelect);
         end
         Line: begin
           if (sizedData matches tagged Line .l) writeLine = l;
-          `ifdef CAP
+          `ifdef USECAP
             else if (sizedData matches tagged CapLine .l) begin
               writeLine = l;
               cap = True;
             end
           `endif
           writeLine = reverseBytes(writeLine);
-          byteMask = 32'hFFFFFFFF;
+          byteMask = signExtend(4'hF);
         end
       endcase
       debug($display("Writing %X %X to memory at address %X at time %t", writeLine, byteMask,
@@ -484,7 +443,7 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
       `endif
 
       CacheRequestDataT req = CacheRequestDataT{
-            `ifdef CAP
+            `ifdef USECAP
               capability: cap,
             `endif
             cop: CacheOperation{inst: copInst, indexed: False, cache: DCache},
@@ -501,7 +460,7 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
       //iCache.invalidate(addr[11:0]); // Ensure Coherence
 
       tlb.tlbLookupData.request.put(TlbRequest{
-        addr: addr,
+        addr: alignAddress(addr,size),
         write: True,
         ll: False,
         fromDebug: fromDebug,
@@ -514,15 +473,16 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
       Bit#(64) writeLine = ?;
       Bit#(8) byteMask = 0;
       debug($display("CacheOp at address %X at time %t", addr, $time()));
-      // An invalidation of Data will also invalidate Level2.
+      // An invalidation of the Level2 will go through the Data cache.
       if (cop.cache == DCache || cop.cache == L2) begin
+        debug($display("Memory: Cache Operation DCache||L2"));
         dCacheStd.enq(CacheRequestDataT{
-            `ifdef CAP
+            `ifdef USECAP
               capability: False,
             `endif
             epoch: epoch,
             cop: cop,
-            byteEnable: 32'h0,
+            byteEnable: signExtend(4'h0),
             memSize: ?,
             data: ?,
             instId: id,
@@ -538,8 +498,9 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
             instId: id
           });
       end else if (cop.cache == ICache) begin
+        debug($display("Memory: Cache Operation ICache"));
         dCacheStd.enq(CacheRequestDataT{
-            `ifdef CAP
+            `ifdef USECAP
               capability: False,
             `endif
             cop: CacheOperation{inst: CacheNop, indexed: False, cache: DCache},
@@ -560,7 +521,6 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
           });
         TlbResponse tlb_rsp = ?;
         tlb_rsp.addr={addr[39:3],3'b0};
-        tlb_rsp.exception=None;
         tlb_rsp.exception=DTLBL;
         iCacheOp.enq(CacheRequestInstT{
           cop: cop,
@@ -571,46 +531,41 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
     endmethod
 
    `ifndef MULTI
-      method ActionValue#(CacheResponseDataT) getResponse(MIPSReg oldReg, Bool sExtend, Bit#(8) addr, MemSize size, Bool exception);
+      method ActionValue#(CacheResponseDataT) getResponse(MIPSReg oldReg, Bool sExtend, Bit#(8) addr, MemSize size, Bool exception, Bool cacheOpResponse);
     `else 
-      method ActionValue#(CacheResponseDataT) getResponse(MIPSReg oldReg, Bool sExtend, Bit#(8) addr, MemSize size, Bool exception, Bool scStatus); 
+      method ActionValue#(CacheResponseDataT) getResponse(MIPSReg oldReg, Bool sExtend, Bit#(8) addr, MemSize size, Bool exception, Bool scStatus, Bool cacheOpResponse); 
     `endif 
       CacheResponseDataT resp <- dCache.getResponse();
 
       `ifdef MULTI 
         if (!scStatus) begin 
-      `endif 
-        //if (dataByte.notEmpty && dataSize.notEmpty) begin
-        if (resp.data matches tagged Line .l)
-          resp.data = selectWithSize(oldReg, l, {addr[4:0], 3'b0}, size);
-        `ifdef CAP
-          if (resp.data matches tagged Line .l &&& resp.capability==True)
-            resp.data = tagged CapLine l;
-        `endif
+      `endif
+        if (!cacheOpResponse) begin 
+          if (resp.data matches tagged Line .l) begin
+            CheriPhyByteOffset byteOffset = truncate(addr);
+            resp.data = selectWithSize(oldReg, l, {byteOffset, 3'b0}, size);
+          end
+          `ifdef USECAP
+            if (resp.data matches tagged Line .l &&& resp.capability==True)
+              resp.data = tagged CapLine l;
+          `endif
 
-        debug($display("shiftAmount: %d, readresult: %x", {addr[2:0], 3'b0}, resp.data));
-        //end else readResult = tagged DoubleWord (reverseBytes(resp.data));
+          debug($display("shiftAmount: %d, readresult: %x", {addr[2:0], 3'b0}, resp.data));
 
-        let extendFN = (sExtend) ? signExtend : zeroExtend;
+          let extendFN = (sExtend) ? signExtend : zeroExtend;
 
-        case (resp.data) matches
-          tagged Byte       .b  : resp.data = tagged DoubleWord extendFN(b);
-          tagged HalfWord   .hw : resp.data = tagged DoubleWord extendFN(hw);
-          tagged Word       .w  : resp.data = tagged DoubleWord extendFN(w);
-          tagged DoubleWord .dw : resp.data = tagged DoubleWord extendFN(dw);
-        endcase
+          case (resp.data) matches
+            tagged Byte       .b  : resp.data = tagged DoubleWord extendFN(b);
+            tagged HalfWord   .hw : resp.data = tagged DoubleWord extendFN(hw);
+            tagged Word       .w  : resp.data = tagged DoubleWord extendFN(w);
+            tagged DoubleWord .dw : resp.data = tagged DoubleWord extendFN(dw);
+          endcase
+        end
       `ifdef MULTI 
-        end  
+        end 
       `endif 
-
       return resp;
     endmethod
-    /*
-    method ActionValue#(Exception) confirmWrite(Bool exception);
-      Exception exceptionResponse <- dCache.getWrite(exception);
-      return exceptionResponse;
-    endmethod
-    */
   endinterface
 
   interface InstructionMemory instructionMemory;
@@ -646,44 +601,14 @@ module mkMIPSMemory#(Bit#(16) coreId, CP0Ifc tlb)(MIPSMemory);
     method dCacheGetConfig = dCache.getConfig;
   endinterface
 
-  `ifdef MULTI
-    interface invalidateICache = iCache.invalidate;
-    interface invalidateDCache = dCache.invalidate; 
-  `endif
-
-  `ifdef COP3
-    interface Server cop3Memory;
-      interface Put request;
-        method Action put(CoProMemAccess copPacket);
-          cop3Packets.enq(copPacket);
-          TlbRequest tr = TlbRequest{
-            addr: copPacket.address,
-            write: copPacket.memOp==Write,
-            ll: False,
-            exception: None,
-            instId: ? // This should be fixed
-          };
-          tlb.tlbLookupCoprocessors[valueOf(Cop3TLBNum)].request.put(tr);
-        endmethod
-      endinterface
-      interface Get response;
-        method ActionValue#(CoProReg) get();
-          MemoryResponse#(256) data <- dramMerge.server[1].response.get();
-          MemoryResponse#(256) resp = reverseBytes(data);
-          return unpack(resp);
-        endmethod
-      endinterface
-    endinterface
-  `endif
-
   `ifndef MULTI
     interface memory = topMemIfc;
   `else
+    interface invalidateICache = iCache.invalidate;
+    interface invalidateDCache = dCache.invalidate;
     interface imemory = topImem; 
     interface dmemory = topDmem; 
   `endif
 
-  method Action nextWillCommit(Bool nextCommitting);
-    dCache.nextWillCommit(nextCommitting);
-  endmethod
+  method nextWillCommit = dCache.nextWillCommit;
 endmodule

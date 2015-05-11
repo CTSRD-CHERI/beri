@@ -35,10 +35,11 @@ import GetPut::*;
 import FIFO::*;
 import FIFOF::*;
 import SpecialFIFOs::*;
-import ForwardingPipelinedRegFile::*;
+import ForwardingPipelinedRegFileHighFrequency::*;
 import ConfigReg::*;
 
-typedef Bit#(3) Select;
+typedef Bit#(3)  Select;
+typedef Bit#(24) CType;
 
 typedef struct {
   UInt#(64) offset; // The offset into the capability register
@@ -49,10 +50,11 @@ typedef struct {
 
 typedef struct {
   Bool      isCapability;
-  Bit#(32)  reserved;
+  Bit#(8)   reserved;
+  CType     otype;
   Perms     perms;
-  Bool      unsealed;
-  Word      oType_eaddr;
+  Bool      sealed;
+  Word      offset;
   Address   base;
   UInt#(64) length;
 } Capability deriving(Bits, Eq);
@@ -73,6 +75,7 @@ typedef struct {
 typedef struct {
   Capability memResponse;
   Exception  mipsExp;
+  Address    pc;
   Bool       dead;
   InstId     instId;    // Instruction ID that requests the update
 } CapWritebackRequest deriving(Bits, Eq);
@@ -98,10 +101,15 @@ typedef struct {
   Epoch      epoch;
 } CapControlToken deriving(Bits, Eq);
 
+// Bounds check structure.  In the Execute stage, the coprocessor calculates
+// the virtual address and hands it back to the main pipeline.  It then passes
+// this structure to another stage inside the coprocessor, which notifies the
+// MemAccess stage whether the access should be allowed.  
 typedef struct {
   Bool      valid;
-  UInt#(64) length;
-  UInt#(64) offset;
+  UInt#(64) top;     // Last address, must be greater than or equal to address
+  UInt#(64) address; // Address for the request
+  UInt#(64) base;    // Base, must be less than or equal to address 
   MemSize   memSize; // Instruction ID that requests the update
   CapReg    capReg;
 } LenCheck deriving(Bits, Eq);
@@ -127,7 +135,6 @@ typedef struct {
 
 typedef struct {
   CapReg     capReg;
-  
   Bool       pcc;
   CapExpCode exp;
 } CapCause deriving(Bits, Eq);
@@ -145,10 +152,11 @@ typedef struct {
 Capability defaultCap = CapCop::Capability{
   length: 64'hFFFFFFFFFFFFFFFF,
   base: 64'b0,
-  oType_eaddr: 64'b0,
-  unsealed: True,
+  offset: 64'b0,
+  sealed: False,
   perms: unpack(31'h7FFFFFFF),
-  reserved: 32'b0,
+  otype: 24'b0,
+  reserved: 0,
   isCapability: True
 };
 
@@ -159,6 +167,14 @@ typedef struct {
   Capability  capability;
   InstId      instId;
 } CapMemAccess deriving(Bits, Eq);
+
+function Address getBase(Capability cap) = cap.base;
+
+function Address getLength(Capability cap) = pack(cap.length);
+
+function Address getOffset(Capability cap) = cap.offset;
+
+function CType getType(Capability cap) = cap.otype;
 
 function CapExpCode checkRegAccess(Perms pp, CapReg cr);
   CapExpCode ret = None;
@@ -176,11 +192,11 @@ typedef enum {Except, Return, None} ExceptionEvent
   deriving (Bits, Eq);
 
 interface CapCopIfc;
-  method Action                      putCapInst(CapInst capInst);
-  method Address                     getArchPc(Address pc, Epoch epoch); // Translate absolute virtual address to arch PC
-  method ActionValue#(CoProResponse) getCapResponse(CapReq capReq);
-  method ActionValue#(CoProResponse) getAddress();
-  method Action                      commitWriteback(CapWritebackRequest wbReq);
+  method Action                           putCapInst(CapInst capInst);
+  method Address                          getArchPc(Address pc, Epoch epoch); // Translate absolute virtual address to arch PC
+  method ActionValue#(CoProResponse)      getCapResponse(CapReq capReq);
+  method ActionValue#(CoProResponse)      getAddress();
+  method ActionValue#(Maybe#(Capability)) commitWriteback(CapWritebackRequest wbReq);
 endinterface
 
 `ifdef NOT_FLAT
@@ -189,15 +205,16 @@ endinterface
 module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
   Reg#(Capability)            pcc                 <- mkConfigReg(defaultCap);
   FIFOF#((BufferedPCC))       pccUpdate           <- mkUGFIFOF();
-  ForwardingPipelinedRegFileIfc#(Capability) regFile <- mkForwardingPipelinedRegFile();
+  ForwardingPipelinedRegFileIfc#(Capability, 2) regFile <- mkForwardingPipelinedRegFileHighFrequency();
   `ifdef BLUESIM
     Reg#(Capability) debugCaps[32];
     for (Integer i=0; i<32; i=i+1) debugCaps[i]   <- mkReg(defaultCap);
     FIFOF#(Bool) reportCapRegs <- mkUGFIFOF;
   `endif
   FIFO#(CapControlToken)      inQ                 <- mkLFIFO;
-  FIFO#(CapControlToken)      dec2exeQ            <- mkSizedFIFO(2);
-  FIFO#(CapControlToken)      exe2wbQ             <- mkSizedFIFO(4);
+  FIFO#(CapControlToken)      dec2exeQ            <- mkFIFO;
+  FIFO#(CapControlToken)      exe2memQ            <- mkFIFO;
+  FIFO#(CapControlToken)      mem2wbkQ            <- mkFIFO;
   FIFO#(ExceptionEvent)       exception           <- mkFIFO;
   FIFO#(CapReg)               expFetch            <- mkFIFO;
   Reg#(CapCause)              causeReg            <- mkRegU;
@@ -207,6 +224,28 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
   Reg#(Bool)                  capBranchDelay      <- mkReg(False);
   Reg#(CapState)              capState            <- mkConfigReg(Init);
   Reg#(UInt#(5))              count               <- mkReg(0);
+
+  function ActionValue#(AddrExp) checkAndOffsetOffset(CapReq capReq, Capability cap);
+    actionvalue
+      UInt#(6) size = case (capReq.size)
+        Line: return 32;
+        DoubleWord, DoubleWordLeft, DoubleWordRight: return 8;
+        Word, WordLeft, WordRight: return 4;
+        HalfWord: return 2;
+        Byte: return 1;
+        default: return 32; // Worst case default, just in case.
+      endcase;
+      AddrExp retVal = AddrExp{
+        addr: pack(unpack(cap.offset) + capReq.offset),
+        exp: None
+      };
+      UInt#(65) endAddr = zeroExtend(unpack(retVal.addr)) + zeroExtend(size);
+      UInt#(65) endLimit = zeroExtend(unpack(cap.base)) + zeroExtend(cap.length);
+      //$display("offset: %x, size: %x, offset+size: %x, cap.length: %x", capReq.offset, size, capReq.offset+zeroExtend(size), cap.length);
+      return retVal;
+    endactionvalue
+  endfunction
+
 
   function ActionValue#(AddrExp) checkAndOffset(CapReq capReq, Capability cap);
     actionvalue
@@ -244,33 +283,34 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
   endrule
 
   rule doException(capState == Except);
+    ReadRegs#(Capability) tmp <- regFile.readRaw(expFetch.first, 0);
     if (exception.first==Except) begin
       Capability dc = pcc;
       `ifdef MULTI
-        trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception in Capability Unit! PCC->EPCC u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", $time, coreId, dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception in Capability Unit! PCC->EPCC u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", $time, coreId, dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `else
-        trace($display("Exception in Capability Unit! PCC->EPCC u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("Exception in Capability Unit! PCC->EPCC u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `endif
       regFile.writeRaw(31,pcc);
       `ifdef BLUESIM
         debugCaps[31] <= pcc;
       `endif
-      Capability kcc = regFile.readRaw(expFetch.first, 0).regA;
+      Capability kcc = tmp.regA;
       pcc <= kcc;
       dc = kcc;
       `ifdef MULTI
-        trace($display("Time:%0d, Core:%0d, Thread:0 :: KCC->PCC u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", $time, coreId, dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("Time:%0d, Core:%0d, Thread:0 :: KCC->PCC u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", $time, coreId, dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `else
-        trace($display("KCC->PCC u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("KCC->PCC u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `endif
     end else begin
-      Capability epcc = regFile.readRaw(expFetch.first, 0).regA;
+      Capability epcc = tmp.regA;
       pcc <= epcc;
       Capability dc = epcc;
       `ifdef MULTI
-        trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception Return in Capability Unit! EPCC->PCC u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", $time, coreId, dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception Return in Capability Unit! EPCC->PCC u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", $time, coreId, dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `else
-        trace($display("Exception Return in Capability Unit! EPCC->PCC u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("Exception Return in Capability Unit! EPCC->PCC u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `endif
     end
     expFetch.deq();
@@ -289,7 +329,7 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
     Capability forwardedPCC = (pccUpdate.notEmpty() && 
                                pccUpdate.first.epoch==epoch) ? 
                                pccUpdate.first.pcc:pcc;
-    if (capBranchDelay) forwardedPCC = pcc;
+    if (capBranchDelay) forwardedPCC = pcc; // XXX Is this not fragile?
     return (pc - forwardedPCC.base);
   endmethod
 
@@ -301,7 +341,7 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
     CapCause cause = CapCause{exp: None, pcc: False, capReg: ?};
     Bool jump = False;
     case (capInst.op)
-      GetBase, GetLen, GetType, GetPerm, GetUnsealed, GetTag: begin // Move From Capability Register Field
+      GetBase, GetLen, GetOffset, GetType, GetPerm, GetUnsealed, GetTag: begin // Move From Capability Register Field
         fetchA = tagged Valid capInst.r2;
       end
       // For one of the capability-branch-if-tag-set/unset instructions, we
@@ -309,9 +349,13 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
       BranchTagSet, BranchTagUnset: begin
         fetchA = tagged Valid capInst.r1;
       end
-      IncBase, IncBaseNull, SetLen, AndPerm: begin // Move to Capability Register Field
+      IncBase, IncBase2, IncBaseNull, SetLen, AndPerm: begin // Move to Capability Register Field
         fetchA = tagged Valid capInst.r2;
         expectTags.a = True;
+        wbReg = tagged Valid capInst.r1;
+      end
+      SetOffset, IncOffset: begin // Set the offset
+        fetchA = tagged Valid capInst.r2;
         wbReg = tagged Valid capInst.r1;
       end
       GetPCC: begin
@@ -337,7 +381,7 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
       JALR: begin // Jump and link Capability Register
         fetchA = tagged Valid capInst.r2;
         expectTags.a = True;
-        wbReg = tagged Valid 24;          // Link register.
+        wbReg = tagged Valid capInst.r1; // Link register.
         jump = True;
       end
       JR: begin // Jump to Capability Register
@@ -345,12 +389,7 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
         expectTags.a = True;
         jump = True;
       end
-      SealCode: begin // Seal an executable capability
-        fetchA = tagged Valid capInst.r2;
-        expectTags.a = True;
-        wbReg = tagged Valid capInst.r1;
-      end
-      SealData: begin // Seal a data capability
+      Seal: begin // Seal a data capability
         fetchA = tagged Valid capInst.r2;
         expectTags.a = True;
         fetchB = tagged Valid capInst.r3;
@@ -366,7 +405,9 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
       end
       GetRelBase: begin
         fetchA = tagged Valid capInst.r2;
-        expectTags.a = True;
+        // Allow even non-tagged capability casts to pointer because
+        // the canonical null capability is not tagged as a capability.
+        //expectTags.a = True;
         fetchB = tagged Valid capInst.r3;
         expectTags.b = True;
       end
@@ -379,6 +420,10 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
         expectTags.a = True;
         fetchB = tagged Valid capInst.r2;
         expectTags.b = True;
+      end
+      CmpEQ,CmpNE,CmpLT,CmpLE,CmpLTU,CmpLEU: begin
+        fetchA = tagged Valid capInst.r2;
+        fetchB = tagged Valid capInst.r3;
       end
       SC: begin // Store Capability Register
         fetchA = tagged Valid capInst.r1;
@@ -426,7 +471,7 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
                                   instId: capInst.instId,
                                   epoch: capInst.epoch
                                 };
-                                
+
     if (fetchA matches tagged Valid .regA) begin
       ctOut.regA = regA;
       ctOut.readA = True;
@@ -512,53 +557,98 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
                                            exception: None
                                        };
     AddrExp addrExpA <- checkAndOffset(aCapReq, capA);
-    LenCheck lenCheck = LenCheck{valid: False, length: capA.length, offset: aCapReq.offset, memSize: aCapReq.size, capReg: regA};
+    AddrExp offsetAddrExp <- checkAndOffsetOffset(aCapReq, capA);
+    LenCheck lenCheck = LenCheck{
+                          valid: False, 
+                          top: unpack(pack(capA.base)) + capA.length, 
+                          address: unpack(pack(offsetAddrExp.addr)), 
+                          base: unpack(pack(capA.base)), 
+                          memSize: aCapReq.size, 
+                          capReg: regA
+                        };
     Maybe#(CapCause) causeWrite = tagged Invalid;
     case (capInst.op)
-      IncBase, IncBaseNull: begin
-        lenCheck = LenCheck{valid: True, length: capA.length, offset: aCapReq.offset, memSize: None, capReg: regA};
+      IncBase, IncBaseNull, IncBase2: begin
+        lenCheck = LenCheck{valid: True, top: capA.length, address: aCapReq.offset, base: 0, memSize: None, capReg: regA};
         if (cause.exp == Tag && aCapReq.offset==0) begin
           cause.exp = None;
         //end else if (addrExpA.exp==Len && capA.length!=aCapReq.offset && cause.exp == None) begin
         //  cause.exp = Len;
         //end else if (capA.length < aCapReq.offset && cause.exp == None) begin
         //  cause.exp = Len;
-        end else if (!capA.unsealed && aCapReq.offset!=0 && cause.exp == None) begin
+        end else if (capA.sealed && aCapReq.offset!=0 && cause.exp == None) begin
           cause.exp = Seal;
         end
-        if (capInst.op == IncBaseNull && aCapReq.offset==0) begin
+        // If the offset is 0, then we are doing a cmove, so don't touch any of
+        // the capability fields.
+        if (capInst.op == IncBase && aCapReq.offset==0) begin
+          // This is done above, but do it explicitly just to make sure...
+          writeback = capA;
+        // CFromPtr with a 0 source should give the canonical null capability.
+        end else if (capInst.op == IncBaseNull && aCapReq.offset==0) begin
           writeback = unpack(0);
-          writeback.isCapability = True;
+          //writeback.isCapability = True;
+          //writeback.sealed = True;
         end else if (cause.exp == None) begin
           UInt#(64) newBase = unpack(capA.base) + aCapReq.offset;
           writeback.base = pack(newBase);
           writeback.length = capA.length - aCapReq.offset;
+          // CFromPtr should set the offset to 0, so set the offset equal to the base
+          if (capInst.op == IncBaseNull) begin
+            writeback.offset = pack(newBase);
+          // IncBase2 just increments the base.  IncBase leaves the offset
+          // fixed, which means incrementing the base and the offset.
+          end else if (capInst.op == IncBase) begin
+            // Note that when we do break the ISA, we should really rationalise
+            // the encodings too...
+            UInt#(64) newOffset = unpack(capA.offset) + aCapReq.offset;
+            writeback.offset = pack(newOffset);
+          end
+        end
+      end
+      IncOffset: begin
+        if (capA.isCapability && capA.sealed && cause.exp == None) begin
+          cause.exp = Seal;
+        end else begin
+          UInt#(64) newOffset = unpack(capA.offset) + aCapReq.offset;
+          writeback.offset = pack(newOffset);
+        end
+      end
+      SetOffset: begin
+        if (capA.isCapability && capA.sealed && cause.exp == None) begin
+          cause.exp = Seal;
+        end else begin
+          UInt#(64) newOffset = unpack(capA.base) + aCapReq.offset;
+          writeback.offset = pack(newOffset);
         end
       end
       SetLen: begin
-        lenCheck = LenCheck{valid: True, length: capA.length, offset: aCapReq.offset, memSize: None, capReg: regA};
+        lenCheck = LenCheck{valid: True, top: capA.length, address: aCapReq.offset, base: 0, memSize: None, capReg: regA};
         //if (addrExpA.exp==Len && capA.length!=aCapReq.offset && cause.exp == None) cause.exp = Len;
         //if (capA.length < aCapReq.offset && cause.exp == None) cause.exp = Len;
-        if (!capA.unsealed && cause.exp == None) begin
+        if (capA.sealed && cause.exp == None) begin
           cause.exp = Seal;
         end else begin
           writeback.length = aCapReq.offset;
         end
       end
       SetType: begin
-        lenCheck = LenCheck{valid: True, length: capA.length, offset: aCapReq.offset, memSize: Byte, capReg: regA};
-        if (!capA.unsealed && cause.exp == None) begin
+        lenCheck = LenCheck{valid: True, top: capA.length, address: aCapReq.offset, base: 0, memSize: Byte, capReg: regA};
+        Bit#(64) rawType = pack(aCapReq.offset);
+        CType newType = truncate(rawType);
+        if (capA.sealed && cause.exp == None) begin
           cause.exp = Seal;
         end else if (!capA.perms.permit_set_type && cause.exp == None) begin
           cause.exp = SetType;
+        end else if (rawType!=zeroExtend(newType) && cause.exp == None) begin
+          cause.exp = SetType;
         end else begin
-          UInt#(64) newType = unpack(capA.base) + aCapReq.offset;
           writeback.perms.permit_seal = True;
-          writeback.oType_eaddr = pack(newType);
+          writeback.otype = newType;
         end
       end
       AndPerm: begin
-        if (!capA.unsealed && cause.exp == None) begin
+        if (capA.sealed && cause.exp == None) begin
           cause.exp = Seal;
         end
         writeback.perms = unpack(pack(capA.perms) & pack(aCapReq.offset)[30:0]);
@@ -595,8 +685,12 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
       GetBase: begin
         response.data = capA.base;
       end
+      GetOffset: begin
+        Int#(64) offset = unpack(capA.offset) - unpack(capA.base);
+        response.data = pack(offset);
+      end
       GetType: begin
-        response.data = capA.oType_eaddr;
+        response.data = zeroExtend(capA.otype);
       end
       GetPCC: begin
         writeback = pcc;
@@ -620,34 +714,36 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
         response.valid = True;
       end
       GetUnsealed: begin
-        response.data = zeroExtend(pack(capA.unsealed));
+        response.data = zeroExtend(pack(capA.sealed));
         response.valid = True;
       end
       L: begin // Load via Capability Register
-        //AddrExp addrExp <- checkAndOffset(aCapReq, capA);
-        response.data = addrExpA.addr;
+        response.data = offsetAddrExp.addr;
         if (cause.exp == None) begin
           if (!capA.perms.permit_load) begin
             cause.exp = Load;
-          end else if (!capA.unsealed) begin
+          end else if (capA.sealed) begin
             cause.exp = Seal;
           end
-          //else if (addrExpA.exp != None) cause.exp = addrExpA.exp;
           lenCheck.valid = True;
+          /*lenCheck.base = unpack(pack(capA.base));
+          lenCheck.address = unpack(pack(offsetAddrExp.addr));
+          lenCheck.top = unpack(pack(capA.base)) + capA.length;*/
         end
         //aCapReq.size = capInst.memSize;
       end
       S: begin // Store via Capability Register
-        //AddrExp addrExp <- checkAndOffset(aCapReq, capA);
-        response.data = addrExpA.addr;
+        response.data = offsetAddrExp.addr;
         if (cause.exp == None) begin
           if (!capA.perms.permit_store) begin
             cause.exp = Store;
-          end else if (!capA.unsealed) begin
+          end else if (capA.sealed) begin
             cause.exp = Seal;
           end
-          //else if (addrExpA.exp != None) cause.exp = addrExpA.exp;
           lenCheck.valid = True;
+          /*lenCheck.base = unpack(pack(capA.base));
+          lenCheck.address = unpack(pack(offsetAddrExp.addr));
+          lenCheck.top = unpack(pack(capA.base)) + capA.length;*/
         end
         //aCapReq.size = capInst.memSize;
       end
@@ -655,65 +751,69 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
         response.data = addrExpA.addr;
         if (!capA.perms.permit_execute && cause.exp == None) begin
           cause.exp = Exe;
-        end else if (!capA.unsealed && cause.exp == None) begin
+        end else if (capA.sealed && cause.exp == None) begin
           cause.exp = Seal;
         end else if (!capA.perms.non_ephemeral && cause.exp == None) begin
           cause.exp = Ephem;
         end
         newPcc = capA;              // Link the current program counter capability.
+        response.data = capA.offset;
         writeback = forwardedPCC;
+        writeback.offset = pack(aCapReq.offset);
       end
       JR: begin // Jump to Capability Register
         response.data = addrExpA.addr;
         if (!capA.perms.permit_execute && cause.exp == None) begin
           cause.exp = Exe;
-        end else if (!capA.unsealed && cause.exp == None) begin
+        end else if (capA.sealed && cause.exp == None) begin
           cause.exp = Seal;
         end else if (!capA.perms.non_ephemeral && cause.exp == None) begin
           cause.exp = Ephem;
         end
+        response.data = capA.offset;
         newPcc = capA;
       end
-      SealCode: begin // Seal an executable capability
-        if (!capA.unsealed && cause.exp == None) begin
-          cause.exp = Seal;
-        end else if (!capA.perms.permit_seal && cause.exp == None) begin
-          cause.exp = PerSeal;
-        end else if (!capA.perms.permit_execute && cause.exp == None) begin
-          cause.exp = Exe;
-        end else begin
-          writeback.unsealed = False;
-        end
-      end
-      SealData: begin // Seal a non-executable capability
-        if (!capA.unsealed && cause.exp == None) begin
-          cause.exp = Seal;
-        end else if (!capB.unsealed && cause.exp == None) begin
-          cause = CapCause{exp:Seal, pcc: False, capReg: regB};
-        end else if (!capB.perms.permit_seal && cause.exp == None) begin
-          cause = CapCause{exp:PerSeal, pcc: False, capReg: regB};
-        end else if (capA.perms.permit_execute && cause.exp == None) begin
-          cause.exp = Exe;
-        end else begin
-          writeback.unsealed = False;
-          writeback.oType_eaddr = capB.oType_eaddr;
+      Seal: begin
+        if (cause.exp == None) begin
+          if (capA.sealed) begin
+            cause.exp = Seal;
+          end else if (capB.sealed) begin
+            cause = CapCause{exp:Seal, pcc: False, capReg: regB};
+          end else if (!capB.perms.permit_seal) begin
+            cause = CapCause{exp:PerSeal, pcc: False, capReg: regB};
+          end else if (capB.offset[63:24] != 0) begin
+            cause = CapCause{exp:Len, pcc: False, capReg: regB};
+          end else begin
+            writeback.sealed = True;
+            writeback.otype = truncate(capB.offset);
+          end
+          lenCheck.valid = True;
+          lenCheck.base = unpack(pack(capB.base));
+          lenCheck.address = unpack(pack(capB.offset));
+          lenCheck.top = unpack(pack(capB.base)) + capB.length;
         end
       end
       LC: begin // Load Capability Register
-        response.data = addrExpA.addr;
+        response.data = offsetAddrExp.addr;
         if (cause.exp == None) begin
           if (!capA.perms.permit_load_cap) begin
             cause = CapCause{exp:LoadCap, pcc: False, capReg: regA};
-          end else if (!capA.unsealed) begin
+          end else if (capA.sealed) begin
             cause = CapCause{exp:Seal, pcc: False, capReg: regA};
           end
-          lenCheck = LenCheck{
+          /*lenCheck = LenCheck{
             valid: True,
-            length: capA.length,
-            offset: aCapReq.offset,
+            top: capA.length,
+            address: aCapReq.offset,
+            base: 0,
             memSize: Line,
             capReg: regA
-          };
+          };*/
+          lenCheck.valid = True;
+          /*lenCheck.base = unpack(pack(capA.base));
+          lenCheck.address = unpack(pack(offsetAddrExp.addr));
+          lenCheck.top = unpack(pack(capA.base)) + capA.length;*/
+          lenCheck.memSize = Line;
           debug($display("Receiving Memory Response in CapCop."));
           writeback = ?;
         end
@@ -722,22 +822,28 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
         debug($display("Doing a CLCR"));
       end
       SC: begin // Store Capability Register
-        response.data = addrExpA.addr;
+        response.data = offsetAddrExp.addr;
         if (cause.exp == None) begin
           if (!capA.perms.permit_store_cap) begin
             cause = CapCause{exp:StoreCap, pcc: False, capReg: regA};
-          end else if (!capA.unsealed) begin
+          end else if (capA.sealed) begin
             cause = CapCause{exp:Seal, pcc: False, capReg: regA};
-          end else if (!capA.perms.permit_store_ephemeral_cap && !capB.perms.non_ephemeral) begin
+          end else if (!capA.perms.permit_store_ephemeral_cap && capB.isCapability && !capB.perms.non_ephemeral) begin
             cause = CapCause{exp:StoreEph, pcc: False, capReg: regA};
           end
-          lenCheck = LenCheck{
+          /*lenCheck = LenCheck{
             valid: True,
-            length: capA.length,
-            offset: aCapReq.offset,
+            top: capA.length,
+            address: aCapReq.offset,
+            base: 0,
             memSize: Line,
             capReg: regA
-          };
+          };*/
+          lenCheck.valid = True;
+          /*lenCheck.base = unpack(pack(capA.base));
+          lenCheck.address = unpack(pack(offsetAddrExp.addr));
+          lenCheck.top = unpack(pack(capA.base)) + capA.length;*/
+          lenCheck.memSize = Line;
         end
         aCapReq.memOp = Write;
         if (capB.isCapability) 
@@ -747,84 +853,118 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
         debug($display("Doing a CSCR"));
       end
       Unseal: begin
-        if (capA.oType_eaddr != capB.oType_eaddr && cause.exp == None) begin
+        if (capB.offset != zeroExtend(capA.otype) && cause.exp == None) begin
           cause = CapCause{exp:Type, pcc: False, capReg: regB};
         end else if (!capB.perms.permit_seal && cause.exp == None) begin
           cause = CapCause{exp:PerSeal, pcc: False, capReg: regB};
-        end else if (capA.unsealed && cause.exp == None) begin
+        end else if (!capA.sealed && cause.exp == None) begin
           cause = CapCause{exp:Seal, pcc: False, capReg: regA};
         end else begin
-          writeback.unsealed = True;
+          writeback.sealed = False;
           writeback.perms.non_ephemeral = capA.perms.non_ephemeral && capB.perms.non_ephemeral;
+          writeback.otype = 0;
         end
       end
       GetRelBase: begin
-        if (capA.length != 0 && capA.base != capB.base) begin
-          response.data = capA.base - capB.base;
-          lenCheck = LenCheck{
+        // CToPtr.  CapA is the capability being turned into the pointer, CapB
+        // is the ambient capability.
+        Address offset = unpack(capA.offset);
+        // Turn zero-length capabilities, or capabilities with a offset at the
+        // start of the ambient capability into a canonical null capability.
+        if (capA.isCapability) begin
+          response.data = offset - capB.base;
+          // Check that the offset is within the bounds of the ambient
+          // capability
+          /*lenCheck = LenCheck{
             valid: True,
-            length: unpack(capA.base),
-            offset: unpack(capB.base),
+            top: unpack(capB.base) + capB.length,
+            address: unpack(offset),
+            base: unpack(capB.base),
             memSize: Byte,
             capReg: regB
-          };
+          };*/
         end else
           response.data = 0;
       end
       CheckPerms: begin
-        if ((pack(capA.perms) & pack(aCapReq.offset)[30:0]) == 0) cause = CapCause{exp:CkPerms, pcc: False, capReg: regA};
+        if ((pack(capA.perms) & pack(aCapReq.offset)[30:0]) != pack(aCapReq.offset)[30:0]) cause = CapCause{exp:CkPerms, pcc: False, capReg: regA};
       end
       CheckType: begin
-        if (capA.oType_eaddr != capB.oType_eaddr) cause = CapCause{exp:Type, pcc: False, capReg: regA};
+        if (capA.otype != capB.otype) cause = CapCause{exp:Type, pcc: False, capReg: regA};
+      end
+      CmpEQ, CmpNE, CmpLT, CmpLE, CmpLTU, CmpLEU: begin
+        Bool sgndCmp = !(capInst.op == CmpLTU || capInst.op == CmpLEU);
+        Int#(65) aVal = unpack((sgndCmp) ? signExtend(capA.offset):zeroExtend(capA.offset));
+        Int#(65) bVal = unpack((sgndCmp) ? signExtend(capB.offset):zeroExtend(capB.offset));
+        Bool aNull = !capA.isCapability;
+        Bool bNull = !capB.isCapability;
+        Bool equal = (aVal==bVal);
+        // If one of them is NULL, they are only equal if both are NULL
+        if (aNull != bNull) equal = (aNull && bNull);
+        
+        Bool lessThan = ?;
+        // If they are equal, A is not less than B.
+        if (equal) lessThan = False;
+        // If one of them is NULL, they A is only less if A is NULL and B is not
+        else if (aNull != bNull) lessThan = aNull && !bNull;
+        else lessThan = (aVal < bVal);
+        response.data = case (capInst.op)
+                  CmpEQ: return (equal) ? 1:0;
+                  CmpNE: return (equal) ? 0:1;
+                  CmpLT, CmpLTU: return (lessThan) ? 1:0;
+                  CmpLE, CmpLEU: return (lessThan || equal) ? 1:0;
+                endcase;
       end
       Call: begin
         `ifdef HARDCALL
-          if (capA.unsealed && cause.exp == None) begin
+          if (!capA.sealed && cause.exp == None) begin
             cause.exp = Seal;
-          end else if (capB.unsealed && cause.exp == None) begin
+          end else if (!capB.sealed && cause.exp == None) begin
             cause = CapCause{exp:Seal, pcc: False, capReg: regB};
-          end else if (capA.oType_eaddr != capB.oType_eaddr && cause.exp == None) begin
+          end else if (capA.type != capB.type && cause.exp == None) begin
             cause.exp = Type;
           end else if (!capA.perms.permit_execute && cause.exp == None) begin
             cause.exp = Exe;
           end else if (!capA.perms.permit_seal && cause.exp == None) begin
             cause.exp = PerSeal;
-          end else if (capA.oType_eaddr < capA.base && cause.exp == None) begin
+          end else if (capA.offset < capA.base && cause.exp == None) begin
             cause.exp = Len;
           end else begin
-            capA.unsealed = True;
+            capA.sealed = False;
             newPcc = capA;
-            response.data = capA.oType_eaddr;
-            capB.unsealed = True;
+            response.data = capA.offset;
+            capB.sealed = False;
             writeback = capB;
           end
           lenCheck = LenCheck{
             valid: True,
-            length: unpack(capA.base + pack(capA.length)),
-            offset: unpack(capA.oType_eaddr),
+            top: unpack(capA.base + pack(capA.length)),
+            address: unpack(capA.offset),
+            base: 0,
             memSize: Word,
             capReg: regA
           };
         `else
-          if (capA.unsealed && cause.exp == None) begin
+          if (!capA.sealed && cause.exp == None) begin
             cause.exp = Seal;
-          end else if (capB.unsealed && cause.exp == None) begin
+          end else if (!capB.sealed && cause.exp == None) begin
             cause = CapCause{exp:Seal, pcc: False, capReg: regB};
-          end else if (capA.oType_eaddr != capB.oType_eaddr && cause.exp == None) begin
+          end else if (capA.otype != capB.otype && cause.exp == None) begin
             cause.exp = Type;
           end else if (!capA.perms.permit_execute && cause.exp == None) begin
             cause.exp = Exe;
-          end else if (!capA.perms.permit_seal && cause.exp == None) begin
-            cause.exp = PerSeal;
-          end else if (capA.oType_eaddr < capA.base && cause.exp == None) begin
+          end else if (capB.perms.permit_execute && cause.exp == None) begin
+            cause = CapCause{exp:Exe, pcc: False, capReg: regB};
+          end else if (capA.offset < capA.base && cause.exp == None) begin
             cause.exp = Len;
           end else begin
             cause = CapCause{exp:Call, pcc: False, capReg: regA};
           end
           lenCheck = LenCheck{
             valid: True,
-            length: unpack(capA.base + pack(capA.length)),
-            offset: unpack(capA.oType_eaddr),
+            top: unpack(capA.base + pack(capA.length)),
+            address: unpack(capA.offset),
+            base: unpack(capA.base),
             memSize: Word,
             capReg: regA
           };
@@ -864,7 +1004,9 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
     capBranchDelay <= ct.jump;
     if (ct.jump) pccUpdate.enq(BufferedPCC{pcc: newPcc, epoch: ct.epoch});
 
-    response.exception = (cause.exp == None)?None:CAP;
+	Bool deliverPipelineException = (cause.exp != None);
+	if (cause.exp == Call || cause.exp == Return) deliverPipelineException = False;
+    response.exception = (deliverPipelineException)?CAP:None;
     if (capInst.op != None) begin
       debug($display("Use Cap Response. op=%x, r1=%x r2=%x exception=%d response=%x At time %d",
           capInst.op, capInst.r1, capInst.r2, response.exception, response.data, $time));
@@ -879,23 +1021,26 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
     if (capInst.op != None) begin
       debug($display("Use Cap Update. op=%x, r1=%x r2=%x At time %d", capInst.op, capInst.r1, capInst.r2, $time));
     end
+    // Pick up any exceptions from the writeback register.
+    /*if (response.exception==None) begin
+      response.exception = (cause.exp == None || cause.exp == Call)?None:CAP;
+    end*/
     if (cause.exp == None && capInst.op==SetConfig) begin
       cause = fromMaybe(cause, causeWrite);
     end
     ctOut.cause = cause;
     regFile.writeRegSpeculative(writeback,ct.doWrite);
-    exe2wbQ.enq(ctOut);
+    exe2memQ.enq(ctOut);
     lenChecks.enq(lenCheck);
-    // Pick up any exceptions from the writeback register.
-    if (response.exception==None) begin
-      response.exception = (cause.exp == None)?None:CAP;
-    end
     return response;
   endmethod
 
   method ActionValue#(CoProResponse)  getAddress();
     LenCheck lenCheck = lenChecks.first;
     lenChecks.deq();
+    // Just pass the control token along; don't use it.  This prevents a deeper/slower FIFO.
+    CapControlToken ct <- toGet(exe2memQ).get();
+    mem2wbkQ.enq(ct);
     CapCause cause = CapCause{exp:None, pcc: False, capReg: lenCheck.capReg};
     CoProResponse response = CoProResponse{valid: True, data: ?, 
                                            storeData: ?, exception: None};
@@ -912,8 +1057,9 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
     );
     if (lenCheck.valid) begin
       //Maybe#(Address) vAddr = tagged Valid pack(unpack(cap.base) + capReq.offset);
-      UInt#(65) offsetSize = zeroExtend(lenCheck.offset) + zeroExtend(size);
-      if (offsetSize > zeroExtend(lenCheck.length)) begin
+      UInt#(65) offsetSize = zeroExtend(lenCheck.address) + zeroExtend(size);
+      if ((offsetSize > zeroExtend(lenCheck.top)) ||
+          (lenCheck.address < lenCheck.base)) begin
         cause.exp = Len;
       end
       //$display("offset: %x, size: %x, offset+size: %x, cap.length: %x", capReq.offset, size, capReq.offset+zeroExtend(size), cap.length);
@@ -925,21 +1071,22 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
     return response;
   endmethod
 
-  method Action commitWriteback(CapWritebackRequest wbReq) if (capState == Ready);
+  method ActionValue#(Maybe#(Capability)) commitWriteback(CapWritebackRequest wbReq) if (capState == Ready);
     //CapCause fetchCheckCause = fetchCause.first;
     //fetchCause.deq;
     CapCause lenCheckCause <- toGet(lenCause).get();
-    CapControlToken ct     <- toGet(exe2wbQ).get();
+    CapControlToken ct     <- toGet(mem2wbkQ).get();
     Bool commit = (!wbReq.dead && wbReq.mipsExp == None);
+    Capability newPcc = pcc;
     if (ct.jump && commit) begin
-      pcc <= pccUpdate.first.pcc;
+      newPcc = pccUpdate.first.pcc;
       Capability dc = pccUpdate.first.pcc;
       `ifdef MULTI
-        trace($display("Time:%0d, Core:%0d, Thread:0 :: PCC <- tag:%d u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", $time, coreId, dc.isCapability, dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("Time:%0d, Core:%0d, Thread:0 :: PCC <- tag:%d u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", $time, coreId, dc.isCapability, dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `else
-        trace($display("PCC <- tag:%d u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", dc.isCapability, dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("PCC <- tag:%d u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", dc.isCapability, dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `endif
-    end
+    end// else pcc.offset <= wbReq.pc;
     if (ct.jump && pccUpdate.notEmpty) pccUpdate.deq;
     if (ct.capInst.op==SetConfig && causeUpdate.notEmpty) causeUpdate.deq;
     if (ct.doWrite && commit) begin
@@ -949,19 +1096,19 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
       `endif
       Capability dc = ct.writeCap;
       `ifdef MULTI
-        trace($display("Time:%0d, Core:%0d, Thread:0 :: CapReg %d <- tag:%d u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", $time, coreId, ct.writeReg, dc.isCapability, dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("Time:%0d, Core:%0d, Thread:0 :: CapReg %d <- tag:%d u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", $time, coreId, ct.writeReg, dc.isCapability, dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `else
-        trace($display("CapReg %d <- tag:%d u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", ct.writeReg, dc.isCapability, dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+        trace($display("CapReg %d <- tag:%d u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", ct.writeReg, dc.isCapability, dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
       `endif
     end
     regFile.writeReg(ct.writeReg, ct.writeCap, ct.doWrite, commit);
-    if (!wbReq.dead && (wbReq.mipsExp==CAP||wbReq.mipsExp==CAPCALL)) begin
-      // The instruction fetch cause has the highest priority for the cap cause register!
-      //if (fetchCheckCause.exp != None) ct.cause=fetchCheckCause;
+    if (!wbReq.dead && (wbReq.mipsExp==CAP||wbReq.mipsExp==CAPCALL||
+                        wbReq.mipsExp==CTLBS)) begin
       // Length exception has priority over Call exception.
       if (ct.cause.exp==None || ct.cause.exp==Call) begin
         if (lenCheckCause.exp != None) ct.cause = lenCheckCause;
       end
+      if (wbReq.mipsExp==CTLBS) ct.cause.exp = Ctlbs;
       causeReg <= ct.cause;
       `ifdef MULTI
         trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception CapCause <- CapExpCode: 0x%x CauseReg: %d", $time, coreId, ct.cause.exp, ct.cause.capReg));
@@ -982,6 +1129,7 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
       else if (ct.capInst.op==ERET) ee = Return;
       if (ee != None) begin
         capState <= Except;
+        newPcc.offset = wbReq.pc;
         // Request KCC (register 29) from the register file to be placed in PCC
         // Or request EPCC (register 31) from the register file to be returned to PCC
         CapReg fetch = (ee==Except) ? 29:31;
@@ -992,14 +1140,17 @@ module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
     `ifdef BLUESIM
       if (reportCapRegs.notEmpty) begin
         debugInst($display("======   RegFile   ======"));
-        debugInst($display("DEBUG CAP PCC u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", pcc.unsealed, pcc.perms, pcc.oType_eaddr, pcc.base, pcc.length));
+        debugInst($display("DEBUG CAP COREID %d", coreId));
+        debugInst($display("DEBUG CAP PCC u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", pcc.sealed, pcc.perms, pcc.otype, pcc.offset-pcc.base, pcc.base, pcc.length));
         for (Integer i = 0; i<32; i=i+1) begin
           Capability dc = debugCaps[i];
-          debugInst($display("DEBUG CAP REG %d u:%d perms:0x%x type:0x%x base:0x%x length:0x%x", i, dc.unsealed, dc.perms, dc.oType_eaddr, dc.base, dc.length));
+          debugInst($display("DEBUG CAP REG %d u:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x", i, dc.sealed, dc.perms, dc.otype, dc.offset-dc.base, dc.base, dc.length));
         end
         debugInst(reportCapRegs.deq());
       end
     `endif
+    pcc <= newPcc;
     debug($display("CapCop Writeback, instID:%d==capWBTags.id:%d, capWBTags.valid:%d, capWB.first.instID:%d", wbReq.instId, ct.instId, ct.doWrite, ct.instId));
+    return (ct.doWrite && commit) ? tagged Valid ct.writeCap: tagged Invalid;
   endmethod
 endmodule

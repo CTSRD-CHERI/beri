@@ -1,7 +1,8 @@
 *.o
 *.bo
 *.cxx
-*.h
+model_test.h
+test.h
 mkTestBRAMLCircularBufferF
 schedule.*
 mkTestBRAMCircularBuffer

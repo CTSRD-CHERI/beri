@@ -1,5 +1,6 @@
 #-
 # Copyright (c) 2014 Michael Roe
+# Copyright (c) 2014 Robert M. Norton
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -33,24 +34,35 @@ class test_cp2_x_clc_tlb(BaseBERITestCase):
     @attr('capabilities')
     @attr('tlb')
     def test_cp2_clc_tlb_base(self):
-        '''Test that capability load failed when TLB entry prohibited load'''
-        self.assertRegisterEqual(self.MIPS.a3, 0x0, "clc loaded c1.base even though capbility load inhibit bit was set in the TLB")
+        '''Test that capability load succeeded when TLB entry prohibited load'''
+        self.assertRegisterEqual(self.MIPS.a3, 0x40, "clc did not load c1.base when capbility load inhibit bit was set in the TLB")
 
     @attr('capabilities')
     @attr('tlb')
     def test_cp2_clc_tlb_length(self):
-        '''Test that capability load failed when TLB entry prohibited load'''
-        self.assertRegisterEqual(self.MIPS.a4, 0xffffffffffffffff, "clc loaded c1.length even though capbility load inhibit bit was set in the TLB")
+        '''Test that capability load succeeded when TLB entry prohibited load'''
+        self.assertRegisterEqual(self.MIPS.a4, 0x40, "clc did not load c1.length when capbility load inhibit bit was set in the TLB")
+
+    @attr('capabilities')
+    @attr('tlb')
+    def test_cp2_clc_tlb_tag(self):
+        '''Test that capability tag was cleared when TLB entry prohibited load'''
+        self.assertRegisterEqual(self.MIPS.a6, 0x0, "clc did not clear c1.tag when capbility load inhibit bit was set in the TLB")
 
     @attr('capabilities')
     @attr('tlb')
     def test_cp2_clc_tlb_progress(self):
-        '''Test that test reaches the end of stage 4'''
-        self.assertRegisterEqual(self.MIPS.a5, 4, "Test did not make it to the end of stage 4")
+        '''Test that test reaches the end of stage 6'''
+        self.assertRegisterEqual(self.MIPS.a5, 6, "Test did not make it to the end of stage 6")
 
     @attr('capabilities')
     @attr('tlb')
     def test_cp2_clc_tlb_cause(self):
-        '''Test that CP0 cause register is set correctly'''
-        self.assertRegisterEqual((self.MIPS.a7 >> 2) & 0x1f, 16, "CP0.Cause.ExcCode was not set correctly when capability load failed due to capability load inhibited in the TLB entry")
+        '''Test that CP0 cause set to syscall'''
+        self.assertRegisterEqual(self.MIPS.a7, 0x8 << 2, "CP0 cause not set to syscall")
 
+    @attr('capabilities')
+    @attr('tlb')
+    def test_cp2_clc_tlb_exception_count(self):
+        '''Test that only one exception occurred'''
+        self.assertRegisterEqual(self.MIPS.a0, 0x1, "Expected exactly one exception")

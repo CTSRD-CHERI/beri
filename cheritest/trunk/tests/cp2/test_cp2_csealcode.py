@@ -29,19 +29,19 @@ from beritest_tools import BaseBERITestCase
 from nose.plugins.attrib import attr
 
 #
-# Test csealcode
+# Test cseal on a code capability
 #
 
 class test_cp2_csealcode(BaseBERITestCase):
     @attr('capabilities')
-    def test_cp2_csealcode1(self):
-        '''Test that csealcode clears the unsealed bit'''
-        self.assertRegisterEqual(self.MIPS.a0, 0,
-            "csealcode did not clear the u bit")
+    def test_cp2_csealcode_1(self):
+        '''Test that cseal on a code capability sets the sealed bit'''
+        self.assertRegisterEqual(self.MIPS.a0, 1,
+            "cseal did not set the sealed bit")
 
     @attr('capabilities')
-    def test_cp2_sealcode2(self):
-        '''Test that csealcode sets the otype field'''
-        self.assertRegisterEqual(self.MIPS.a1, 0,
-            "csealcode did not set the otype field correctly")
+    def test_cp2_sealcode_2(self):
+        '''Test that cseal on a code capability sets the otype field'''
+        self.assertRegisterEqual(self.MIPS.a1, 0xC0DE,
+            "cseal did not set the otype field correctly")
 

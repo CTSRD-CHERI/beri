@@ -32,7 +32,7 @@ class test_tlb_store_protected(BaseBERITestCase):
 
     @attr('tlb')
     def test_cause_correct(self):
-        self.assertRegisterEqual(self.MIPS.a6 & 0x7C, 0x4, "Cause not set to expected value.")
+        self.assertRegisterMaskEqual(self.MIPS.a6, 0x7c, 0x4, "Cause not set to expected value.")
 
     @attr('tlb')
     def test_badvaddr_correct(self):

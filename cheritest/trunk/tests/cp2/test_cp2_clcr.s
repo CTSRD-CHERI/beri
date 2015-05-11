@@ -43,11 +43,11 @@ test:		.ent test
 		daddu	$fp, $sp, 32
 
 		#
-		# Tweak capability type field so that we can tell if type and
-		# base are in the right order.
+		# Tweak capability offset field so that we can tell if offset 
+		# and base are in the right order.
 		#
 		dli	$t2, 0x1
-		csettype	$c2, $c2, $t2
+		csetoffset	$c2, $c2, $t2
 
 		#
 		# Store at cap1 in memory.
@@ -67,7 +67,7 @@ test:		.ent test
 		# checking.
 		#
 		cgetperm	$a0, $c3
-		cgettype	$a1, $c3
+		cgetoffset	$a1, $c3
 		cgetbase	$a2, $c3
 		cgetlen		$a3, $c3
 		cgettag  	$a4, $c3

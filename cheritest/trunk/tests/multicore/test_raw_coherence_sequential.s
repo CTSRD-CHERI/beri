@@ -32,14 +32,8 @@
 .set noat
 
 #
-# Exercise cache instructions
-#
-# Execute a series of cache instructions that are found in the kernel.  We
-# currently don't check if they are correct, but merely check that they don't
-# lock up the processor.  Since we have a write-through L1 cache, the only 
-# function of the cache instructions is to synchronize L1 instruction and data
-# caches.  We don't currently support cache instructions to the L2.
-# 
+# Test that memory reads and writes follow a sequentially consistent
+# memory model
 #
 
 		.global start

@@ -52,7 +52,9 @@ class TestClang(object):
                 yield ('check_answer', test_name)
                 
     def check_answer(self, test_name):
-        if MULTI:
+        if MULTI and CACHED:
+            suffix="_cachedmulti"
+        elif MULTI:
             suffix="_multi"
         elif CACHED:
             suffix="_cached"

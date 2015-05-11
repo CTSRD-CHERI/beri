@@ -34,6 +34,7 @@ module ../../cherilibs/trunk/peripherals/dram.so
 module ../../cherilibs/trunk/peripherals/ethercap.so
 module ../../cherilibs/trunk/peripherals/uart.so
 module ../../cherilibs/trunk/peripherals/fb.so
+module ../../cherilibs/trunk/peripherals/sdcard.so
 
 device "dram0" {
 	class dram;
@@ -46,6 +47,23 @@ ifdef "CHERI_KERNEL" device "kernel" {
 	addr 0x100000;
 	length 0xff00000;
 	option path getenv "CHERI_KERNEL";
+	option type "mmap";
+	option cow "yes";
+};
+
+ifdef "CHERI_DTB" device "dtb" {
+	class dram;
+	addr 0x7f010000;
+	length 0x10000;
+	option path getenv "CHERI_DTB";
+	option type "mmap";
+	option cow "yes";
+};
+ifndef "CHERI_DTB" device "dtb" {
+	class dram;
+	addr 0x7f010000;
+	length 0x10000;
+	option path "./sim.dtb";
 	option type "mmap";
 	option cow "yes";
 };

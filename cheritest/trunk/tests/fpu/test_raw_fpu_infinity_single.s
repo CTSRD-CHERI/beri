@@ -51,7 +51,7 @@ start:
 		lui $t0, 0x7f80 	# IEEE 754 +infinity
 		mtc1 $t0, $f1
 
-		li $t0, 1
+		lui $t0, 0x3f80		# 1.0
 		mtc1 $t0, $f2
 
 		add.s $f3, $f1, $f2

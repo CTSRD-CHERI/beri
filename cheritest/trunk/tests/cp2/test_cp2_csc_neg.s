@@ -42,11 +42,11 @@ test:		.ent test
 		daddu	$fp, $sp, 32
 
 		#
-		# Tweak capability type field so that we can tell if type and
-		# base are in the right order.
+		# Tweak capability type field so that we can tell if base and
+		# offset are in the right order.
 		#
 		dli	$t0, 0x1
-		csettype	$c2, $c2, $t0
+		csetoffset $c2, $c2, $t0
 
 		#
 		# Set the permissions field so we can tell if it is stored
@@ -75,7 +75,7 @@ test:		.ent test
 		#
 		dla	$t0, cap1
 		# $a0 will be the perms field (0x7f) shifted left one bit,
-		# plus the u bit (0x1) giving 0xff.
+		# plus the u bit (0x0) giving 0xfe.
 		ld	$a0, 0($t0)
 		ld	$a1, 8($t0)
 		ld	$a2, 16($t0)

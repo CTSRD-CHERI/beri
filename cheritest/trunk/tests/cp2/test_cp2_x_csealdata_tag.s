@@ -31,11 +31,8 @@
 .set noat
 
 #
-# Test that csealdata raises an exception if ct's tag bit is unset.
+# Test that cseal raises an exception if ct's tag bit is unset.
 #
-
-sandbox:
-		creturn
 
 		.global test
 test:		.ent test
@@ -68,21 +65,24 @@ test:		.ent test
 		dli     $t0, 0x5
 		candperm $c1, $c1, $t0
 
-		dla $t0, sandbox
-		cmove $c2, $c0
-		csettype $c2, $c2, $t0
+		dla	$t0, 0x1234
+		csetoffset $c2, $c0, $t0
+
 		#
-		# Write $c2 to memory, overwrite its otype field in memory,
-		# and load it back in again. The write to the otype field
+		# Write $c2 to memory, overwrite its cursor field in memory,
+		# and load it back in again. The write to the cursor field
 		# should clear the tag bit.
+		#
+
 		dla	$t1, cap1
 		cscr	$c2, $t1($c0)
+		ld	$t0, 8($t1)
 		sd	$t0, 8($t1)
 		clcr	$c2, $t1($c0)
 
-		csealdata $c1, $c1, $c2 # This should raise an exception
+		cseal $c1, $c1, $c2 # This should raise an exception
 
-		cgetunsealed $a0, $c1
+		cgetsealed $a0, $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

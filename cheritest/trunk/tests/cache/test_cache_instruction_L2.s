@@ -66,14 +66,14 @@ test:		.ent test
 		#
 		dli	$t0, 0x9000000000000000
 		daddu	$t0, $gp, $t0
-		ld	$a0, 0($t0)
+		lb	$a0, 0($t0)
 
 		#
 		# (1) Read via cached address; brings line into data cache.
 		#
 		dli	$t0, 0x9800000000000000
 		daddu	$t0, $gp, $t0
-		ld	$a1, 0($t0)
+		lb	$a1, 0($t0)
 		
 		#
 		# (2) series of cache instructions to invalidate data cache and L2 cache lines.  
@@ -84,17 +84,17 @@ test:		.ent test
 		#
 		# (2) Read again via cached address.  Should be updated as it is coming from memory.
 		#
-		ld	$a2, 0($t0)
+		lb	$a2, 0($t0)
 		
 		#
-		# (3) series of cache instructions to invalidate L2 cache lines.  
+		# (3) cache instruction to invalidate L2 cache line.  
 		#
 		cache 0x13, 0($t0)
 		
 		#
 		# (3) Read again via cached address.  Should still be in L1.
 		#
-		ld	$a3, 0($t0)
+		lb	$a3, 0($t0)
 		
 		#
 		# Generate address to writable word.  
@@ -120,7 +120,7 @@ test:		.ent test
 		# (5) writeback and invalidate L2 cache lines.  
 		#
 		cache 0x01, 0($t0)
-		cache 0x03, 0($t0)
+		cache 0x17, 0($t0)
 		
 		#
 		# (5) Read written back value of writable word.  
@@ -143,7 +143,7 @@ test:		.ent test
 		# (6) Read writable word after invalidated write.  
 		#
 		ld $a6, 0($t0)
-		
+
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

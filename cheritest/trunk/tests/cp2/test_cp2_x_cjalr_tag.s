@@ -36,9 +36,9 @@
 #
 
 sandbox:
-		dli $a0, 1
-		cjr $ra($c24)
-		nop # Branch delay slot
+		dli	$a0, 1
+		cjr	$c24
+		nop			# Branch delay slot
 
 		.global test
 test:		.ent test
@@ -60,21 +60,23 @@ test:		.ent test
 		# $a2 will be set to 1 if the exception handler is called
 		dli	$a2, 0
 
+		dla     $t0, sandbox
+		csetoffset $c1, $c0, $t0
+
 		#
-		# Write $c0 to memory, overwrite its otype field in memory,
-		# and load it back in to $c1. The write to the otype field
+		# Write $c1 to memory, overwrite its otype field in memory,
+		# and load it back in to $c2. The write to the otype field
 		# should clear the tag bit.
 		#
 
 		dla	$t0, cap1
-		cscr	$c0, $t0($c0)
-		dli	$t1, 0
-		sd	$t1, 8($t0)
-		clcr	$c1, $t0($c0)
+		cscr	$c1, $t0($c0)
+		dli	$t1, 5
+		sw	$t1, 0($t0)
+		clcr	$c2, $t0($c0)
 
-		dla     $t0, sandbox
 		dli	$a0, 0
-		cjalr   $t0($c1) # This should raise a C2E exception
+		cjalr   $c24, $c2 # This should raise a C2E exception
 		nop	# Branch delay slot
 
 		ld	$fp, 16($sp)

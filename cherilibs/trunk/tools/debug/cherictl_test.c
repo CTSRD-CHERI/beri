@@ -1,6 +1,7 @@
 /*-
  * Copyright (c) 2012-2013 SRI International
  * Copyright (c) 2012 Robert N. M. Watson
+ * Copyright (c) 2015 A. Theodore Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -37,6 +38,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "macosx.h"
 #include "../../include/cheri_debug.h"
 #include "cherictl.h"
 
@@ -89,7 +91,7 @@ int berictl_docontrol(struct beri_debug *bdp, const char *controlp)
 			ret = berictl_breakpoint(bdp, op1, 0);
     } else if((len == 2) && strcmp(cmd, "console") == 0){
       printf("console!");
-			ret = berictl_console(NULL, op1, NULL);
+			ret = berictl_console(NULL, op1, NULL, NULL);
     } else if ((len == 1) && strcmp(cmd, "c0regs") == 0){
       printf("c0regs!");
 			ret = berictl_c0regs(bdp);

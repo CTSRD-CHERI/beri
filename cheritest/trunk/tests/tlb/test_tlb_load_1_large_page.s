@@ -1,6 +1,6 @@
 #-
 # Copyright (c) 2012 Robert M. Norton
-# Copyright (c) 2012 David Chisnall
+# Copyright (c) 2012 David T. Chisnall
 # Copyright (c) 2013 Jonathan Woodruff
 # All rights reserved.
 #
