@@ -149,7 +149,7 @@ module mkBootMem(Peripheral#(0));
                 };
     case (req.operation) matches
       tagged Read .rreq: begin
-        resp.operation = tagged Read{data: ?, last: ?};
+        resp.operation = tagged Read{last: ?};
         bootMem.request.put(bramReq);
       end
       tagged Write .wreq: begin
@@ -164,9 +164,8 @@ module mkBootMem(Peripheral#(0));
   
   rule handle_read_response(pend_fifo.first.operation matches tagged Read .unused);
     CheriMemResponse64 resp <- toGet(pend_fifo).get;
-    Data#(64) data = unpack(0);
-    data.data <- bootMem.response.get();
-    resp.operation = tagged Read{data: data, last: True};
+    resp.data.data <- bootMem.response.get();
+    resp.operation = tagged Read{last: True};
     resp_fifo.enq(resp);
     debug2("bootMem", $display("<time %0t, bootMem> read response ", $time, fshow(resp)));
   endrule

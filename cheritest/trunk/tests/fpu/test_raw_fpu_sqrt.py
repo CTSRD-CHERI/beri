@@ -43,6 +43,7 @@ class test_raw_fpu_sqrt(BaseBERITestCase):
         self.assertRegisterEqual(self.MIPS.s1, 0x40358fd34fb3f65b, "Failed double sqrt")
 
     @attr('float64')
+    @attr('floatechonan')
     def test_sqrt_double_qnan(self):
         '''Test double precision square root of QNaN'''
         self.assertRegisterEqual(self.MIPS.s3, 0x7FF1000000000000, "sqrt.d failed to echo QNaN");

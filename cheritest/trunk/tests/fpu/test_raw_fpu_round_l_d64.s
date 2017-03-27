@@ -81,7 +81,7 @@ start:
 		lui $t0, 0x4330
 		dsll $t0, $t0, 32
 		ori $t0, $t0, 0x0001
-		mtc1 $t0, $f2
+		dmtc1 $t0, $f2
 		round.l.d $f2, $f2
 		dmfc1 $a5, $f2
 

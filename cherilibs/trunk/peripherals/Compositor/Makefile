@@ -2,6 +2,7 @@
 
 #
 # Copyright (c) 2013 Philip Withnall
+# Copyright (c) 2014 Robert M. Norton
 # Copyright (c) 2013 Colin Rothwell
 # Copyright (c) 2014 Alex Horsman
 # All rights reserved.

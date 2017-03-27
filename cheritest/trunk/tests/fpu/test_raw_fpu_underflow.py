@@ -37,5 +37,5 @@ class test_raw_fpu_underflow(BaseBERITestCase):
     @attr('floatflags')
     def test_raw_fpu_underflow(self):
         '''Test floating point underflow sets a flag in the status register'''
-	self.assertRegisterEqual(self.MIPS.a1, 0x1 << 3, 1 << 3, "Floating point undeflow did not set the underflow flag in the status register")
+	self.assertRegisterMaskEqual(self.MIPS.a1, 0x1 << 3, 1 << 3, "Floating point undeflow did not set the underflow flag in the status register")
 

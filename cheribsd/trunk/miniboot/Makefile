@@ -2,6 +2,7 @@
 # Copyright (c) 2012 Robert N. M. Watson
 # Copyright (c) 2012-2013 Jonathan Woodruff
 # Copyright (c) 2013 Bjoern A. Zeeb
+# Copyright (c) 2016 Alexandre Joannou
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -39,10 +40,16 @@ CHERICONF?=simconfig
 TOOLS_DIR=$(CHERILIBS)/tools
 TOOLS_DIR_ABS:=$(realpath $(TOOLS_DIR))
 
+CAPSIZE?=0
+TAGS_STRUCT?="0"
+TAGS_ALIGN?=32
+
 MEMCONV=python "$(TOOLS_DIR_ABS)/memConv.py"
 AS=mips64-as
-CC=mips-linux-gnu-gcc
-CPP=mips-linux-gnu-cpp
+CPP=cpp
+LD=mips64-ld
+OBJDUMP=mips64-objdump
+OBJCOPY=mips64-objcopy
 
 CFLAGS += -EB -march=mips64 -mabi=64 -G 0 -ggdb -O1 -S
 ifdef ALWAYS_WAIT
@@ -54,15 +61,24 @@ LDSCRIPT=miniboot.ld
 .DUMMY=all
 all: miniboot.elf mem.bin miniboot.dump
 
+ifndef CHERIOS
 miniboot.o : miniboot.S
 	$(CPP) $(CPPFLAGS) miniboot.S miniboot.s
 	$(AS) -EB -march=mips64 -mabi=64 -G0 -ggdb -o miniboot.o miniboot.s
-miniboot.elf : miniboot.o $(LDSCRIPT)
-	mips-linux-gnu-ld -EB -G0 -T$(LDSCRIPT) $< -o $@ -m elf64btsmip
+else
+miniboot.o : miniboot_cherios.S
+	$(CPP) $(CPPFLAGS) miniboot_cherios.S miniboot_cherios.s
+	$(AS) -EB -march=mips64 -mabi=64 -G0 -ggdb -o miniboot.o miniboot_cherios.s
+endif
+.PHONY: tags-params.ld
+tags-params.ld: $(CHERILIBS)/tagsparams.py
+	$^ -a $(TAGS_ALIGN) -c $(CAPSIZE) -s $(subst _,$(SPACE),$(TAGS_STRUCT:"%"=%)) -l $@
+miniboot.elf : miniboot.o $(LDSCRIPT) $(CHERIROOT)/mem-params.ld tags-params.ld
+	$(LD) -L$(CHERIROOT) -EB -G0 -T$(LDSCRIPT) $< -o $@ -m elf64btsmip
 miniboot.mem : miniboot.elf
-	mips-linux-gnu-objcopy -S -O binary $< $@
+	$(OBJCOPY) -S -O binary $< $@
 miniboot.dump : miniboot.elf
-	mips64-objdump -xsSD $< > $@
+	$(OBJDUMP) -xsSD $< > $@
 
 mem.bin: miniboot.mem
 	cp $< $@
@@ -96,3 +112,4 @@ gxemul:
 clean:
 	rm -f *.o *.i *.elf *.mem *.dump mem.bin mem?.hex initial.hex
 	rm -f miniboot.s
+	rm -f tags-params.ld

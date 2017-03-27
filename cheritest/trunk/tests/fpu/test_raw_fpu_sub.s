@@ -39,8 +39,11 @@
 		.ent start
 start:     
 		# First enable CP1 
-		dli $t1, 1 << 29
-		or $at, $at, $t1    # Enable CP1    
+		mfc0 $at, $12
+		dli $t1, 1 << 29	# Enable CP1
+		or $at, $at, $t1
+		dli $t1, 1 << 26        # Put FPU into 64 bit mode
+		or $at, $at, $t1
 		mtc0 $at, $12 
 		nop
 		nop
@@ -69,34 +72,6 @@ start:
 		sub.S $f5, $f5, $f6
 		dmfc1 $s1, $f5
 
-		# Loading (75, -32)
-		add $s2, $0, $0
-		ori $s2, $s2, 0x4296
-		dsll $s2, $s2, 32
-		ori $s2, $s2, 0xC200
-		dsll $s2, $s2, 16
-		dmtc1 $s2, $f0
-		# Loading (50, -64)
-		add $s2, $0, $0
-		ori $s2, $s2, 0x4248
-		dsll $s2, $s2, 32
-		ori $s2, $s2, 0xC280
-		dsll $s2, $s2, 16
-		dmtc1 $s2, $f1
-		# Performing operation
-		sub.ps $f0, $f0, $f1
-		dmfc1 $s2, $f0
-
-		# SUB.PS (QNaN)
-		lui $t2, 0x7F81
-		dsll $t2, $t2, 32   # QNaN
-		ori $t1, $0, 0x4000
-		dsll $t1, $t1, 16   # 2.0
-		or $t2, $t2, $t1
-		dmtc1 $t2, $f13
-		sub.PS $f13, $f13, $f13
-		dmfc1 $s3, $f13
-		
 		# SUB.S (Denorm)
 		lui $t0, 0x0100
 		ctc1 $t0, $f31      # Enable flush to zero on denorm.

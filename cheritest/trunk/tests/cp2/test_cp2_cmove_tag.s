@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -44,8 +45,11 @@ test:		.ent test
 
 		# Put a non-zero value in c2.base, so we can tell when
 		# c2 has been changed.
-		dli		$t0, 0x100
-		cincbase	$c2, $c0, $t0
+		cgetdefault $c2
+		dla		$t0, data
+		csetoffset	$c2, $c2, $t0
+		dli	$t0, 8
+		csetbounds $c2, $c2, $t0
 
 		# Clear c1's tag bit
 		ccleartag $c1, $c0
@@ -63,3 +67,7 @@ test:		.ent test
 		jr	$ra
 		nop			# branch-delay slot
 		.end	test
+
+		.data
+		.align 3
+data:		.dword 0

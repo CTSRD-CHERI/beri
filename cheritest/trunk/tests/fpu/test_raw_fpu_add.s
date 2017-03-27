@@ -37,8 +37,11 @@
 		.ent start
 start:     
 		# First enable CP1 
-		dli $t1, 1 << 29
-		or $at, $at, $t1    # Enable CP1    
+		mfc0 $at, $12
+		dli $t1, 1 << 29	# Enable CP1
+		or $at, $at, $t1
+		dli $t1, 1 << 26	# Put FPU into 64 bit mode
+		or $at, $at, $t1
 		mtc0 $at, $12 
 		nop
 		nop
@@ -58,40 +61,6 @@ start:
 		dmtc1 $t2, $f13
 		add.D $f13, $f13, $f13
 		dmfc1 $s0, $f13
-
-		# ADD.PS
-		lui $t0, 0x3F80
-		dsll $t0, $t0, 32   # 1.0
-		ori $t1, $0, 0x4000
-		dsll $t1, $t1, 16   # 2.0
-		or $t0, $t0, $t1
-		dmtc1 $t0, $f15
-		# Loading (-6589.89, 4.89)
-		add $s2, $0, $0
-		ori $s2, $s2, 0xC5CD
-		dsll $s2, $s2, 16
-		ori $s2, $s2, 0xEF1F
-		dsll $s2, $s2, 16
-		ori $s2, $s2, 0x409C
-		dsll $s2, $s2, 16
-		ori $s2, $s2, 0x7AE1
-		dmtc1 $s2, $f0
-		# Loading (6589.89, 47.3)
-		add $s2, $0, $0
-		ori $s2, $s2, 0x45CD
-		dsll $s2, $s2, 16
-		ori $s2, $s2, 0xEF1F
-		dsll $s2, $s2, 16
-		ori $s2, $s2, 0x423D
-		dsll $s2, $s2, 16
-		ori $s2, $s2, 0x3333
-		dmtc1 $s2, $f1
-		# These are deliberately sequential to test that using one
-		# megafunction works properly
-		add.ps $f15, $f15, $f15
-		add.ps $f0, $f0, $f1
-		dmfc1 $s2, $f0
-		dmfc1 $s3, $f15
 
 		# ADD.S (Denorm)
 		lui $t0, 0x0100

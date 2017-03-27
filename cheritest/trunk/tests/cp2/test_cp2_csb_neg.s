@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -45,8 +46,12 @@ test:		.ent test
 		# Make $c1 a capability for the variable 'data'
 		#
 
+		cgetdefault $c1
 		dla $t0, data
-		cincbase $c1, $c0, $t0
+		csetoffset $c1, $c1, $t0
+		dli $t0, 8
+		csetbounds $c1, $c1, $t0
+		
 
 		#
 		# Store a value in array 'data' using a negative offset

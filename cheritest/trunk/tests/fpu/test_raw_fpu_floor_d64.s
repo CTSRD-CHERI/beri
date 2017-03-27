@@ -52,31 +52,31 @@ start:
 		dsll $t0, $t0, 32
 		dmtc1 $t0, $f2
 		floor.w.d $f2, $f2
-		dmfc1 $a0, $f2
+		mfc1 $a0, $f2
 
 		lui $t0, 0xbfe0 # -0.5
 		dsll $t0, $t0, 32
 		dmtc1 $t0, $f2
 		floor.w.d $f2, $f2
-		dmfc1 $a1, $f2
+		mfc1 $a1, $f2
 
 		lui $t0, 0xbfd0 # -0.25
 		dsll $t0, $t0, 32
 		dmtc1 $t0, $f2
 		floor.w.d $f2, $f2
-		dmfc1 $a2, $f2
+		mfc1 $a2, $f2
 
 		lui $t0, 0x3fe0 # 0.5
 		dsll $t0, $t0, 32
 		dmtc1 $t0, $f2
 		floor.w.d $f2, $f2
-		dmfc1 $a3, $f2
+		mfc1 $a3, $f2
 
 		lui $t0, 0x3ff8 # 1.5
 		dsll $t0, $t0, 32
 		dmtc1 $t0, $f2
 		floor.w.d $f2, $f2
-		dmfc1 $a4, $f2
+		mfc1 $a4, $f2
 
 
 		# Dump registers on the simulator (gxemul dumps regs on exit)

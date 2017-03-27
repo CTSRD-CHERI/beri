@@ -30,18 +30,22 @@ from nose.plugins.attrib import attr
 
 class test_msubu(BaseBERITestCase):
 
+    @attr('madd')
     def test_msubu_1(self):
 	'''Test high word of msubu result, positive argument'''
         self.assertRegisterEqual(self.MIPS.a0, 0, "msubu gave incorrect result")
 
+    @attr('madd')
     def test_msubu_2(self):
 	'''Test low word of msubu result, positive argument'''
         self.assertRegisterEqual(self.MIPS.a1, 4, "msubu gave incorrect result")
 
+    @attr('madd')
     def test_msubu_3(self):
         '''Test high word of msubu result, negative argument'''
         self.assertRegisterEqual(self.MIPS.a2, 0xfffffffffffffffe, "msubu gave incorrect result")
 
+    @attr('madd')
     def test_msub_4(self):
         '''Test low word of msubu result, negative argument'''
         self.assertRegisterEqual(self.MIPS.a3, 6, "msubu gave incorrect result")

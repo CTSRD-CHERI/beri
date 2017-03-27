@@ -92,6 +92,7 @@ typedef struct pism_device	pism_device_t;
 typedef struct pism_module	pism_module_t;
 
 struct pism_module	*pism_module_lookup(const char *);
+void	*pism_dev_get_private(uint8_t busno, const char *name);
 
 typedef bool		pism_mod_init_t(pism_module_t *);
 

@@ -30,33 +30,41 @@ from nose.plugins.attrib import attr
 
 class test_exception_bev1_trap(BaseBERITestCase):
     @attr('bev1')
+    @attr('bev1ram')
     def test_epc(self):
         self.assertRegisterEqual(self.MIPS.a0, self.MIPS.a5, "EPC not set properly")
 
     @attr('bev1')
+    @attr('bev1ram')
     def test_returned(self):
         self.assertRegisterEqual(self.MIPS.a1, 1, "flow broken by trap instruction")
 
     @attr('bev1')
+    @attr('bev1ram')
     def test_bev1_handled(self):
         self.assertRegisterEqual(self.MIPS.a2, 1, "ROM exception handler not run")
 
     @attr('bev1')
+    @attr('bev1ram')
     def test_bev0_not_handled(self):
         self.assertRegisterNotEqual(self.MIPS.a6, 1, "RAM exception handler run")
 
     @attr('bev1')
+    @attr('bev1ram')
     def test_exl_in_handler(self):
         self.assertRegisterEqual((self.MIPS.a3 >> 1) & 0x1, 1, "EXL not set in exception handler")
 
     @attr('bev1')
+    @attr('bev1ram')
     def test_cause_bd(self):
         self.assertRegisterEqual((self.MIPS.a4 >> 31) & 0x1, 0, "Branch delay (BD) flag improperly set")
 
     @attr('bev1')
+    @attr('bev1ram')
     def test_cause_code(self):
         self.assertRegisterEqual((self.MIPS.a4 >> 2) & 0x1f, 13, "Code not set to Tr")
 
     @attr('bev1')
+    @attr('bev1ram')
     def test_not_exl_after_handler(self):
         self.assertRegisterEqual((self.MIPS.a7 >> 1) & 0x1, 0, "EXL still set after ERET")

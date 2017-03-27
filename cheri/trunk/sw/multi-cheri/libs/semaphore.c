@@ -34,6 +34,7 @@
 void semaphore_init(semaphore_t * semaphore, long unsigned int amnt)
 {
     *semaphore = amnt;
+    asm volatile ("sync           \n");
 }
 
 void semaphore_wait(semaphore_t * semaphore)
@@ -46,6 +47,7 @@ void semaphore_wait(semaphore_t * semaphore)
         "beqz   $9, semaphore_decrement \n"
         "wait_others:                   \n"
         "ld     $8, 0(%0)               \n"
+        "sync                           \n"
         "bnez   $8, wait_others         \n"
     : /* output operands */
     :"r"(semaphore) /* input operandss */

@@ -1,5 +1,6 @@
 #
 # Copyright (c) 2013-2014 Alan A. Mujumdar
+# Copyright (c) 2015-2017 Alexandre Joannou
 # Copyright (c) 2014 SRI International
 # Copyright (c) 2012 Benjamin Thorner
 # Copyright (c) 2013-2015 Colin Rothwell
@@ -92,10 +93,11 @@
 # "make test" runs the tests through CHERI
 # "make gxemul-test" runs the tests through gxemul
 #
-TEST_CP2?=0
-CLANG?=0
+TEST_CP2?=1
+CLANG?=1
 MULTI?=0
 MT?=0
+STATCOUNTERS?=0
 DMA?=0
 DMA_VIRT?=0
 RMA?=0
@@ -104,7 +106,32 @@ FUZZ_DMA_ONLY?=0
 # Can be set to 1 on command line to disable fuzz tests, which can be useful at times.
 NOFUZZ?=0
 NOFUZZR?=0
+CAP_SIZE?=256
+PERM_SIZE?=31
+L3_SIM?=l3mips
+SAIL_DIR?=~/bitbucket/sail
+SAIL_MIPS_SIM=$(SAIL_DIR)/src/run_mips.native
+SAIL_CHERI_SIM=$(SAIL_DIR)/src/run_cheri.native
+SAIL_CHERI128_SIM=$(SAIL_DIR)/src/run_cheri128.native
+CC?=gcc
 
+ifeq ($(CAP_SIZE),256)
+CAP_PRECISE?=1
+else
+CAP_PRECISE?=0
+endif
+
+ifeq ($(CAP_SIZE),128)
+CLANG_CC?=clang -mllvm -cheri128
+else
+CLANG_CC?=clang
+endif
+
+ifeq ($(CAP_SIZE),128)
+QEMU?=qemu-system-cheri128
+else
+QEMU?=qemu-system-cheri
+endif
 
 #
 # List of directories in which to find test source and .py files.
@@ -124,12 +151,20 @@ TESTDIRS=					\
 		$(TESTDIR)/pic			\
 		$(TESTDIR)/dma			
 
+ifeq ($(CLANG),1)
+TESTDIRS+= $(TESTDIR)/cframework
+endif
+
 ifeq ($(MULTI),1)
 TESTDIRS+= $(TESTDIR)/multicore
 endif
 
 ifeq ($(MT),1)
 TESTDIRS+= $(TESTDIR)/mt
+endif
+
+ifeq ($(STATCOUNTERS),1)
+TESTDIRS+= $(TESTDIR)/statcounters
 endif
 
 ifneq ($(NOFUZZ),1)
@@ -333,6 +368,7 @@ RAW_LLSC_FILES=					\
 		test_raw_scd.s
 
 RAW_CP0_FILES=					\
+		test_raw_eret_error.s		\
 		test_raw_mfc0_dmfc0.s		\
 		test_raw_mtc0_sign_extend.s
 
@@ -343,12 +379,14 @@ RAW_FPU_FILES =					\
 		test_raw_fpu_cntrl.s		\
 		test_raw_fpu_abs.s		\
 		test_raw_fpu_abs_qnan.s		\
+		test_raw_fpu_abs_2008.s		\
 		test_raw_fpu_add.s		\
 		test_raw_fpu_sub.s		\
 		test_raw_fpu_mul.s		\
 		test_raw_fpu_div.s		\
 		test_raw_fpu_neg.s		\
 		test_raw_fpu_neg_qnan.s		\
+		test_raw_fpu_neg_2008.s		\
 		test_raw_fpu_recip.s		\
 		test_raw_fpu_sqrt.s		\
 		test_raw_fpu_rsqrt.s		\
@@ -361,10 +399,9 @@ RAW_FPU_FILES =					\
 		test_raw_fpu_cole.s		\
 		test_raw_fpu_cule.s		\
 		test_raw_fpu_branch.s		\
+		test_raw_fpu_blikely.s		\
 		test_raw_fpu_mov_gpr.s		\
 		test_raw_fpu_mov_cc.s		\
-		test_raw_fpu_pair.s		\
-		test_raw_fpu_cvt_paired.s	\
 		test_raw_fpu_add_d32.s		\
 		test_raw_fpu_sub_d32.s		\
 		test_raw_fpu_mul_d32.s		\
@@ -385,6 +422,7 @@ RAW_FPU_FILES =					\
 		test_raw_fpu_cueq_d64.s		\
 		test_raw_fpu_cule_d64.s		\
 		test_raw_fpu_cult_d64.s		\
+		test_raw_fpu_cvt_single.s	\
 		test_raw_fpu_round_single.s	\
 		test_raw_fpu_ceil_single.s	\
 		test_raw_fpu_floor_single.s	\
@@ -418,6 +456,9 @@ RAW_FPU_FILES =					\
 		test_fpu_x_ldc1_disabled.s	\
 		test_fpu_x_mthc1.s		\
 		test_fpu_x_reserved.s		\
+		test_fpu_x_multiop_disabled.s	\
+		test_fpu_x_multiop_disabled2.s	\
+		test_fpu_x_multiop_disabled3.s	\
 		test_raw_fpu_bc1t_pipeline.s	\
 		test_raw_fpu_movt_s_pipeline.s	\
 		test_raw_fpu_movf_s_pipeline.s	\
@@ -432,7 +473,43 @@ RAW_FPU_FILES =					\
 		test_raw_fpu_sub_inf_single.s	\
 		test_raw_fpu_mul_inf_single.s	\
 		test_raw_fpu_div_inf_single.s	\
-		test_raw_fpu_infinity_single.s
+		test_raw_fpu_infinity_single.s	\
+		test_raw_fpu_trunc_nan_single.s \
+		test_raw_fpu_trunc_nan_d64.s	\
+		test_raw_fpu_trunc_w_d_nan_d64.s \
+		test_raw_fpu_round_nan_single.s \
+		test_raw_fpu_ceil_nan_single.s \
+		test_raw_fpu_floor_nan_single.s \
+		test_raw_fpu_fir.s \
+		test_raw_fpu_fccr.s \
+		test_raw_fpu_fexr.s \
+		test_raw_fpu_fenr.s \
+		test_raw_fpu_madd_single.s \
+		test_raw_fpu_madd_d64.s	\
+		test_raw_fpu_mtc1_ex.s \
+		test_raw_fpu_mov_ex.s \
+		test_raw_fpu_add_inf_d64.s \
+		test_raw_fpu_rounding_mode.s
+
+RAW_PS_FILES=\
+		test_raw_fpu_abs_ps.s		\
+		test_raw_fpu_add_ps.s		\
+		test_raw_fpu_sub_ps.s		\
+		test_raw_fpu_neg_ps.s		\
+		test_raw_fpu_mul_ps.s		\
+		test_raw_fpu_pair.s		\
+		test_raw_fpu_cvt_paired.s	\
+		test_raw_fpu_mov_ps.s \
+		test_raw_fpu_movc_ps.s \
+		test_raw_fpu_movcc_ps.s \
+		test_raw_fpu_ceq_ps.s \
+		test_raw_fpu_cf_ps.s \
+		test_raw_fpu_cole_ps.s \
+		test_raw_fpu_colt_ps.s \
+		test_raw_fpu_cueq_ps.s \
+		test_raw_fpu_cule_ps.s \
+		test_raw_fpu_cult_ps.s \
+		test_raw_fpu_cun_ps.s
 
 RAW_TRACE_FILES=test_raw_trace.s
 
@@ -459,12 +536,18 @@ TEST_FRAMEWORK_FILES=				\
 		test_movz_movn_pipeline.s	\
 		test_code_rom_relocation.s	\
 		test_code_ram_relocation.s	\
+		test_raw_jr_cachd.s
+
+ifeq ($(CLANG),1)
+C_FRAMEWORK_FILES=				\
 		test_ctemplate.c		\
 		test_casmgp.c			\
 		test_cretval.c			\
 		test_crecurse.c			\
-		test_cglobals.c			\
-		test_raw_jr_cachd.s
+		test_cglobals.c	
+else
+C_FRAMEWORK_FILES=
+endif
 
 TEST_ALU_FILES=					\
 		test_hilo.s			\
@@ -473,18 +556,30 @@ TEST_ALU_FILES=					\
 		test_ddiv.s			\
 		test_ddivu.s			\
 		test_div_zero.s			\
+		test_divu_zero.s		\
+		test_ddiv_zero.s		\
+		test_ddivu_zero.s		\
+		test_div_ex.s			\
+		test_divu_ex.s			\
 		test_mul.s			\
 		test_mul_hilo.s			\
+		test_mul_ex.s			\
 		test_mult.s			\
 		test_multu.s			\
+		test_multu_ex.s			\
 		test_dmult.s			\
 		test_dmultu.s			\
 		test_madd.s			\
 		test_msub.s			\
 		test_maddu.s			\
 		test_msubu.s			\
+		test_madd_ex.s			\
+		test_msub_ex.s			\
+		test_maddu_ex.s			\
+		test_msubu_ex.s			\
 		test_mul_div_loop.s		\
 		test_mult_exception.s		\
+		test_mult_ex.c			\
 		test_slt.s			\
 		test_slti.s			\
 		test_sltiu.s			\
@@ -504,7 +599,11 @@ TEST_MEM_FILES=					\
 		test_storeload.s		\
 		test_sync.s			\
 		test_mem_alias_data.s		\
-		test_raw_pism_truncation.s
+		test_raw_pism_truncation.s	\
+		test_lwr.s			\
+		test_lwl.s			\
+		test_swr.s			\
+		test_swl.s
 
 TEST_LLSC_FILES=				\
 		test_ll_unalign.s		\
@@ -536,6 +635,7 @@ TEST_CP0_FILES=					\
 		test_eret.s			\
 		test_exception_bev0_trap.s	\
 		test_exception_bev0_trap_bd.s	\
+		test_exception_exl.s		\
 		test_break.s			\
 		test_syscall.s			\
 		test_syscall2.s			\
@@ -553,6 +653,7 @@ TEST_CP0_FILES=					\
 		test_tlt_eq.s			\
 		test_tlt_gt.s			\
 		test_tlt_lt.s			\
+		test_tlt_overflow.s		\
 		test_tltu_eq.s			\
 		test_tltu_gt_sign.s		\
 		test_tltu_gt.s			\
@@ -577,7 +678,11 @@ TEST_CP0_FILES=					\
 		test_cp0_hwrenable.s		\
 		test_cp0_syncistep.s		\
 		test_cp0_ccres.s		\
-		test_cp0_wait.s
+		test_cp0_wait.s			\
+		test_cp0_mtc0_user.s		\
+		test_cp0_hwre_init.s		\
+		test_cp0_multiop_user.s		\
+		test_cp0_multiop_supervisor.s
 
 TEST_FPU_FILES=					\
 		test_fpu_exception_pipeline.s	\
@@ -590,19 +695,21 @@ ifeq ($(TEST_CP2),1)
 TEST_CP2_FILES=					\
 		test_cp2_reg_init.s		\
 		test_cp2_reg_name.s		\
-		test_cp2_getsettype.s		\
-		test_cp2_getincbase.s		\
-		test_cp2_getsetleng.s		\
+		test_cp2_getincoffset.s		\
 		test_cp2_getsetoffset.s		\
 		test_cp2_csetoffset_int.s	\
 		test_cp2_csetoffset_notag.s	\
+		test_cp2_csetoffset_imprecise.s \
 		test_cp2_cincoffset.s		\
 		test_cp2_cincoffset_notag.s	\
+		test_cp2_cincoffset_zero.s	\
+		test_cp2_cincoffset_imprecise.s \
 		test_cp2_getandperm.s		\
 		test_cp2_getandperm_user.s	\
 		test_cp2_getcleartag.s		\
 		test_cp2_getunsealed.s		\
 		test_cp2_getpcc.s		\
+		test_cp2_getpccsetoffset.s		\
 		test_cp2_cmove.s		\
 		test_cp2_cscr.s			\
 		test_cp2_clcr.s			\
@@ -651,7 +758,9 @@ TEST_CP2_FILES=					\
 		test_cp2_clwu_priv.s		\
 		test_cp2_clwu_unpriv.s		\
 		test_cp2_zeroex.s		\
+		test_cp2_ll_zeroex.s		\
 		test_cp2_signex.s		\
+		test_cp2_ll_signex.s		\
 		test_cp2_csealcode.s		\
 		test_cp2_csealunsealcode.s	\
 		test_cp2_csealdata.s		\
@@ -659,6 +768,8 @@ TEST_CP2_FILES=					\
 		test_cp2_c0_lwu.s		\
 		test_cp2_c0_lhu.s		\
 		test_cp2_c0_lbu.s		\
+		test_cp2_c0_ll.s		\
+		test_cp2_c0_lld.s		\
 		test_cp2_csd_unpriv.s		\
 		test_cp2_csw_unpriv.s		\
 		test_cp2_csh_unpriv.s		\
@@ -683,13 +794,24 @@ TEST_CP2_FILES=					\
 		test_cp2_c0_notag.s		\
 		test_cp2_c0_perm.s		\
 		test_cp2_c0_sealed.s		\
+		test_cp2_cllc.s			\
 		test_cp2_clld.s			\
+		test_cp2_cllw.s			\
+		test_cp2_cllh.s			\
+		test_cp2_cllb.s			\
+		test_cp2_cllc_span.s		\
 		test_cp2_clld_span.s		\
+		test_cp2_cllw_span.s		\
+		test_cp2_cllw_span.s		\
+		test_cp2_cllh_span.s		\
+		test_cp2_cllb_span.s		\
 		test_cp2_ccall.s		\
 		test_cp2_creturn_trap.s		\
 		test_cp2_ccall2.s		\
+		test_cp2_ccall_fast.s		\
 		test_cp2_cbtu.s			\
 		test_cp2_cbts.s			\
+		test_cp2_cbnz.s			\
 		test_cp2_ceq.s			\
 		test_cp2_cne.s			\
 		test_cp2_clt.s			\
@@ -698,6 +820,7 @@ TEST_CP2_FILES=					\
 		test_cp2_cleu.s			\
 		test_cp2_branchtag.s		\
 		test_cp2_floatstore.s		\
+		test_cp2_clb_neg.s		\
 		test_cp2_csb_neg.s		\
 		test_cp2_csetcause.s		\
 		test_cp2_sbx_j.s		\
@@ -709,8 +832,24 @@ TEST_CP2_FILES=					\
 		test_cp2_ctoptr_null.s		\
 		test_cp2_ctoptr_zero.s		\
 		test_cp2_ctoptr_bounds.s	\
-		test_cp2_ctoptr_tag.s	\
+		test_cp2_ctoptr_tag.s		\
 		test_cp2_cfromptr_null.s	\
+		test_cp2_csetbounds.s		\
+		test_cp2_csetbounds_large.s	\
+		test_cp2_csetbounds_cases.s		\
+		test_cp2_ceqex.s		\
+		test_cp2_cfromptr_imprecise.s	\
+		test_cp2_csub.s			\
+		test_cp2_data_as_cap.s		\
+		test_cp2_cscr_offset.s		\
+		test_cp2_ldl_unalign.s		\
+		test_cp2_kcc_base.s		\
+		test_cp2_clcr_null.s		\
+		test_cp2_cunseal_global.s	\
+		test_cp2_clcr_otype.s		\
+		test_cp2_c0_sc.s		\
+		test_cp2_cseal_large.s		\
+		test_cp2_cjalr_delay.s		\
 		test_cp2_x_bounds.s		\
 		test_cp2_x_clbu_tag.s		\
 		test_cp2_x_clbu_reg.s		\
@@ -720,7 +859,9 @@ TEST_CP2_FILES=					\
 		test_cp2_x_csc_align.s		\
 		test_cp2_x_csc_vaddr.s		\
 		test_cp2_x_csc_ephemeral.s	\
+		test_cp2_x_cscc_local.s		\
 		test_cp2_csc_ephemeral_invalid.s\
+		test_cp2_x_cscc_perm.s		\
 		test_cp2_x_csc_perm.s		\
 		test_cp2_x_csc_underflow.s	\
 		test_cp2_x_clc_perm.s		\
@@ -728,8 +869,11 @@ TEST_CP2_FILES=					\
 		test_cp2_x_clc_vaddr.s		\
 		test_cp2_x_clc_priority.s	\
 		test_cp2_x_clc_bounds.s		\
+		test_cp2_x_clc_underflow.s	\
 		test_cp2_x_cunseal_otype.s	\
 		test_cp2_x_cunseal_perm.s	\
+		test_cp2_x_cseal_length.s	\
+		test_cp2_x_cseal_otype.s	\
 		test_cp2_x_csealdata_tag.s	\
 		test_cp2_x_csealdata_reg.s	\
 		test_cp2_x_csealdata_perm.s	\
@@ -740,42 +884,93 @@ TEST_CP2_FILES=					\
 		test_cp2_x_cgetperm_reg.s	\
 		test_cp2_x_cgettype_reg.s	\
 		test_cp2_x_cgetpcc_reg.s	\
+		test_cp2_x_cgetpccsetoffset_reg.s	\
 		test_cp2_x_cgetcause_perm.s	\
 		test_cp2_x_csetcause_perm.s	\
-		test_cp2_x_cincbase_tag.s	\
-		test_cp2_x_csetlen_tag.s	\
 		test_cp2_x_candperm_tag.s	\
 		test_cp2_x_cjalr_tag.s		\
+		test_cp2_x_cjalr_sealed.s	\
+		test_cp2_x_cjalr_reg.s		\
+		test_cp2_x_cjalr_reg2.s		\
+		test_cp2_x_cjalr_length.s	\
+		test_cp2_x_cjalr_length2.s	\
 		test_cp2_cunseal_ephemeral.s	\
 		test_cp2_x_cunseal_unsealed.s	\
+		test_cp2_x_cunseal_sealed.s	\
+		test_cp2_x_cunseal_bounds.s	\
 		test_cp2_x_cld_priority.s	\
 		test_cp2_x_cld_pri2.s		\
 		test_cp2_x_fetch.s		\
 		test_cp2_x_cjalr_perm.s		\
 		test_cp2_x_cjr_ephemeral.s	\
+		test_cp2_x_cjr_length.s		\
+		test_cp2_x_cjr_reg.s		\
+		test_cp2_x_cjr_tag.s		\
+		test_cp2_x_cjr_sealed.s		\
+		test_cp2_x_cjr_perm.s		\
 		test_cp2_x_cjalr_ephemeral.s	\
 		test_cp2_x_sb_perm.s		\
 		test_cp2_x_lb_perm.s		\
 		test_cp2_x_lb_tag.s		\
 		test_cp2_x_lb_sealed.s		\
-		test_cp2_x_cincbase_delay.s	\
-		test_cp2_x_cincbase_delay2.s	\
+		test_cp2_x_csetbounds_delay.s	\
+		test_cp2_x_csetbounds_delay2.s	\
 		test_cp2_x_cbtu_reg.s		\
+		test_cp2_x_cbtu_length.s	\
 		test_cp2_x_cbts_reg.s		\
-		test_cp2_x_csettype_perm.s	\
-		test_cp2_x_csettype_bounds.s	\
+		test_cp2_x_cbts_length.s	\
 		test_cp2_x_swc1_perm.s		\
 		test_cp2_x_sdc1_perm.s		\
+		test_cp2_x_lwc1_perm.s		\
+		test_cp2_x_ldc1_perm.s		\
+		test_cp2_x_lwxc1_perm.s		\
+		test_cp2_x_ldxc1_perm.s		\
 		test_cp2_disabled_exception.s	\
 		test_cp2_x_ccheckperm.s		\
 		test_cp2_x_ccheckperm_2.s	\
 		test_cp2_x_cchecktype.s		\
 		test_cp2_x_clc_tlb.s		\
 		test_cp2_x_csc_tlb.s		\
+		test_cp2_x_cllc_tlb.s		\
 		test_cp2_csc_tlb.s		\
 		test_cp2_x_csetoffset_sealed.s	\
 		test_cp2_x_cincoffset_sealed.s	\
-		test_cp2_x_ccall_type
+		test_cp2_x_ccall_type.s		\
+		test_cp2_x_ccall_tag.s		\
+		test_cp2_x_jr_imprecise.s	\
+		test_cp2_x_csetbounds_length.s	\
+		test_cp2_x_csetbounds_base.s	\
+		test_cp2_x_csetbounds_overflow.s \
+		test_cp2_x_csetbounds_underflow.s \
+		test_cp2_x_clb_disabled.s	\
+		test_cp2_x_multiop_disabled.s	\
+		test_cp2_x_multiop_tag.s	\
+		test_cp2_x_multiop_sealed.s	\
+		test_cp2_x_multiop_reg.s	\
+		test_cp2_x_multiop_reg2.s	\
+		test_cp2_x_multiop_adel.s	\
+		test_cp2_x_multiop_ades.s	\
+		test_cp2_x_multiop_permit_load.s \
+		test_cp2_x_multiop_permit_store.s \
+		test_cp2_x_multiop_length.s \
+		test_cp2_x_cptrcmp_unimp.s \
+		test_cp2_x_ld_align.s \
+		test_cp2_x_ld_len.s \
+		test_cp2_x_cjr_delay.s \
+		test_cp2_x_cllc_perm.s \
+		test_cp2_x_clearreg_unimp.s \
+		test_cp2_x_c0_multiop_perm.s \
+		test_cp2_x_cseal_imprecise.s \
+		test_cp2_x_cclearreg_reg.s \
+		test_cp2_x_exl_pcc.s \
+		test_cp2_clearregs_gplo.s \
+		test_cp2_clearregs_gphi.s \
+		test_cp2_clearregs_caplo.s \
+		test_cp2_clearregs_caphi.s \
+		test_cp2_cap_as_data.s \
+		test_cp2_fast_rep_check.s \
+		test_cp2_csetoffset_fastcheck.s \
+		test_cp2_exception_exl.s
 endif
 
 TEST_ALU_OVERFLOW_FILES=			\
@@ -801,6 +996,7 @@ TEST_MEM_UNALIGN_FILES=				\
 		test_lh_unalign.s		\
 		test_lw_unalign.s		\
 		test_ld_unalign.s		\
+		test_ld_unalign_ok.s		\
 		test_sh_unalign.s		\
 		test_sw_unalign.s		\
 		test_sd_unalign.s		\
@@ -814,6 +1010,7 @@ TEST_TLB_FILES=					\
 		test_tlb_load_0.s		\
 		test_tlb_load_1.s		\
 		test_tlb_load_1_large_page.s	\
+		test_tlb_large_page.s		\
 		test_tlb_probe.s		\
 		test_tlb_exception_fill.s	\
 		test_tlb_instruction_miss.s	\
@@ -825,12 +1022,19 @@ TEST_TLB_FILES=					\
 		test_tlb_user_mode.s		\
 		test_tlb_invalid_load.s		\
 		test_tlb_invalid_store.s	\
+		test_tlb_invalid_store_h.s	\
 		test_tlb_addrerr_load.s		\
 		test_tlb_addrerr_store.s	\
 		test_tlb_wired.s                \
 		test_tlb_ext_enable.s		\
 		test_tlb_tlbwr.s		\
-		test_tlb_tlbwr_ext.s
+		test_tlb_tlbwr_ext.s		\
+		test_tlb_tlbr_ext.s		\
+		test_tlb_x_mask.s		\
+		test_tlb_initial.s		\
+		test_tlb_multiop_miss.s		\
+		test_tlb_xkseg.s		\
+		test_tlb_xksseg.s
 
 TEST_TRAPI_FILES=				\
 		test_teqi_eq.s			\
@@ -903,7 +1107,9 @@ TEST_CLANG_FILES=				\
 		test_clang_opaque.c		\
 		test_clang_load_float.c		\
 		test_clang_load_double.c	\
-		test_clang_pack.c
+		test_clang_pack.c		\
+		test_clang_sub.c		\
+		test_clang_intcap.c
 else
 TEST_CLANG_FILES=
 endif
@@ -922,7 +1128,8 @@ TEST_MULTICORE_FILES=				\
 		test_mc_llsc_alias.s		\
 		test_mc_core0_first.s		\
 		test_mc_core0_last.s		\
-		test_mc_tag_coherence.s
+		test_mc_tag_coherence.s		\
+		test_mc_addr.s
 else
 TEST_MULTICORE_FILES=
 endif
@@ -933,6 +1140,15 @@ TEST_MT_FILES=					\
 		test_mt_rdhwr.s
 else
 TEST_MT_FILES=
+endif
+
+ifeq ($(STATCOUNTERS),1)
+RAW_STATCOUNTERS_FILES=                \
+		test_raw_statcounters_reset.s   \
+		test_raw_statcounters_dcache.s  \
+		test_raw_statcounters_mipsmem.s
+else
+RAW_STATCOUNTERS_FILES=
 endif
 
 ifeq ($(RMA), 1)
@@ -989,9 +1205,11 @@ TEST_FILES=					\
 		$(RAW_DMA_FILES)		\
 		$(TEST_DMA_FILES)		\
 		$(FUZZ_DMA_FILES)		\
+		$(C_FRAMEWORK_FILES)		\
 		$(TEST_CLANG_FILES)		\
 		$(TEST_MULTICORE_FILES)		\
-		$(TEST_MT_FILES)	 	\
+		$(TEST_MT_FILES)		\
+		$(RAW_STATCOUNTERS_FILES)	\
 		$(TEST_PIC_FILES)		\
 		$(RAW_RMA_FILES)
 
@@ -1002,6 +1220,10 @@ endif
 
 ifdef COP1_ONLY
 TEST_FILES=	$(RAW_FPU_FILES) $(TEST_FPU_FILES)
+endif
+
+ifdef TEST_PS
+TEST_FILES+= $(RAW_PS_FILES)
 endif
 
 ifeq ($(FUZZ_DMA_ONLY), 1)
@@ -1035,7 +1257,8 @@ endif
 # cheri - gxemul is simply not CHERI
 #
 GXEMUL_NOSEFLAGS=-A "   \
-not llsc                \
+not allow_unaligned 	\
+and not llsc		\
 and not cache           \
 and not bev1            \
 and not trapi           \
@@ -1048,10 +1271,11 @@ and not dumpicache	\
 and not einstr		\
 and not jump_unaligned	\
 and not nofloat         \
+and not floatabs2008	\
 and not floatpaired     \
 and not floatindexed    \
 and not floatcmove      \
-and not floatfcsr       \
+and not floatfccr       \
 and not floatfenr       \
 and not floatfexr       \
 and not floatrecip      \
@@ -1059,14 +1283,17 @@ and not floatrsqrt      \
 and not float64         \
 and not floatexception  \
 and not floatechonan    \
+and not floatmadd	\
 and not smalltlb        \
 and not bigtlb          \
 and not beri1tlb	\
 and not beri2tlb	\
 and not beri1cache	\
+and not beri1oldcache	\
 and not beri2cache	\
 and not extendedtlb	\
 and not enablelargetlb  \
+and not tlbcheck	\
 and not invalidateL2    \
 and not rdhwr           \
 and not config2		\
@@ -1078,16 +1305,19 @@ and not pic		\
 and not mips_overflow 	\
 and not dma		\
 and not dmaclang	\
+and not statcounters	\
 "
 
 L3_NOSEPRED=\
-not beri \
+not newisa \
+and not allow_unaligned \
+and not beri \
 and not beriinitial \
+and not berisyncistep \
 and not counterdev \
 and not dma \
 and not dmaclang \
 and not dumpicache \
-and not float \
 and not ignorebadex \
 and not invalidateL2 \
 and not loadcachetag \
@@ -1096,20 +1326,40 @@ and not llscspan \
 and not llscnoalias \
 and not mtc0signex \
 and not swi \
-and not syncistep \
 and not smalltlb \
 and not beri2tlb \
 and not gxemultlb \
 and not beri2cache \
+and not beri1oldcache \
 and not watch \
 and not deterministic_random \
 and not noextendedtlb \
-and not csettype
+and not csettype \
+and not statcounters \
+and not tlbcheck \
+and not tlb_read_uninitialized
+
+ifdef COP1
+L3_NOSEPRED+=\
+and not nofloat \
+and not float32 \
+and not floatpaired \
+and not floatfexr \
+and not floatfenr \
+and not floatflags \
+and not floatrecip \
+and not floatrsqrt \
+and not floatexception \
+and not floatechonan \
+and not float_round_upwards
+else
+L3_NOSEPRED+=and not float
+endif
 
 ifneq ($(TEST_CP2),1)
 L3_NOSEPRED+=and not capabilities and not clang
 else
-L3_NOSEPRED+=and not ccall_hw_1
+L3_NOSEPRED+=and not ccall_hw_1 and not ccall_hw_2
 endif
 
 ifneq ($(CLANG),1)
@@ -1124,19 +1374,233 @@ ifneq ($(MT),1)
 L3_NOSEPRED+=and not mt
 endif
 
+ifneq ($(CAP_SIZE),256)
+L3_NOSEPRED+=and not cap256 and not beri1cache
+ifeq ($(CAP_PRECISE),1)
+L3_NOSEPRED+=and not cap_copy_as_data
+else
+L3_NOSEPRED+=and not cap_null_length
+endif
+endif
+
+ifneq ($(CAP_SIZE),128)
+L3_NOSEPRED+=and not cap128
+endif
+
+ifneq ($(CAP_SIZE),64)
+L3_NOSEPRED+=and not cap64
+endif
+
+ifeq ($(PERM_SIZE),23)
+L3_NOSEPRED+=and not cap_perm_31
+endif
+
+ifeq ($(PERM_SIZE),19)
+L3_NOSEPRED+=and not cap_perm_31 and not cap_perm_23
+endif
+
+ifeq ($(PERM_SIZE),15)
+L3_NOSEPRED+=and not cap_perm_31 and not cap_perm_23
+endif
+
+ifeq ($(CAP_PRECISE),1)
+L3_NOSEPRED+=and not cap_imprecise
+else
+L3_NOSEPRED+=and not cap_precise
+endif
+
+ifdef CHERI_MICRO
+L3_NOSEPRED+=and not tlb and not cache and not invalidateL2 and not bigtlb and not watch
+endif
+
 L3_NOSEFLAGS=-A "$(L3_NOSEPRED)"
-#ifdef TRACE
-#define L3_TRACE --trace 2
-#else
-#define L3_TRACE --trace 0
-#endif
+L3_NOSEFLAGS_UNCACHED=-A "$(L3_NOSEPRED) and not cached"
+
+SAIL_NOSEPRED=\
+not newisa \
+and not beri \
+and not beriinitial \
+and not berisyncistep \
+and not counterdev \
+and not dma \
+and not dmaclang \
+and not dumpicache \
+and not ignorebadex \
+and not invalidateL2 \
+and not loadcachetag \
+and not llscnotmatching \
+and not llscspan \
+and not llscnoalias \
+and not mtc0signex \
+and not swi \
+and not smalltlb \
+and not beri2tlb \
+and not gxemultlb \
+and not beri1tlb   \
+and not beri1cache \
+and not beri2cache \
+and not beri1oldcache \
+and not watch \
+and not deterministic_random \
+and not extendedtlb \
+and not csettype \
+and not statcounters \
+and not float \
+and not clang  \
+and not pic \
+and not mt \
+and not einstr \
+and not ccall_hw_2
+
+ifneq ($(CAP_SIZE),256)
+SAIL_NOSEPRED+=and not cap256
+ifeq ($(CAP_PRECISE),1)
+SAIL_NOSEPRED+=and not cap_copy_as_data
+else
+SAIL_NOSEPRED+=and not cap_null_length
+endif
+endif
+
+ifneq ($(CAP_SIZE),128)
+SAIL_NOSEPRED+=and not cap128
+endif
+
+ifneq ($(CAP_SIZE),64)
+SAIL_NOSEPRED+=and not cap64
+endif
+
+ifeq ($(CAP_PRECISE),1)
+SAIL_NOSEPRED+=and not cap_imprecise
+else
+SAIL_NOSEPRED+=and not cap_precise
+endif
+
+ifeq ($(PERM_SIZE),23)
+SAIL_NOSEPRED+=and not cap_perm_31
+endif
+
+ifeq ($(PERM_SIZE),19)
+SAIL_NOSEPRED+=and not cap_perm_31 and not cap_perm_23
+endif
+
+ifeq ($(PERM_SIZE),15)
+SAIL_NOSEPRED+=and not cap_perm_31 and not cap_perm_23
+endif
+
+SAIL_MIPS_NOSEFLAGS=-A "$(SAIL_NOSEPRED) and not capabilities"
+SAIL_CHERI_NOSEFLAGS=-A "$(SAIL_NOSEPRED)"
+SAIL_CHERI128_NOSEFLAGS=-A "$(SAIL_NOSEPRED)"
+
+QEMU_NOSEPRED=\
+not newisa \
+and not allow_unaligned \
+and not beri \
+and not beri1cache \
+and not beri1tlb \
+and not beri2cache \
+and not beri2tlb \
+and not bericcres \
+and not berisyncistep \
+and not bev1ram \
+and not countrate \
+and not gxemultlb \
+and not ccall_hw_2 \
+and not cgetpccsetoffset \
+and not config2 \
+and not config3 \
+and not counterdev \
+and not csettype \
+and not deterministic_random \
+and not dma \
+and not dmaclang \
+and not dumpicache \
+and not einstr \
+and not extendedtlb \
+and not float64initial \
+and not floatfexr \
+and not floatfirextended \
+and not floatlegacyabs \
+and not float_mov_signex \
+and not float_mtc_signex \
+and not floatnan2008 \
+and not floatpaired \
+and not floatrecipflushesdenorm \
+and not ignorebadex \
+and not invalidateL2 \
+and not largepage2 \
+and not lladdr \
+and not llscspan \
+and not loadcachetag \
+and not mt \
+and not nofloat \
+and not pic \
+and not swisync \
+and not tlbcheck \
+and not watch
+
+ifdef TEST_QEMU_R4000
+QEMU_NOSEPRED+=\
+and not floatcmove \
+and not floatfccr \
+and not floatfenr \
+and not floatindexed \
+and not floatmadd \
+and not floatrecip \
+and not floatrsqrt \
+and not madd \
+and not movz \
+and not rdhwr
+else
+QEMU_NOSEPRED+=and not nomthc1 and not nowatch
+endif
+
+ifneq ($(TEST_CP2),1)
+QEMU_NOSEPRED+=and not capabilities and not clang
+endif
+
+ifneq ($(CLANG),1)
+QEMU_NOSEPRED+=and not clang
+endif
+
+ifneq ($(CAP_SIZE), 256)
+QEMU_NOSEPRED+=and not cap256
+ifeq ($(CAP_PRECISE),1)
+QEMU_NOSEPRED+=and not cap_copy_as_data
+endif
+endif
+
+ifneq ($(CAP_SIZE), 128)
+QEMU_NOSEPRED+=and not cap128
+endif
+
+ifneq ($(CAP_SIZE), 64)
+QEMU_NOSEPRED+=and not cap64
+endif
+
+ifeq ($(CAP_PRECISE),1)
+QEMU_NOSEPRED+=and not cap_imprecise
+else
+QEMU_NOSEPRED+=and not cap_precise
+endif
+
+ifeq ($(PERM_SIZE),23)
+QEMU_NOSEPRED+=and not cap_perm_31
+endif
+ifeq ($(PERM_SIZE),19)
+QEMU_NOSEPRED+=and not cap_perm_31 and not cap_perm_23
+endif
+ifeq ($(PERM_SIZE),15)
+QEMU_NOSEPRED+=and not cap_perm_31 and not cap_perm_23
+endif
+
+QEMU_NOSEFLAGS=-A "$(QEMU_NOSEPRED)"
 
 #
 # We unconditionally terminate the simulator after TEST_CYCLE_LIMIT
 # instructions to ensure that loops terminate.  This is an arbitrary number.
 #
+#TEST_CYCLE_LIMIT?=1500000
 TEST_CYCLE_LIMIT?=1500000
-#TEST_CYCLE_LIMIT?=15000000
 
 ##############################################################################
 # No need to modify anything below this point if you are just adding new
@@ -1150,8 +1614,8 @@ CHERIROOT?=../../cheri$(BERI_VER)/trunk
 CHERIROOT_ABS:=$(realpath $(CHERIROOT))
 CHERILIBS?=../../cherilibs/trunk
 CHERILIBS_ABS:=$(realpath $(CHERILIBS))
+PISM_MODULES_PATH=$(CHERILIBS_ABS)/peripherals
 MEMCONF?=$(CHERIROOT_ABS)/memoryconfig
-TRACECONF?=$(CHERIROOT_ABS)/traceconfig
 TOOLS_DIR= ${CHERILIBS_ABS}/tools
 TOOLS_DIR_ABS:=$(realpath $(TOOLS_DIR))
 CHERICTL=$(TOOLS_DIR_ABS)/debug/cherictl
@@ -1161,31 +1625,42 @@ SIM:= ${CHERIROOT_ABS}/sim
 DTB_FILE:=$(CHERIROOT_ABS)/sim.dtb
 # Can be set to a custom value to customise tracing, which is useful to avoid filling up disks when fuzz testing.
 ifdef DEBUG
-	SIM_TRACE_OPTS?= +trace +cTrace +tlbTrace +instructionBasedCycleCounter +debug
+	SIM_TRACE_OPTS?= +regfile +trace +cTrace +tlbTrace +instructionBasedCycleCounter +debug +StatCounters
+else
+ifdef CTRACE
+	SIM_TRACE_OPTS?=+trace +cTrace +instructionBasedCycleCounter
 else
 ifdef TRACE
-	SIM_TRACE_OPTS?=+trace +cTrace +tlbTrace +instructionBasedCycleCounter +dma
+	SIM_TRACE_OPTS?=+trace +instructionBasedCycleCounter
 else
 	SIM_TRACE_OPTS?=
 endif
 endif
+endif
 NOSEPRED=not false
+NOSEPRED+=and not allow_unaligned
+NOSEPRED+=and not csettype
+NOSEPRED+=and not dumpicache
+NOSEPRED+=and not loadcachetag
+NOSEPRED+=and not errorepc
+NOSEPRED+=and not tlbcheck
 ifeq ($(BERI_VER),2)
 NOSEPRED+=and not invalidateL2only
 NOSEPRED+=and not lladdr
 NOSEPRED+=and not extendedtlb
 NOSEPRED+=and not bigtlb
+NOSEPRED+=and not csettype
 NOSEPRED+=and not gxemultlb
 NOSEPRED+=and not beri1tlb
 NOSEPRED+=and not beri1cache
-NOSEPRED+=and not largepage
-NOSEPRED+=and not dumpicache
-NOSEPRED+=and not loadcachetag
+NOSEPRED+=and not beri1oldcache
 else
+NOSEPRED+=and not alignex
 NOSEPRED+=and not noextendedtlb
 NOSEPRED+=and not smalltlb
 NOSEPRED+=and not gxemultlb
 NOSEPRED+=and not beri2tlb
+NOSEPRED+=and not beri1oldcache
 NOSEPRED+=and not beri2cache
 ifeq ($(GENERIC_L1),1)
 NOSEPRED+=and not beri1cache
@@ -1193,10 +1668,10 @@ NOSEPRED+=and not beri1cache
 # so isn't expected to work if the cache size changes.
 NOSEPRED+=and not dumpicache
 endif
-NOSEPRED+=and not syncistep
+NOSEPRED+=and not berisyncistep
 endif
 ifdef COP1
-NOSEPRED+=and not nofloat and not float32 and not floatexception and not floatflags and not floatrecipflushesdenorm and not floatri
+NOSEPRED+=and not nofloat and not float32 and not floatexception and not floatflags and not floatrecipflushesdenorm and not floatri and not floatmadd and not float_mtc_signex and not float_mov_signex and not floatabs2008 and not float_round_upwards
 ifdef WONTFIX
 NOSEPRED+=and not floatpairedrounding
 endif
@@ -1205,6 +1680,33 @@ NOSEPRED+=and not float
 endif
 ifneq ($(TEST_CP2),1)
 NOSEPRED+=and not capabilities and not clang
+else
+ifdef WONTFIX
+NOSEPRED+=and not cjalr_delay and not exception_exl
+endif
+ifneq ($(CAP_SIZE),256)
+NOSEPRED+=and not cap256 and not cap_null_length
+endif
+ifneq ($(CAP_SIZE),128)
+NOSEPRED+=and not cap128
+endif
+ifneq ($(CAP_SIZE),64)
+NOSEPRED+=and not cap64
+endif
+ifeq ($(PERM_SIZE),23)
+NOSEPRED+=and not cap_perm_31
+endif
+ifeq ($(PERM_SIZE),19)
+NOSEPRED+=and not cap_perm_31 and not cap_perm_23
+endif
+ifeq ($(PERM_SIZE),15)
+NOSEPRED+=and not cap_perm_31 and not cap_perm_23
+endif
+ifeq ($(CAP_PRECISE),1)
+NOSEPRED+=and not cap_imprecise
+else
+NOSEPRED+=and not cap_precise
+endif
 endif
 ifneq ($(CLANG),1)
 NOSEPRED+=and not clang and not dmaclang
@@ -1219,6 +1721,9 @@ NOSEPRED+=and not llscnoalias
 endif
 ifneq ($(MT),1)
 NOSEPRED+=and not mt
+endif
+ifneq ($(STATCOUNTERS),1)
+NOSEPRED+=and not statcounters
 endif
 ifdef CHERI_MICRO
 NOSEPRED+=and not tlb and not cache and not invalidateL2 and not bigtlb and not watch
@@ -1241,8 +1746,12 @@ HWSIM_LOGDIR=hwsim_log
 GXEMUL_LOGDIR=gxemul_log
 GXEMUL_BINDIR?=/usr/groups/ctsrd/gxemul/CTSRD-CHERI-gxemul-testversion
 GXEMUL_TRACE_OPTS?=-i
-GXEMUL_OPTS=-u -V -E oldtestmips -M 3072 $(GXEMUL_TRACE_OPTS) -p "end"
+GXEMUL_OPTS=-V -E oldtestmips -M 3072 $(GXEMUL_TRACE_OPTS) -p "end"
 L3_LOGDIR=l3_log
+SAIL_MIPS_LOGDIR=sail_mips_log
+SAIL_CHERI_LOGDIR=sail_cheri_log
+SAIL_CHERI128_LOGDIR=sail_cheri128_log
+QEMU_LOGDIR=qemu_log
 
 RAW_LDSCRIPT=raw.ld
 RAW_CACHED_LDSCRIPT=raw_cached.ld
@@ -1276,6 +1785,7 @@ TEST_MULTI_DUMPS := $(addsuffix _multi.dump,$(addprefix $(OBJDIR)/,$(TESTS)))
 
 TEST_PYTHON := \
 	$(addsuffix .py,$(addprefix tests/framework/,$(basename $(RAW_FRAMEWORK_FILES) $(TEST_FRAMEWORK_FILES)))) \
+	$(addsuffix .py,$(addprefix tests/cframework/,$(basename $(C_FRAMEWORK_FILES)))) \
 	$(addsuffix .py,$(addprefix tests/alu/,$(basename $(RAW_ALU_FILES) $(TEST_ALU_FILES) $(TEST_ALU_OVERFLOW_FILES)))) \
 	$(addsuffix .py,$(addprefix tests/branch/,$(basename $(RAW_BRANCH_FILES) $(TEST_BRANCH_FILES)))) \
 	$(addsuffix .py,$(addprefix tests/cp0/,$(basename $(RAW_CP0_FILES) $(TEST_CP0_FILES) $(TEST_TRAPI_FILES) $(TEST_BEV1_FILES)))) \
@@ -1285,6 +1795,7 @@ TEST_PYTHON := \
 	$(addsuffix .py,$(addprefix tests/mem/,$(basename $(RAW_MEM_FILES) $(TEST_MEM_FILES) $(TEST_MEM_UNALIGN_FILES)))) \
 	$(addsuffix .py,$(addprefix tests/tlb/,$(basename $(TEST_TLB_FILES)))) \
 	$(addsuffix .py,$(addprefix tests/mt/,$(basename $(TEST_MT_FILES)))) \
+	$(addsuffix .py,$(addprefix tests/statcounters/,$(basename $(RAW_STATCOUNTERS_FILES)))) \
 	$(addsuffix .py,$(addprefix tests/multicore/,$(basename $(TEST_MULTICORE_FILES))))
 
 CHERI_TEST_LOGS := $(addsuffix .log,$(addprefix $(LOGDIR)/,$(TESTS)))
@@ -1312,15 +1823,23 @@ L3_TEST_MULTI_LOGS := $(addsuffix _multi.log,$(addprefix \
 	$(L3_LOGDIR)/,$(TESTS)))
 L3_TEST_CACHEDMULTI_LOGS := $(addsuffix _cachedmulti.log,$(addprefix \
 	$(L3_LOGDIR)/,$(TESTS)))
+SAIL_MIPS_TEST_LOGS := $(addsuffix .log,$(addprefix \
+	$(SAIL_MIPS_LOGDIR)/,$(TESTS)))
+SAIL_CHERI_TEST_LOGS := $(addsuffix .log,$(addprefix \
+	$(SAIL_CHERI_LOGDIR)/,$(TESTS)))
+SAIL_CHERI128_TEST_LOGS := $(addsuffix .log,$(addprefix \
+	$(SAIL_CHERI128_LOGDIR)/,$(TESTS)))
+QEMU_TEST_LOGS := $(addsuffix .log,$(addprefix \
+	$(QEMU_LOGDIR)/,$(TESTS)))
 
 SIM_FUZZ_TEST_LOGS := $(filter $(LOGDIR)/test_fuzz_%, $(CHERI_TEST_LOGS))
 SIM_FUZZ_TEST_CACHED_LOGS := $(filter $(LOGDIR)/test_fuzz_%, $(CHERI_TEST_CACHED_LOGS))
 GXEMUL_FUZZ_TEST_LOGS := $(filter $(GXEMUL_LOGDIR)/test_fuzz_%, $(GXEMUL_TEST_LOGS))
 GXEMUL_FUZZ_TEST_CACHED_LOGS := $(filter $(GXEMUL_LOGDIR)/test_fuzz_%, $(GXEMUL_TEST_CACHED_LOGS))
 
-REWRITE_PISM_CONF = sed -e 's,../../cherilibs/trunk,$(CHERILIBS_ABS),' < $(1) > $(2)
-COPY_PISM_CONFS = $(call REWRITE_PISM_CONF,$(MEMCONF),$$TMPDIR/memoryconfig) && \
-		  $(call REWRITE_PISM_CONF,$(TRACECONF),$$TMPDIR/traceconfig)
+#REWRITE_PISM_CONF = sed -e 's,../../cherilibs/trunk,$(CHERILIBS_ABS),' < $(1) > $(2)
+#COPY_PISM_CONFS = $(call REWRITE_PISM_CONF,$(MEMCONF),$$TMPDIR/memoryconfig)
+COPY_PISM_CONFS = cp $(MEMCONF) $$TMPDIR/memoryconfig
 
 PREPARE_TEST = \
 	TMPDIR=$$(mktemp -d) && \
@@ -1337,6 +1856,7 @@ PREPARE_TEST = \
 
 RUN_TEST_COMMAND = \
 	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals \
+    PISM_MODULES_PATH=$(PISM_MODULES_PATH) \
 	CHERI_CONFIG=$$TMPDIR/simconfig \
 	CHERI_DTB=$(DTB_FILE) \
 	BERI_DEBUG_SOCKET_0=$(CHERISOCKET)  $(SIM) -w +regDump $(SIM_TRACE_OPTS) -m $(TEST_CYCLE_LIMIT) > \
@@ -1356,6 +1876,7 @@ RUN_TEST = $(call REPEAT_5,$(RUN_TEST_COMMAND))
 #RUN_TEST = \
 	for attempt in 0 1 2 4 5; do if \
 	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals \
+    PISM_MODULES_PATH=$(PISM_MODULES_PATH) \
 	CHERI_CONFIG=$$TMPDIR/simconfig \
 	BERI_DEBUG_SOCKET=$(CHERISOCKET) $(SIM) -V $(HOME)/$(1).vcd -w +regDump $(SIM_TRACE_OPTS) -m $(TEST_CYCLE_LIMIT) > \
 	    $(PWD)/$@; \
@@ -1387,6 +1908,7 @@ $(CHERISOCKET):
 	$(MEMCONV) bsim && \
 	$(COPY_PISM_CONFS) && \
 	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals \
+    PISM_MODULES_PATH=$(PISM_MODULES_PATH) \
 	CHERI_CONFIG=$$TMPDIR/simconfig \
 	$(SIM) &
 
@@ -1403,6 +1925,11 @@ cleantest:
 	rm -f $(GXEMUL_TEST_LOGS) $(GXEMUL_TEST_CACHED_LOGS)
 	rm -f $(ALTERA_TEST_LOGS) $(ALTERA_TEST_CACHED_LOGS)
 	rm -f $(L3_TEST_LOGS) $(L3_TEST_CACHED_LOGS)
+	rm -f $(SAIL_MIPS_TEST_LOGS)
+	rm -f $(SAIL_CHERI_TEST_LOGS)
+	rm -f $(SAIL_CHERI128_TEST_LOGS)
+	rm -f $(QEMU_TEST_LOGS)
+	rm -f $(L3_LOGDIR)/*.err
 
 clean: cleantest
 	rm -f $(TEST_INIT_OBJECT) $(TEST_INIT_CACHED_OBJECT) $(TEST_LIB_OBJECT)
@@ -1427,10 +1954,13 @@ $(TOOLS_DIR_ABS)/debug/cherictl: $(TOOLS_DIR_ABS)/debug/cherictl.c $(TOOLS_DIR_A
 # Targets for unlinked .o files.  The same .o files can be used for both
 # uncached and cached runs of the suite, so we just build them once.
 #
-$(OBJDIR)/test_%.o : test_%.s
-	#clang  -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $<
-	$(AS) -EB -march=mips64 -mabi=64 -G0 -ggdb -defsym TEST_CP2=$(TEST_CP2) -o $@ $<
 
+$(OBJDIR)/test_raw_statcounters_%.o : test_raw_statcounters_%.s
+	$(AS) -I $(TESTDIR)/statcounters -EB -march=mips64 -mabi=64 -G0 -ggdb -defsym TEST_CP2=$(TEST_CP2) -defsym CAP_SIZE=$(CAP_SIZE) -o $@ $<
+
+$(OBJDIR)/test_%.o : test_%.s macros.s
+	#$(CLANG_CC)  -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $<
+	$(AS) -EB -march=mips64 -mabi=64 -G0 -ggdb -defsym TEST_CP2=$(TEST_CP2) -defsym CAP_SIZE=$(CAP_SIZE) -o $@ $<
 
 # Put DMA model makefile into its own file. This one is already ludicrously
 # large.
@@ -1443,32 +1973,35 @@ include dmamodel.mk
 DMA_LIB_OBJS=$(OBJDIR)/DMAAsm.o $(OBJDIR)/DMAControl.o
 
 $(OBJDIR)/test_clang_dma%.o: test_clang_dma%.c $(OBJDIR)/DMAAsm.o $(OBJDIR)/DMAControl.o
-	clang -I$(DMADIR) -Werror=all -g -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $< -O3 -ffunction-sections -fno-builtin
+	$(CLANG_CC) -Ifuzz_dma -I$(DMADIR) -Werror=all -g -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $< -O3 -ffunction-sections -fno-builtin
 
 # For some reasons, these need to be explicit, not implicit
 $(OBJDIR)/DMAAsm.o: DMAAsm.c
-	clang -Werror=all -I$(DMADIR) -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $< -O3 -ffunction-sections
+	$(CLANG_CC) -Werror=all -I$(DMADIR) -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $< -O3 -ffunction-sections
 
 $(OBJDIR)/DMAControl.o: DMAControl.c
-	clang -Werror=all -I$(DMADIR) -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $< -O3 -ffunction-sections
+	$(CLANG_CC) -Werror=all -I$(DMADIR) -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $< -O3 -ffunction-sections
 endif
 
 
 # Once the assembler works, we can try this version too:
-#clang  -S -fno-pic -target cheri-unknown-freebsd -o - $<  | $(AS) -EB -march=mips64 -mabi=64 -G0 -ggdb -o $@ -
+#$(CLANG_CC)  -S -fno-pic -target cheri-unknown-freebsd -o - $<  | $(AS) -EB -march=mips64 -mabi=64 -G0 -ggdb -o $@ -
 
 $(OBJDIR)/test_clang%.o : test_clang%.c
-	clang -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $<  -O3 -ffunction-sections
+	$(CLANG_CC) -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $<  -O3 -ffunction-sections
+
+$(OBJDIR)/test_cheriabi_clang%.o : test_cheriabi_clang%.c
+	$(CLANG_CC) -c -fno-pic -target cheri-unknown-freebsd -mabi=sandbox -integrated-as -o $@ $<  -O3 -ffunction-sections
 
 $(OBJDIR)/test_%.o : test_%.c
-	mips-linux-gnu-gcc -c -EB -march=mips64 -mabi=64 -G0 -ggdb -o $@ $<
+	$(CLANG_CC) -c -fno-pic -target cheri-unknown-freebsd -integrated-as -O3 -ffunction-sections -o $@ $<
 
 $(OBJDIR)/%.o: %.s
-	$(AS) -EB -march=mips64 -mabi=64 -G0 -ggdb --defsym BERI_VER=$(BERI_VER) --defsym  TEST_CP2=$(TEST_CP2) -o $@ $<
-	#clang  -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $<
+	$(AS) -EB -march=mips64 -mabi=64 -G0 -ggdb --defsym BERI_VER=$(BERI_VER) --defsym  TEST_CP2=$(TEST_CP2) --defsym CAP_SIZE=$(CAP_SIZE) -o $@ $<
+#$(CLANG_CC)  -c -fno-pic -target cheri-unknown-freebsd -integrated-as -o $@ $<
 
 select_init: select_init.c
-	gcc -o select_init select_init.c
+	$(CC) -o select_init select_init.c
 
 #
 # Targets for ELF images
@@ -1619,10 +2152,10 @@ $(GXEMUL_LOGDIR)/%_gxemul_cached.log : $(OBJDIR)/%_cached.elf
 	    $(GXEMUL_LOG_FILTER) >$@ || true
 
 max_cycles: max_cycles.c
-	gcc -o max_cycles max_cycles.c
+	$(CC) -o max_cycles max_cycles.c
 
 l3tosim: l3tosim.c
-	gcc -o l3tosim l3tosim.c
+	$(CC) -o l3tosim l3tosim.c
 
 ifeq ($(MULTI),1)
 L3_MULTI=--nbcore 2
@@ -1631,8 +2164,35 @@ L3_MULTI=
 endif
 
 $(L3_LOGDIR)/%.log: $(OBJDIR)/%.hex l3tosim max_cycles
-	test -d $(L3_LOGDIR) || mkdir $(L3_LOGDIR)
-	l3mips --cycles `./max_cycles $@ 20000 300000` --uart-delay 0 --ignore HI --ignore LO --trace 2 $(L3_MULTI) $< 2> $@.err | ./l3tosim > $@ || true
+	mkdir -p $(L3_LOGDIR)
+ifdef TRACE
+	$(L3_SIM) --cycles `./max_cycles $@ 20000 300000` --uart-delay 0 --ignore HI --ignore LO --trace 2 $(L3_MULTI) $< 2> $@.err > $@ || true
+else
+ifdef PROFILE
+	rm -f mlmon.out
+endif
+	$(L3_SIM) --cycles `./max_cycles $@ 20000 300000` --uart-delay 0 --ignore HI --ignore LO $(L3_MULTI) $< 2> $@.err > $@ || true
+ifdef PROFILE
+	mlprof -raw true -show-line true `which $(L3_SIM)` mlmon.out > $(L3_LOGDIR)/$*.cover
+endif
+endif
+
+$(SAIL_MIPS_LOGDIR)/%.log: $(OBJDIR)/%.elf $(SAIL_MIPS_SIM) max_cycles
+	mkdir -p $(SAIL_MIPS_LOGDIR)
+	-$(SAIL_MIPS_SIM) --quiet --max_instruction `./max_cycles $@ 20000 300000` --file $< > $@ 2>&1
+
+$(SAIL_CHERI_LOGDIR)/%.log: $(OBJDIR)/%.elf $(SAIL_CHERI_SIM) max_cycles
+	mkdir -p $(SAIL_CHERI_LOGDIR)
+	-$(SAIL_CHERI_SIM) --quiet --max_instruction `./max_cycles $@ 20000 300000` --file $< > $@ 2>&1
+
+$(SAIL_CHERI128_LOGDIR)/%.log: $(OBJDIR)/%.elf $(SAIL_CHERI128_SIM) max_cycles
+	mkdir -p $(SAIL_CHERI128_LOGDIR)
+	-$(SAIL_CHERI128_SIM) --quiet --max_instruction `./max_cycles $@ 20000 300000` --file $< > $@ 2>&1
+
+$(QEMU_LOGDIR)/%.log: $(OBJDIR)/%.elf
+	mkdir -p $(QEMU_LOGDIR)
+	$(QEMU) -D $@ -d instr -M mipssim -cpu 5Kf \
+	-kernel $(OBJDIR)/$*.elf -nographic -m 3072M -bp 0x`mips64-objdump -d $(OBJDIR)/$*.elf | awk -f end.awk` || true
 
 # Simulate a failure on all unit tests
 failnosetest: cleantest $(CHERI_TEST_LOGS)
@@ -1684,21 +2244,24 @@ nosetests_combined.xml: nosetests_uncached.xml nosetests_cached.xml xmlcat
 # file each time.
 
 nosetests_uncached.xml: $(CHERI_TEST_LOGS) $(TEST_PYTHON) FORCE
-	PYTHONPATH=tools/sim CACHED=0 nosetests --with-xunit \
-	    --xunit-file=nosetests_uncached.xml $(NOSEFLAGS_UNCACHED) \
-	    $(TESTDIRS) || true
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) CACHED=0 \
+	nosetests --with-xunit --xunit-file=nosetests_uncached.xml \
+	$(NOSEFLAGS_UNCACHED) $(TESTDIRS) || true
 
 nosetests_cached.xml: $(CHERI_TEST_CACHED_LOGS) $(TEST_PYTHON) FORCE
-	PYTHONPATH=tools/sim CACHED=1 nosetests --with-xunit \
-	    --xunit-file=nosetests_cached.xml $(NOSEFLAGS) $(TESTDIRS) || true
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) CACHED=1 \
+	nosetests --with-xunit --xunit-file=nosetests_cached.xml \
+	$(NOSEFLAGS) $(TESTDIRS) || true
 
 nosetests_multi.xml: $(CHERI_TEST_MULTI_LOGS) $(TEST_PYTHON) FORCE
-	PYTHONPATH=tools/sim MULTI1=1 nosetests --with-xunit \
-	    --xunit-file=nosetests_multi.xml $(NOSEFLAGS) $(TESTDIRS) || true
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) MULTI1=1 \
+	nosetests --with-xunit --xunit-file=nosetests_multi.xml \
+	$(NOSEFLAGS) $(TESTDIRS) || true
 
 nosetests_cachedmulti.xml: $(CHERI_TEST_CACHEDMULTI_LOGS) $(TEST_PYTHON) FORCE
-	PYTHONPATH=tools/sim MULTI1=1 CACHED=1 nosetests --with-xunit \
-	    --xunit-file=nosetests_cachedmulti.xml $(NOSEFLAGS) $(TESTDIRS) || true
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) MULTI1=1 CACHED=1 \
+	nosetests --with-xunit --xunit-file=nosetests_cachedmulti.xml \
+	$(NOSEFLAGS) $(TESTDIRS) || true
 
 altera-nosetest: all $(ALTERA_TEST_LOGS)
 	PYTHONPATH=tools/sim CACHED=0 LOGDIR=$(ALTERA_LOGDIR) nosetests \
@@ -1745,26 +2308,58 @@ nosetests_l3_multi: nosetests_l3_multi.xml
 nosetests_l3_cachedmulti: nosetests_l3_cachedmulti.xml
 
 nosetests_l3.xml: $(L3_TEST_LOGS) $(TEST_PYTHON) FORCE
-	PYTHONPATH=tools/sim LOGDIR=$(L3_LOGDIR) nosetests --with-xunit \
-	    --xunit-file=nosetests_l3.xml $(L3_NOSEFLAGS) $(TESTDIRS) || true
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) LOGDIR=$(L3_LOGDIR) \
+	nosetests --with-xunit --xunit-file=nosetests_l3.xml \
+	$(L3_NOSEFLAGS_UNCACHED) $(TESTDIRS) || true
 
 nosetests_l3_cached.xml: $(L3_TEST_CACHED_LOGS) $(TEST_PYTHON) FORCE
-	PYTHONPATH=tools/sim CACHED=1 LOGDIR=$(L3_LOGDIR) nosetests \
-	    --with-xunit --xunit-file=nosetests_l3_cached.xml $(L3_NOSEFLAGS) \
-	    $(TESTDIRS) || true
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) CACHED=1 LOGDIR=$(L3_LOGDIR) \
+	nosetests --with-xunit --xunit-file=nosetests_l3_cached.xml \
+	$(L3_NOSEFLAGS) $(TESTDIRS) || true
 
 nosetests_l3_multi.xml: $(L3_TEST_MULTI_LOGS) $(TEST_PYTHON) FORCE
-	PYTHONPATH=tools/sim MULTI1=1 LOGDIR=$(L3_LOGDIR) nosetests \
-	    --with-xunit --xunit-file=nosetests_l3_multi.xml $(L3_NOSEFLAGS) \
-            $(TESTDIRS) || true
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) MULTI1=1 LOGDIR=$(L3_LOGDIR) \
+	nosetests --with-xunit --xunit-file=nosetests_l3_multi.xml \
+	$(L3_NOSEFLAGS_UNCACHED) $(TESTDIRS) || true
 
 nosetests_l3_cachedmulti.xml: $(L3_TEST_CACHEDMULTI_LOGS) $(TEST_PYTHON) FORCE
-	PYTHONPATH=tools/sim CACHED=1 MULTI1=1 LOGDIR=$(L3_LOGDIR) nosetests \
-	    --with-xunit --xunit-file=nosetests_l3_cachedmulti.xml $(L3_NOSEFLAGS) \
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) CACHED=1 MULTI1=1 \
+	LOGDIR=$(L3_LOGDIR) nosetests --with-xunit \
+	--xunit-file=nosetests_l3_cachedmulti.xml $(L3_NOSEFLAGS) \
             $(TESTDIRS) || true
 
+nosetests_sail: nosetests_sail.xml
+nosetests_sail_cheri: nosetests_sail_cheri.xml
+nosetests_sail_cheri128: nosetests_sail_cheri128.xml
+
+nosetests_sail.xml: $(SAIL_MIPS_TEST_LOGS) $(TEST_PYTHON) FORCE
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) \
+	LOGDIR=$(SAIL_MIPS_LOGDIR) nosetests --with-xunit \
+	--xunit-file=$@ $(SAIL_MIPS_NOSEFLAGS) \
+            $(TESTDIRS) || true
+
+nosetests_sail_cheri.xml: $(SAIL_CHERI_TEST_LOGS) $(TEST_PYTHON) FORCE
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) \
+	LOGDIR=$(SAIL_CHERI_LOGDIR) nosetests --with-xunit \
+	--xunit-file=$@ $(SAIL_CHERI_NOSEFLAGS) \
+            $(TESTDIRS) || true
+
+nosetests_sail_cheri128.xml: $(SAIL_CHERI128_TEST_LOGS) $(TEST_PYTHON) FORCE
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) \
+	LOGDIR=$(SAIL_CHERI128_LOGDIR) nosetests --with-xunit \
+	--xunit-file=$@ $(SAIL_CHERI128_NOSEFLAGS) \
+            $(TESTDIRS) || true
+
+nosetests_qemu: nosetests_qemu.xml
+
+nosetests_qemu.xml: $(QEMU_TEST_LOGS) $(TEST_PYTHON) FORCE
+	PYTHONPATH=tools/sim PERM_SIZE=$(PERM_SIZE) \
+	LOGDIR=$(QEMU_LOGDIR) nosetests --with-xunit \
+	--xunit-file=$@ $(QEMU_NOSEFLAGS) \
+	$(TESTDIRS) || true
+
 xmlcat: xmlcat.c
-	gcc -o xmlcat xmlcat.c -I/usr/include/libxml2 -lxml2 -lz -lm
+	$(CC) -o xmlcat xmlcat.c -I/usr/include/libxml2 -lxml2 -lz -lm
 
 cleanerror:
 	find log -size 0 | xargs -r --verbose rm

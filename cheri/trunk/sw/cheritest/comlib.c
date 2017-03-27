@@ -5,7 +5,7 @@
  * Copyright (c) 2011-2013 Robert N. M. Watson
  * Copyright (c) 2011 Wojciech A. Koszek
  * Copyright (c) 2012 Ben Thorner
- * Copyright (c) 2013 A. Theodore Markettos
+ * Copyright (c) 2013 Theo Markettos
  * Copyright (c) 2013 Philip Withnall
  * Copyright (c) 2013 Alan A. Mujumdar
  * All rights reserved.

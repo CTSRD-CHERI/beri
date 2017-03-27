@@ -125,13 +125,21 @@ module mkPerThreadInflightCounter(PerThreadInflightCounter#(threadsT, widthT));
                 case (toDecrement.wget()) matches
                     tagged Valid .decrement: begin
                         if (increment != decrement) begin
+                            /*$display("Incrementing %d from %d", increment,*/
+                                /*counters.read(increment));*/
+                            /*$display("Decrementing %d from %d", decrement,*/
+                                /*counters.read(decrement));*/
                             counters.writeLeft(increment,
                                 counters.read(increment) + 1);
                             counters.writeRight(decrement,
-                                counters.read(increment) - 1);
+                                counters.read(decrement) - 1);
+                            dynamicAssert(counters.read(decrement) > 0,
+                                "Attempting to decrement beneath 0");
                         end
                     end
                     tagged Invalid: begin
+                        /*$display("Incrementing %d from %d", increment,*/
+                            /*counters.read(increment));*/
                         counters.writeLeft(increment,
                             counters.read(increment) + 1);
                     end
@@ -140,8 +148,12 @@ module mkPerThreadInflightCounter(PerThreadInflightCounter#(threadsT, widthT));
             tagged Invalid: begin
                 case (toDecrement.wget()) matches
                     tagged Valid .decrement: begin
+                        /*$display("Decrementing %d from %d",*/
+                            /*decrement, counters.read(decrement));*/
                         counters.writeRight(decrement,
                             counters.read(decrement) - 1);
+                        dynamicAssert(counters.read(decrement) > 0,
+                            "Attempting to decrement beneath 0");
                     end
                 endcase
             end

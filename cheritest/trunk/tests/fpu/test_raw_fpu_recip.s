@@ -37,10 +37,13 @@
 		.text
 		.global start
 		.ent start
-start:     
+start:
 		# First enable CP1 
-		dli $t1, 1 << 29
-		or $at, $at, $t1    # Enable CP1    
+		mfc0 $at, $12
+		dli $t1, 1 << 29	# Enable CP1
+		or $at, $at, $t1
+		dli $t1, 1 << 26	# Put FPU into 64 bit mode
+		or $at, $at, $t1
 		mtc0 $at, $12 
 		nop
 		nop
@@ -54,19 +57,19 @@ start:
 		lui $t0, 0x4030
 		dsll $t0, $t0, 32   # 16.0
 		dmtc1 $t0, $f19
-		recip.D $f19, $f19
+		recip.d $f19, $f19
 		dmfc1 $s0, $f19
 		
 		# RECIP.S
 		mtc1 $0, $f19       # 0.0
-		recip.S $f19, $f19
+		recip.s $f19, $f19
 		mfc1 $s1, $f19
 		
 		# RECIP.D (QNaN)
 		lui $t2, 0x7FF1
 		dsll $t2, $t2, 32   # QNaN
 		dmtc1 $t2, $f13
-		recip.D $f13, $f13
+		recip.d $f13, $f13
 		dmfc1 $s3, $f13
 		
 		# RECIP.S (Denorm)

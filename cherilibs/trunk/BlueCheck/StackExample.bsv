@@ -1,5 +1,5 @@
-/*-
- * Copyright (c) 2014 Matthew Naylor
+/* 
+ * Copyright 2015 Matthew Naylor
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -9,6 +9,10 @@
  * This software was developed by SRI International and the University of
  * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-11-C-0249
  * ("MRC2"), as part of the DARPA MRC research programme.
+ *
+ * This software was developed by the University of Cambridge Computer
+ * Laboratory as part of the Rigorous Engineering of Mainstream
+ * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
  *
  * @BERI_LICENSE_HEADER_START@
  *
@@ -119,10 +123,10 @@ DWires though.
 module mkBRAMStack (Stack#(n, a))
          provisos(Bits#(a, b));
   /* Create the block RAM */
-  BRAM_PORT#(UInt#(n), a) ram <- mkBRAMCore1(2**valueOf(n), False);
+  BRAM_PORT#(Bit#(n), a) ram <- mkBRAMCore1(2**valueOf(n), False);
 
   /* Create the stack pointer */
-  Reg#(UInt#(n)) sp <- mkReg(0);
+  Reg#(Bit#(n)) sp <- mkReg(0);
 
   /* The top stack element is stored in a register */
   Reg#(a) topReg <- mkRegU;
@@ -161,6 +165,8 @@ module mkBRAMStack (Stack#(n, a))
   method Action clear;
     sp <= 0;
   endmethod
+
+  method Bit#(n) size = sp;
 endmodule
 
 /////////////////////////
@@ -188,6 +194,7 @@ module [BlueCheck] checkStackWithReset#(Reset r) ();
   /* Implmentation instance */
   Stack#(8, Bit#(4)) imp <- mkBRAMStack(reset_by r);
 
+  equiv("clear"  , spec.clear  , imp.clear);
   equiv("pop"    , spec.pop    , imp.pop);
   equiv("push"   , spec.push   , imp.push);
   equiv("isEmpty", spec.isEmpty, imp.isEmpty);
@@ -213,7 +220,7 @@ module [BlueCheck] checkStackWithResetAndClassify#(Reset r) ();
     else maxSize <= max(maxSize, spec.size);
   endrule
 
-  addPreAction(resetMaxSize.send);
+  pre("", resetMaxSize.send);
 
   equiv("pop"    , spec.pop    , imp.pop);
   equiv("push"   , spec.push   , imp.push);
@@ -221,7 +228,7 @@ module [BlueCheck] checkStackWithResetAndClassify#(Reset r) ();
   equiv("top"    , spec.top    , imp.top);
   equiv("clear"  , spec.clear  , imp.clear);
 
-  addPostAction(classifySmall(maxSize <= 3));
+  post("", classifySmall(maxSize <= 3));
 endmodule
 
 module [Module] testStack ();
@@ -239,6 +246,25 @@ module [Module] testStackID ();
   Clock clk <- exposeCurrentClock;
   MakeResetIfc r <- mkReset(0, True, clk);
   blueCheckID(checkStackWithReset(r.new_rst), r);
+endmodule
+
+// Iterative deepening version (with extra options)
+module [Module] testStackIDCustom ();
+  Clock clk <- exposeCurrentClock;
+  MakeResetIfc r <- mkReset(0, True, clk);
+
+  // Customise default BlueCheck parameters
+  BlueCheck_Params params = bcParamsID(r);
+  params.wedgeDetect      = True;
+  params.id.initialDepth  = 3;
+  function incr(x)        = x+1;
+  params.id.incDepth      = incr;
+  params.numIterations    = 25;
+  params.id.testsPerDepth = 100;
+
+  // Generate checker
+  Stmt s <- mkModelChecker(checkStackWithReset(r.new_rst), params);
+  mkAutoFSM(s);
 endmodule
 
 // Iterative deepening version & classification
@@ -264,8 +290,8 @@ endmodule
 
 module [BlueCheck] checkStackAlgWithReset#(Reset r) ();
   /* Instances */
-  Stack#(8, UInt#(8)) s1 <- mkBRAMStack(reset_by r);
-  Stack#(8, UInt#(8)) s2 <- mkBRAMStack(reset_by r);
+  Stack#(8, Bit#(8)) s1 <- mkBRAMStack(reset_by r);
+  Stack#(8, Bit#(8)) s2 <- mkBRAMStack(reset_by r);
 
   /* This function allows us to make assertions in the properties */
   Ensure ensure <- getEnsure;
@@ -276,19 +302,19 @@ module [BlueCheck] checkStackAlgWithReset#(Reset r) ();
       ensure(s1.isEmpty);
     endseq;
 
-  function Stmt prop2(UInt#(8) x) =
+  function Stmt prop2(Bit#(8) x) =
     seq
       s1.push(x);          s2.push(x);
       ensure(!s1.isEmpty);
     endseq;
 
-  function Stmt prop3(UInt#(8) x) =
+  function Stmt prop3(Bit#(8) x) =
     seq
       s1.push(x);
       s1.pop;
     endseq;
 
-  function Stmt prop4(UInt#(8) x) =
+  function Stmt prop4(Bit#(8) x) =
     seq
       s1.push(x);          s2.push(x);
       ensure(s1.top == x);

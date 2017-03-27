@@ -48,31 +48,33 @@ test:		.ent test
 		dla	$a0, bev0_handler
 		jal	bev0_handler_install
 		nop
+		
+		dla $t0, word
 
 		#
 		# Uninterrupted access; check to make sure the right value
 		# comes back.
 		#
-		ll	$a0, word
-		sc	$a0, word
-		lwu	$a1, word
+		ll	$a0, 0($t0)
+		sc	$a0, 0($t0)
+		lwu	$a1, 0($t0)
 
 		#
 		# Check to make sure we are allowed to increment the loaded
 		# number, so we can do atomic arithmetic.
 		#
-		ll	$a3, word
+		ll	$a3, 0($t0)
 		addiu	$a3, $a3, 1
-		sc	$a3, word
-		lwu	$a4, word
+		sc	$a3, 0($t0)
+		lwu	$a4, 0($t0)
 
 		#
 		# Trap between ll and sc; check to make sure that the sc not
 		# only returns failure, but doesn't store.
 		#
-		ll	$a7, word
+		ll	$a7, 0($t0)
 		tnei	$zero, 1
-		sc	$a7, word
+		sc	$a7, 0($t0)
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

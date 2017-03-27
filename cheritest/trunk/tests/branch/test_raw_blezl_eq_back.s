@@ -31,7 +31,7 @@
 .set noat
 
 #
-# Test blez (branch on less than or equal to zero, signed), equal case and
+# Test blezl (branch on less than or equal to zero, signed), equal case and
 # backward jump.  Of course, this first requires a forward jump.
 #
 
@@ -61,6 +61,6 @@ end:
 
 forward_target:
 		li	$a0, 1		# before
-		blez	$zero, back_target
+		blezl	$zero, back_target
 		li	$a1, 2		# branch-delay slot
 		li	$a2, 3		# shouldn't run

@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2011 Michael Roe
+# Copyright (c) 2011, 2016 Michael Roe
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -56,23 +57,30 @@ test:		.ent test
 		# Permit_Store_Capability, Permit_Load_Capability,
 		# Permit_Store_Ephemeral.
 		#
+
 		dli $t0, 0x7f
 		candperm $c2, $c2, $t0
 
 		#
-		# Make $c1 a data capability starting at 8 bytes before cap1
+		# Make $c1 a data capability starting at 32 bytes before cap1
 		#
+
+		cgetdefault $c1
 		dla $t0, underflow
-		cincbase $c1, $c0, $t0
+		csetoffset $c1, $c1, $t0
+		dli	$t0, 96
+		csetbounds $c1, $c1, $t0
 
 		#
 		# Store at cap1 in memory.
 		#
-		csci	$c2, 8($c1)
+
+		csci	$c2, 32($c1)
 
 		#
 		# Load back in as general-purpose registers to check values
 		#
+
 		dla	$t0, cap1
 		# $a0 will be the perms field (0x7f) shifted left one bit,
 		# plus the u bit (0x1) giving 0xff.
@@ -96,10 +104,10 @@ test:		.ent test
 
 		.data
 		.align	5		# Must 256-bit align capabilities
-		.dword	0x0
-		.dword	0x0
-		.dword	0x0
 underflow:	.dword	0x0123456789abcdef
+		.dword	0x0
+		.dword	0x0
+		.dword	0x0
 cap1:		.dword	0x0123456789abcdef	# uperms/reserved
 		.dword	0x0123456789abcdef	# otype/eaddr
 		.dword	0x0123456789abcdef	# base

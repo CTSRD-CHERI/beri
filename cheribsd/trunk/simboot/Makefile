@@ -35,8 +35,9 @@ CHERIROOT?=../../../cheri/trunk
 CHERIROOT_ABS:=$(realpath $(CHERIROOT))
 CHERILIBS?=../../../cherilibs/trunk
 CHERILIBS_ABS:=$(realpath $(CHERILIBS))
+PISM_MODULES_PATH=$(CHERILIBS_ABS)/peripherals
 CHERICONF?=simconfig
-CHERI_SIM_OPTS?=+regDump +btrace +cTrace +instructionBasedCycleCounter
+CHERI_SIM_OPTS?=+regDump +trace +cTrace +instructionBasedCycleCounter
 TOOLS_DIR=${CHERILIBS_ABS}/tools
 TOOLS_DIR_ABS:=$(realpath $(TOOLS_DIR))
 TRACE_NAMES_ABS:=$(TOOLS_DIR_ABS)/tracing/trace_names.py
@@ -82,19 +83,21 @@ ifndef BERI_DEBUG_SOCKET_1
 endif
 ifndef CHERI_CONSOLE_SOCKET
 	@echo "Warning: CHERI_CONSOLE_SOCKET not set, using stdio"
-	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals			\
-	    CHERI_KERNEL=$(KERNEL)					\
-	    CHERI_CONFIG=$(CHERICONF)					\
-	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
-	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
+	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals:$(CHERIROOT_ABS) \
+	    CHERI_KERNEL=$(KERNEL)                                    \
+	    CHERI_CONFIG=$(CHERICONF)                                 \
+	    PISM_MODULES_PATH=$(PISM_MODULES_PATH)                    \
+	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)                \
+	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)                \
 	    ${CHERIROOT_ABS}/sim
 else
-	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals			\
-	    CHERI_KERNEL=$(KERNEL)					\
-	    CHERI_CONFIG=$(CHERICONF)					\
-	    CHERI_CONSOLE_SOCKET=$(CHERI_CONSOLE_SOCKET)		\
-	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
-	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
+	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals:$(CHERIROOT_ABS) \
+	    CHERI_KERNEL=$(KERNEL)                                    \
+	    CHERI_CONFIG=$(CHERICONF)                                 \
+	    CHERI_CONSOLE_SOCKET=$(CHERI_CONSOLE_SOCKET)              \
+	    PISM_MODULES_PATH=$(PISM_MODULES_PATH)                    \
+	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)                \
+	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)                \
 	    ${CHERIROOT_ABS}/sim
 endif
 
@@ -112,21 +115,23 @@ ifndef BERI_DEBUG_SOCKET_1
 	@echo "Warning: BERI_DEBUG_SOCKET_1 not set, only the default target will be traced"
 endif
 ifndef CHERI_CONSOLE_SOCKET
-	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals			\
-	    CHERI_KERNEL=$(KERNEL)					\
-	    CHERI_CONFIG=$(CHERICONF)					\
-	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
-	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
-	    ${CHERIROOT_ABS}/sim					\
+	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals:$(CHERIROOT_ABS) \
+	    CHERI_KERNEL=$(KERNEL)                                    \
+	    CHERI_CONFIG=$(CHERICONF)                                 \
+	    PISM_MODULES_PATH=$(PISM_MODULES_PATH)                    \
+	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)                \
+	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)                \
+	    ${CHERIROOT_ABS}/sim                                      \
 	    $(CHERI_SIM_OPTS) $(COMPRESS_TRACE) > $(CHERI_TRACE_LOG)$(TRACE_SUFFIX)
 else
-	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals			\
-	    CHERI_KERNEL=$(KERNEL)					\
-	    CHERI_CONFIG=$(CHERICONF)					\
-	    CHERI_CONSOLE_SOCKET=$(CHERI_CONSOLE_SOCKET)		\
-	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
-	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
-	    ${CHERIROOT_ABS}/sim					\
+	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals:$(CHERIROOT_ABS) \
+	    CHERI_KERNEL=$(KERNEL)                                    \
+	    CHERI_CONFIG=$(CHERICONF)                                 \
+	    CHERI_CONSOLE_SOCKET=$(CHERI_CONSOLE_SOCKET)              \
+	    PISM_MODULES_PATH=$(PISM_MODULES_PATH)                    \
+	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)                \
+	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)                \
+	    ${CHERIROOT_ABS}/sim                                      \
 	    $(CHERI_SIM_OPTS) $(COMPRESS_TRACE) > $(CHERI_TRACE_LOG)$(TRACE_SUFFIX)
 endif
 
@@ -142,15 +147,16 @@ endif
 ifndef BERI_DEBUG_SOCKET_1
 	@echo "Warning: BERI_DEBUG_SOCKET_1 not set, only the default target will be traced"
 endif
-	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals			\
-	    CHERI_KERNEL=$(KERNEL)					\
-	    CHERI_CONFIG=$(CHERICONF)					\
-	    CHERI_CONSOLE_SOCKET=$(CHERI_CONSOLE_SOCKET)		\
-	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)			\
-	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)			\
-	    ${CHERIROOT_ABS}/sim					\
-	    $(CHERI_SIM_OPTS)						\
-	    | $(TRACE_NAMES_ABS) --nm=kernel_nm.txt 			\
+	LD_LIBRARY_PATH=$(CHERILIBS_ABS)/peripherals:$(CHERILIBS_ABS) \
+	    CHERI_KERNEL=$(KERNEL)                                    \
+	    CHERI_CONFIG=$(CHERICONF)                                 \
+	    CHERI_CONSOLE_SOCKET=$(CHERI_CONSOLE_SOCKET)              \
+	    PISM_MODULES_PATH=$(PISM_MODULES_PATH)                    \
+	    BERI_DEBUG_SOCKET_0=$(BERI_DEBUG_SOCKET_0)                \
+	    BERI_DEBUG_SOCKET_1=$(BERI_DEBUG_SOCKET_1)                \
+	    ${CHERIROOT_ABS}/sim                                      \
+	    $(CHERI_SIM_OPTS)                                         \
+	    | $(TRACE_NAMES_ABS) --nm=kernel_nm.txt                   \
 	    $(COMPRESS_TRACE) > $(CHERI_TRACE_LOG)$(TRACE_SUFFIX)
 
 gxemul:

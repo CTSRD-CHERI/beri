@@ -2,6 +2,7 @@
 /*-
  * Copyright (c) 2012 Philip Paeps
  * Copyright (c) 2012 Robert N. M. Watson
+ * Copyright (c) 2015 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -62,8 +63,7 @@ int		keyword(const char *);
 int		yyerror(const char *);
 
 %}
-ID	[A-Za-z_][-A-Za-z_0-9]*
-PATH	[./][-/.%^A-Za-z_0-9]+
+ID	[A-Za-z_][-A-Za-z_0-9.]*
 %%
 {ID}		{
 			int i;
@@ -74,11 +74,6 @@ PATH	[./][-/.%^A-Za-z_0-9]+
 				return (ID);
 			}
 			return (i);
-		}
-{PATH}		{
-			BEGIN 0;
-			yylval.str = strdup(yytext);
-			return (PATH);
 		}
 \"[^"]+\"	{
 			BEGIN 0;

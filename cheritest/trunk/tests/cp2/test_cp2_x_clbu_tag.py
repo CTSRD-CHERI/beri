@@ -34,11 +34,12 @@ from nose.plugins.attrib import attr
 #
 
 class test_cp2_x_clbu_tag(BaseBERITestCase):
+
     @attr('capabilities')
     def test_cp2_x_clbu_tag_1(self):
-        '''Test clbu did not read via a untagged capability'''
+        '''Test CLBU did not read via a untagged capability'''
         self.assertRegisterEqual(self.MIPS.a0, 0,
-            "clbu read via a capability with tag bit unset")
+            "CLBU read via a capability with tag bit unset")
 
     @attr('capabilities')
     def test_cp2_x_clbu_tag_2(self):
@@ -48,13 +49,13 @@ class test_cp2_x_clbu_tag(BaseBERITestCase):
 
     @attr('capabilities')
     def test_cp2_x_clbu_tag_3(self):
-        '''Test clbu raised a C2E exception when capability tag was unset'''
+        '''Test CLBU raised a C2E exception when capability tag was unset'''
         self.assertRegisterEqual(self.MIPS.a2, 1,
-            "clbu did not raise an exception when capability tag was unset")
+            "CLBU did not raise an exception when capability tag was unset")
 
     @attr('capabilities')
     def test_cp2_x_clbu_tag_4(self):
-        '''Test capability cause is set correctly when capability tag was unset'''
+        '''Test CLBU set capability cause correctly when capability tag was unset'''
         self.assertRegisterEqual(self.MIPS.a3, 0x0201,
-            "Capability cause was not set correcly when capability tag was unset")
+            "CLBU did not set capability cause correctly when capability tag was unset")
 

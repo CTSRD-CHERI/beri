@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -51,6 +52,19 @@ test:		.ent test
 		beq	$t0, $zero, no_fpu
 		nop	# Branch delay slot
 
+                #
+                # Enable the floating point unit
+                #
+
+                mfc0 $t0, $12           # Status Register
+                li $t1, 1 << 29         # CP1 Usable
+                or $t0, $t0, $t1
+                mtc0 $t0, $12
+                nop                     # Potential pipeline hazard
+                nop
+                nop
+                nop
+
 		#
 		# Clear the BEV flag
 		#
@@ -68,17 +82,6 @@ test:		.ent test
 		dsll	$a2, 2	# convert to byte count
 		jal	memcpy
 		nop		# branch delay slot	
-
-		#
-		# Install a bev1 handler as well
-		#
-
-		dli	$a0, 0xffffffffbfc00380
-		dla	$a1, bev0_common_handler_stub
-                dli     $a2, 12 # instruction count
-                dsll    $a2, 2  # convert to byte count
-                jal     memcpy
-                nop             # branch delay slot  
 
 		# $a2 will be set to 1 if the exception handler is called
 		dli	$a2, 0

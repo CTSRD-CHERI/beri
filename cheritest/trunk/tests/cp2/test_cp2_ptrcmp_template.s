@@ -97,15 +97,23 @@ test:		.ent test
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
+		#
 		# Construct two equal capabilities with non-zero base and offset.
-		dli        $at, 0x42
-		cincbase   $c1, $c0, $at
-		cincbase   $c2, $c0, $at
-		dli        $at, 0x54
-		csetoffset $c1, $c1, $at
-		csetoffset $c2, $c2, $at
+		#
 
-		# EQUAL CAPABILITIES
+		cgetdefault $c1
+		dla	$t0, data
+		cincoffset $c1, $c1, $t0
+		dli	$t0, 16
+		csetbounds $c1, $c1, $t0
+		dli	$t0, 1
+		cincoffset $c1, $c1, $t0
+
+		cmove      $c2, $c1
+
+		#
+		# Equal capabilities
+		#
 
 		cmove      $c3, $c1
 		cmove      $c4, $c2
@@ -115,56 +123,64 @@ test:		.ent test
 		# Stash the answer
 		move       $a1, $a0
 
-                # BASES DIFFERENT, OFFSETS EQUAL
+		#
+                # Bases different, offsets equal
+		#
 
-		# Give c3 a very large/negative base (offset unchanged)
-		dli        $a0, 0x8000000000000000
-		cincbase   $c3, $c1, $a0
-		dli        $a0, 0x54
-		csetoffset $c3, $c3, $a0
-		cmove      $c4, $c2
+		dli	$t0, 15
+		csetbounds $c2, $c1, $t0
+		dli	$t0, 1
+		cincoffset $c2, $c2, $t0
+
+		cmove	$c3, $c1
+		cmove	$c4, $c2
 
 		docomparisons
 
 		# Stash the answer
 		move       $a2, $a0
 
-        	# BASES EQUAL, OFFSETS DIFFERENT
+		#
+        	# Bases equal, offsets different
+		#
 
-		# Give c3 a very large/negative offset
-		dli        $a0, 0x8000000000000000
-		csetoffset $c3, $c1, $a0
-		cmove      $c4, $c2
+		dli	$t0, 1
+		cincoffset $c2, $c1, $t0
+
+		cmove	$c3, $c1
+		cmove	$c4, $c2
 
 		docomparisons
 
 		# Stash the answer
 		move       $a3, $a0
 
-		# BASES and OFFSETS DIFFERENT, EFFECTIVE ADDRESSES DIFFERENT
+		#
+		# Bases AND offsets different, effective addresses different
+		#
 
-		# Give c3 a different base from c4
-		dli        $a0, 0x1
-		cincbase   $c3, $c1, $a0
-		# Give c3 a very large/negative offset
-		dli        $a0, 0x8000000000000000
-		csetoffset $c3, $c3, $a0
-		cmove      $c4, $c2
+		dli	$t0, 15
+		csetbounds $c2, $c1, $t0
+		dli	$t0, 2
+		cincoffset $c2, $c2, $t0
+
+		cmove	$c3, $c1
+		cmove	$c4, $c2
 
 		docomparisons
 
 		# Stash the answer
 		move       $a4, $a0
 
-		# BASES AND OFFSETS DIFFERENT, EFFECTIVE ADDRESSES EQUAL
+		#
+		# Bases and offsets different, effective addresses equal
+		#
 
-		# Give c3 a base which adds to offset to give same base+offset as c4 (with wrap around).
-		dli        $a0, 0x8000000000000053
-		cincbase   $c3, $c1, $a0
-		# Give c3 a very large or very negative offset
-		dli        $a0, 0x8000000000000001
-		csetoffset $c3, $c3, $a0
-		cmove      $c4, $c2
+		dli	$t0, 15
+		csetbounds $c2, $c1, $t0
+		
+		cmove 	$c3, $c1
+		cmove	$c4, $c1
 
 		docomparisons
 
@@ -177,3 +193,7 @@ test:		.ent test
 		jr	$ra
 		nop			# branch-delay slot
 		.end	test
+
+		.data
+data:		.dword 0
+		.dword 0

@@ -37,6 +37,10 @@ echo "mounting / rw"
 /sbin/mount -w /
 
 echo
+echo "disabling coredumps"
+sysctl kern.coredump=0
+
+echo
 echo "Done booting"
 
 exec /bin/sh

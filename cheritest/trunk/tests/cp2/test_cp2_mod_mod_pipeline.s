@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2012 Michael Roe
+# Copyright (c) 2012, 2015 Michael Roe
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -44,6 +45,7 @@ test:		.ent test
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
+		dli	$a0, 1
 		dla	$t0, cap1
 		cscr	$c0, $t0($c0)
 		dli	$t1, 0
@@ -56,8 +58,8 @@ test:		.ent test
 		nop
 		nop
 		nop
-		cincbase  $c1, $c0, $t1
-		csetlen $c1, $c1, $t1
+		cmove  $c1, $c0
+		candperm $c1, $c1, $zero
 		nop
 		nop
 		nop
@@ -65,7 +67,7 @@ test:		.ent test
 		nop
 		nop
 		nop
-		cgetlen $a0, $c1
+		cgetperm $a0, $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

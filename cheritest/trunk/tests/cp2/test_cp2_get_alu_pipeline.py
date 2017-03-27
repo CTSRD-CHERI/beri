@@ -42,12 +42,12 @@ class test_cp2_get_alu_pipeline(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_cgetlen_alu(self):
 	'''Test that cgetlen results visible to ALU'''
-	self.assertRegisterEqual(self.MIPS.t1, 0xffffffffffffffff, "cgetleng returns incorrect value")
+	self.assertRegisterEqual(self.MIPS.t1, 0xffffffffffffffff, "cgetlen returns incorrect value")
 
     @attr('capabilities')
     def test_cp2_cgetperm_alu(self):
         '''Test that cgetperm results visible to ALU'''
-        self.assertRegisterEqual(self.MIPS.t2, 0x7fffffff, "cgetperm returns incorrect value")
+        self.assertRegisterAllPermissions(self.MIPS.t2, "cgetperm returns incorrect value")
 
     @attr('capabilities')
     def test_cp2_cgettype_alu(self):

@@ -33,8 +33,11 @@ import sys
 SCRIPT_DIR = path.dirname(path.realpath(__file__))
 CHERITEST_DIR = path.dirname(SCRIPT_DIR)
 
-TEST_NAME = 'tests/fuzz_dma/test_clang_dma_gen_{0}_threads_{1}.c'
-TEST_PATH = path.join(CHERITEST_DIR, TEST_NAME)
+PHYS_TEST_NAME = 'tests/fuzz_dma/test_clang_dma_gen_{0}_threads_{1}.c'
+PHYS_TEST_PATH = path.join(CHERITEST_DIR, PHYS_TEST_NAME)
+
+VIRT_TEST_NAME = 'tests/fuzz_dma/test_clang_dma_virt_gen_{0}_threads_{1}.c'
+VIRT_TEST_PATH = path.join(CHERITEST_DIR, VIRT_TEST_NAME)
 
 TEMPLATE_FILENAME = path.join(SCRIPT_DIR, 'multithread_test_template.c')
 
@@ -51,10 +54,11 @@ def main():
         print 'CALLED PROCESS ERROR', ex.output
         sys.exit(2)
 
-    thread_count_min = int(sys.argv[1])
-    thread_count_max = int(sys.argv[2])
-    seed_min = int(sys.argv[3])
-    seed_max = int(sys.argv[4])
+    mode = sys.argv[1]
+    thread_count_min = int(sys.argv[2])
+    thread_count_max = int(sys.argv[3])
+    seed_min = int(sys.argv[4])
+    seed_max = int(sys.argv[5])
 
     thread_count = thread_count_min
     seed = seed_min
@@ -65,21 +69,25 @@ def main():
 
         fields = test_data.split('$')
         try:
-            programs = fields[0]
-            set_sources = fields[1]
-            asserts = fields[2]
-            source_addrs = fields[3]
-            dest_addrs = fields[4]
+            define_dma = fields[0]
+            programs = fields[1]
+            set_sources = fields[2]
+            asserts = fields[3]
+            source_addrs = fields[4]
+            dest_addrs = fields[5]
         except IndexError as ex:
             print 'TC {0}, SEED {1}. {2}'.format(thread_count, seed, str(ex))
             print test_data
             sys.exit(1)
 
-        with open(TEST_PATH.format(thread_count, seed), 'w') as out:
+        test_path = PHYS_TEST_PATH if mode == 'phys' else VIRT_TEST_PATH
+
+        with open(test_path.format(thread_count, seed), 'w') as out:
             out.write(template.substitute(
                 thread_count=thread_count, seed=seed,
-                source_addrs=source_addrs, dest_addrs=dest_addrs,
-                programs=programs, set_sources=set_sources, asserts=asserts))
+                define_dma=define_dma, source_addrs=source_addrs,
+                dest_addrs=dest_addrs, programs=programs,
+                set_sources=set_sources, asserts=asserts))
 
         seed += 1
         if seed > seed_max:

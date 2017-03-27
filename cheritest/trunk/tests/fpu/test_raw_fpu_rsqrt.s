@@ -37,8 +37,11 @@
 		.ent start
 start:     
 		# First enable CP1 
-		dli $t1, 1 << 29
-		or $at, $at, $t1    # Enable CP1    
+		mfc0 $at, $12
+		dli $t1, 1 << 29	# Enable CP1
+		or $at, $at, $t1
+		dli $t1, 1 << 26	# Put FPU into 64 bit mode
+		or $at, $at, $t1 
 		mtc0 $at, $12 
 		nop
 		nop
@@ -52,7 +55,7 @@ start:
 		# RSQRT.S
 		lui $t0, 0x4080     # 4.0
 		mtc1 $t0, $f23
-		rsqrt.S $f22, $f23
+		rsqrt.s $f22, $f23
 		mfc1 $s0, $f22
 
 		# RSQRT.D
@@ -70,7 +73,7 @@ start:
 		lui $t2, 0x7FF1
 		dsll $t2, $t2, 32   # QNaN
 		dmtc1 $t2, $f13
-		rsqrt.D $f13, $f13
+		rsqrt.d $f13, $f13
 		dmfc1 $s3, $f13
 
 		# END TEST

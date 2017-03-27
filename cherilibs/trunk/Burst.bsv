@@ -106,7 +106,7 @@ module mkBurst(BurstIfc ifc);
       endmethod
       method Action put(CheriMemResponse resp);
         if (resp.operation matches tagged Read .rop)
-          resp.operation = tagged Read{data: rop.data, last: last_fifo.first};
+          resp.operation = tagged Read{last: last_fifo.first};
         last_fifo.deq();
         resp_fifo.enq(resp);
       endmethod

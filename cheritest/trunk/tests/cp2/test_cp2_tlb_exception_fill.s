@@ -26,6 +26,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -42,6 +43,16 @@ test:		.ent test
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
+		# Initialise the in-memory page table to all zeros
+		dli     $t0, 0x9800000001000000
+		li      $t1, 64
+1:
+		sd      $0, 0($t0)
+		sd      $0, 8($t0)
+		dadd    $t0, 16
+		bnez    $t1, 1b
+		sub     $t1, $t1, 1
+        
 		jal	bev_clear
 		nop
 
@@ -142,8 +153,8 @@ skip_new_entry:
 		nop
 		nop
 		tlbwi							# Write Indexed to ensure a fill on every miss
-		mtc0 $at, $25
-
+#		mtc0 $at, $25           # On BERI this is magic instruction to dump TLB contents
+		nop
 		nop			# NOPs to avoid hazard with ERET
 		nop			# XXXRW: How many are actually
 		nop			# required here?

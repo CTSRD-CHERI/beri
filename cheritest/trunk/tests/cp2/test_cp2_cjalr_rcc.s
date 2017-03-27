@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -50,16 +51,16 @@ test:		.ent test
 
 		# Clear RCC. so that we can tell when PCC has been saved there
 		dli      $t0, 4
-		cincbase $c24, $c24, $t0
+		cincoffset $c24, $c24, $t0
+		csetbounds  $c24, $c24, $t0
 		csetoffset $c24, $c24, $t0
-		csetlen  $c24, $c24, $t0
 		dli      $t0, 0
 		candperm $c24, $c24, $t0
 		
 		# Jump to L1, with $pcc replaced with $c1
 		dla	$t0, L1
 		csetoffset $c1, $c1, $t0
-		cjalr	$c24, $c1
+		cjalr	$c1, $c24
 		nop			# branch delay slot
 
 L1:

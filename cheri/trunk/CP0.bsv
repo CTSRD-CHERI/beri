@@ -5,7 +5,7 @@
  * Copyright (c) 2013 Robert M. Norton
  * Copyright (c) 2013 Robert N. M. Watson
  * Copyright (c) 2013 Alan A. Mujumdar
- * Copyright (c) 2014 Alexandre Joannou
+ * Copyright (c) 2014-2017 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -67,6 +67,14 @@ typedef struct {
   (*synthesize*)
 `endif
 
+`ifdef CAP
+  `define USECAP 1
+`elsif CAP128
+  `define USECAP 1
+`elsif CAP64
+  `define USECAP 1
+`endif
+
 module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   FIFO#(C0ProReg)  readReqs          <- mkLFIFO;
   FIFOF#(Bool)     tlbReads          <- mkFIFOF;
@@ -99,7 +107,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     exl : False,    // Set by proc on an exception, forces kernel mode & disables
                     // interrupts until software sets new privilege level and
                     // interrupt mask.
-    erl : False,    // Set by proc when it gets bad data.  Not used.
+    erl : True,     // Set by proc when it gets bad data.  Not used.
     ksu : 2'b0,     // Current cpu privilege level.  0 = kernel,
                     // 1 = supervisor, 2 = user.
     ux  : True,     // user-mode uses 64-bit addressing and instructions
@@ -130,7 +138,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       cu0 : False,  // Allows user-mode to access CP0 instructions!
                     // It is assumed that coprocessor 0 is present.
       cu1 : coPro1, // If FPU is present, give access
-      cu2 : False,  // ? Might use for Capabilities ?
+      cu2 : False,  // Use for capabilities.
       cu3 : coPro1  // We implement a couple of COP1X extensions
     }
   };
@@ -140,6 +148,22 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     cpuID  : 8'h4, // CPU ID. Use 4=R4000?
     compID : 8'h0, // Company ID. Not important.
     compOp : 8'h0  // Company Options. Not important.
+  };
+
+  TlbResponse defaultTlbResponse = TlbResponse{
+    valid: False,
+    addr: 40'h200000,
+    exception: None,
+    write: True,
+    ll: False,
+    cached: True,
+    fromDebug: False,
+    priv:Kernel,
+    instId: ?
+    `ifdef USECAP
+      , noCapLoad: False,
+      noCapStore: False
+    `endif
   };
 
   Config0 defaultConfig0 = Config0{
@@ -161,7 +185,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   LxChCfg l2ChCfg = LxChCfg{
     ta : 3, // Associativity = A+1.  (A=0 for direct mapped)
     tl : 6, // Cache line size = 2*2^L.  L=0 if there is no cache. (128)
-    ts : 1, // Number of Cache index positions is 64 * 2^S. Mult by
+    ts : zeroExtend(indicesMinus6) + 2, // Number of Cache index positions is 64 * 2^S. Mult by
             // Associativity for total number of cache lines. (128)
     tu : 3  // Configuration bits.  Could be writeable.
   };
@@ -174,7 +198,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     tu : 0  // Configuration bits. Could be writeable.
   };
 
-  `ifdef CAP
+  `ifdef USECAP
     Bool coPro2 = True;
   `else
     Bool coPro2 = False;
@@ -230,14 +254,14 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
 
   // This register is inferred from nlm's source code in freeBSD
   Config6 defaultConfig6 = Config6{
-    tlbSize : 143,
+    tlbSize : 271,
     zerosB  : 0,
     enableLargeTlb: False,
     zerosA  : 0
   };
 
   TlbEntryLo defaulttlbEntryLo = TlbEntryLo{
-    `ifdef CAP
+    `ifdef USECAP
       noCapLoad : False,
       noCapStore : False,
     `endif
@@ -280,13 +304,19 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     synci_step: False,
     cc: False,
     ccres: False,
-    tls: False
+    tls: False,
+    insts: False,
+    instTLBMiss: False,
+    dataTLBMiss: False
+    `ifdef STATCOUNTERS
+    ,statcounters: replicate(False)
+    `endif
   };
   
   
 
   // 0 : Index into the TLB
-  Reg#(Maybe#(Bit#(LogTLBSizePlusOne))) tlbIndex      <- mkReg(tagged Valid 0);
+  Reg#(Maybe#(Bit#(LogTLBSizePlusOne))) tlbIndex      <- mkConfigReg(tagged Valid 0);
   // 1 : Constantly decrementing pointer into the TLB.
   Reg#(Bit#(LogAssosTLBSize)) tlbRandom <- mkConfigReg(fromInteger(assosTLBSize-1));
   // 2 : Entry Lo of even virtual address of a pair.
@@ -294,12 +324,12 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   // 3 : Entry Hi of odd virtual address of a pair.
   Reg#(TlbEntryLo)      tlbEntryLo1   <- mkConfigReg(defaulttlbEntryLo);
   // 4.0 : Low order bits = VPN of failed lookup.
-  Reg#(Context)         tlbContext    <- mkReg(defaultContext);
+  Reg#(Context)         tlbContext    <- mkConfigReg(defaultContext);
   // 4.1 : 
-  Reg#(Address)         tlsPointer    <- mkReg(64'b0);
+  Reg#(Address)         tlsPointer    <- mkConfigReg(64'b0);
   // 5 : Used to create bigger-than-4k pages.
   Reg#(Bit#(12))        tlbPageMask   <- mkConfigReg(12'b0);
-  Reg#(HWREna)          hwrena        <- mkReg(defaultHWREna);
+  Reg#(HWREna)          hwrena        <- mkConfigReg(defaultHWREna);
   // 6 : The TLB location below which all entries are static and not
   //     replacable by random replacement.
   Reg#(Bit#(8))         tlbWired      <- mkConfigReg(0);
@@ -308,8 +338,10 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   // 8.1 : Virtual Address that Caused Exception
   Reg#(Bit#(32))        badInst       <- mkConfigReg(32'b0);
   // 9 : Counts up all the time.  R/W but rarely written.
-  Reg#(Bit#(32))        count         <- mkConfigReg(32'b0);
-  Reg#(Bit#(32))        instCount     <- mkConfigReg(32'b0);
+  Reg#(Bit#(48))        count         <- mkConfigReg(48'b0);
+  Reg#(Bit#(48))        instCount     <- mkConfigReg(48'b0);
+  Reg#(Bit#(48))        instTLBCount  <- mkConfigReg(48'b0);
+  Reg#(Bit#(48))        dataTLBCount  <- mkConfigReg(48'b0);
   // 9 sel 6 : Whether tracing is enabled.
   Reg#(Bool)            doTrace       <- mkConfigReg(False);
   // 10: Entry Hi contains the virtual address and space ID for a pair of
@@ -331,7 +363,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   //     from an exception.
   Reg#(Bit#(64))        epc           <- mkConfigReg(64'b0);
   // 15: Processor ID.
-  Reg#(PRId)            procid        <- mkReg(defaultProcID);
+  Reg#(PRId)            procid        <- mkConfigReg(defaultProcID);
   // 15(Shadow Register)
   COREId coreid = COREId {
         coreCount : fromInteger(valueOf(CORE_COUNT) - 1),
@@ -339,45 +371,48 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       };
 
   // 16: Config Register.  See MIPS.bsv for the fields.
-  Reg#(Config0)         configReg0    <- mkReg(defaultConfig0);
-  Reg#(Config1)         configReg1    <- mkReg(defaultConfig1);
-  Reg#(Config2)         configReg2    <- mkReg(defaultConfig2);
-  Reg#(Config3)         configReg3    <- mkReg(defaultConfig3);
-  Reg#(Config6)         configReg6    <- mkReg(defaultConfig6);
+  Reg#(Config0)         configReg0    <- mkConfigReg(defaultConfig0);
+  Reg#(Config1)         configReg1    <- mkConfigReg(defaultConfig1);
+  Reg#(Config2)         configReg2    <- mkConfigReg(defaultConfig2);
+  Reg#(Config3)         configReg3    <- mkConfigReg(defaultConfig3);
+  Reg#(Config6)         configReg6    <- mkConfigReg(defaultConfig6);
   // 17: Address of the last-run load-linked operation.
   Reg#(Maybe#(Address)) llScReg       <- mkConfigReg(tagged Valid 64'b0);
   // 18: Memory reference trap address low bits
-  Reg#(Bit#(32))        watchLo       <- mkReg(32'b0);
+  Reg#(Bit#(32))        watchLo       <- mkConfigReg(32'b0);
   // 19: Memory reference trap address high bits
-  Reg#(Bit#(4))         watchHi       <- mkReg(4'b0);
+  Reg#(Bit#(4))         watchHi       <- mkConfigReg(4'b0);
   // 20: Context convenience register for > 32bit address spaces.
-  Reg#(XContext)        tlbXContext   <- mkReg(unpack(64'b0));
+  Reg#(XContext)        tlbXContext   <- mkConfigReg(unpack(64'b0));
   // 21-25 are reserved in R4000.
   // 28: TagLo and DataLo registers read from the L1 and L2 caches.
   // DataLo is not implemented as our data lines are 256 and they would not fit. 
-  Reg#(Bit#(32))        tagLo         <- mkReg(32'hdeaddead);
-  Reg#(Bit#(32))        dataLo        <- mkReg(32'hdeaddead);
+  Reg#(Bit#(32))        tagLo         <- mkConfigReg(32'hdeaddead);
+  Reg#(Bit#(32))        dataLo        <- mkConfigReg(32'hdeaddead);
   // 29: TagHi and DataHi registers read from the L1 and L2 caches.
   // Both TagHi and DataHi are not implemented as the entire Tag fits in TagLo and
   // the datalines are too large to fit in this field.
-  Reg#(Bit#(32))        tagHi         <- mkReg(32'hdeaddead);
-  Reg#(Bit#(32))        dataHi        <- mkReg(32'hdeaddead);
+  Reg#(Bit#(32))        tagHi         <- mkConfigReg(32'hdeaddead);
+  Reg#(Bit#(32))        dataHi        <- mkConfigReg(32'hdeaddead);
   // 30: Error exception program counter
   Reg#(Bit#(64))        errorEPC      <- mkConfigReg(64'b0);
 
-  Reg#(Bit#(5))         exInterrupts  <- mkReg(5'b0);
+  Reg#(Bit#(5))         exInterrupts  <- mkConfigReg(5'b0);
   Reg#(Bool)       countInstructions  <- mkConfigRegU;
 
   `ifndef MICRO
-    TLBIfc tlb <- mkTLB(coreid.coreID);
+    `ifndef CHERIOS
+        TLBIfc tlb <- mkTLB(coreid.coreID);
+    `endif
   `else
     Vector#(NumTLBLookups, FIFOF#(TlbResponse)) smt_fifos <- replicateM(mkFIFOF);
   `endif
 
-  Bool kernelMode     = sr.ksu == 0 || sr.exl;
+  Bool kernelMode     = sr.ksu == 0 || sr.erl || sr.exl;
   Bool supervisorMode = sr.ksu == 1;
 
   `ifndef MICRO
+   `ifndef CHERIOS
     (* descending_urgency = "readTlb, probeCatch, updateCP0Registers, dequeueExpectWrites" *)
     rule readTlb;
       TLBEntryT te <- tlb.readWrite.response.get();
@@ -405,32 +440,27 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
         expectWrites.deq;
       `endif
     endrule
-    
-    rule dequeueExpectWrites;
-      deqExpectWrites.deq;
-      expectWrites.deq;
-    endrule
   
     rule reportWiredToTLB;
       tlb.putConfig(tlbRandom, configReg6.enableLargeTlb, tlbEntryHi.asid);
     endrule
   
     rule probeStart;
-      tlb.lookup[0].request.put(TlbRequest{
-        addr: tlbProbes.first,
-        write: False,
-        ll: False,
-        exception: None,
-        fromDebug: False,
-        instId: 0
-      });
+      TlbResponse r <- tlb.lookup[0].request(TlbRequest{
+                                  addr: tlbProbes.first,
+                                  write: False,
+                                  ll: False,
+                                  exception: None,
+                                  fromDebug: False,
+                                  instId: 0
+                                });
       tlbProbes.deq;
       tlbProbeResponses.enq(True);
       debug($display("TLB Probe Start."));
     endrule
   
     rule probeCatch(tlbProbeResponses.notEmpty);
-      TlbResponse tr <- tlb.lookup[0].response.get;
+      TlbResponse tr <- tlb.lookup[0].response;
       if (tr.exception != DTLBL) begin
         tlbIndex <= tagged Valid tr.addr[logTLBSize:0];
         `ifndef MULTI
@@ -450,7 +480,13 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       expectWrites.deq;
       debug($display("TLB Probe Catch."));
     endrule
+   `endif // CHERIOS
   `endif
+  
+  rule dequeueExpectWrites;
+    deqExpectWrites.deq;
+    expectWrites.deq;
+  endrule
 
   // This rule must fire every cycle to ensure we do not drop
   // writes to some registers.
@@ -471,7 +507,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       zeros: 4'b0
     };
     Bit#(8) newcauseip = fromMaybe(causeip, causeipWire.wget);
-    if (count == compare) newcauseip[7] = 1;
+    if (truncate(count) == compare) newcauseip[7] = 1;
     newcauseip[6:2] = exInterrupts;
     causeip <= newcauseip;
     
@@ -518,6 +554,12 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
               synci_step: False, // data[1]==1'b1,
               cc: data[2]==1'b1,
               ccres: data[3]==1'b1,
+              insts: data[4]==1'b1,
+              instTLBMiss: data[5]==1'b1,
+              dataTLBMiss: data[6]==1'b1,
+              `ifdef STATCOUNTERS
+              statcounters: map(begin function p(x) = x == 1'b1; p; end, unpack(data[14:7])),
+              `endif
               tls: data[29]==1'b1
             };
          end
@@ -556,6 +598,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
           srn.ksu = updt.ksu;
           srn.ie = updt.ie;
           srn.exl = updt.exl;
+          srn.erl = updt.erl;
           srn.cpEn = updt.cpEn;
           srWrite.wset(srn);
         end
@@ -588,12 +631,18 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
           //xcntxtUpdate.enq(updt.pteBase);
           xpteWire.wset(updt.pteBase);
         end
+`ifdef TEST_MEM_ISA
+        21: $fwrite(stderr, "! FINISHED %d\n", valueOf(CORE_COUNT));
+        22: $fwrite(stderr, "! %d %d\n", coreid.coreID, data[31:0]);
+`endif
         23: begin
           $finish;
         end
         25: begin // TLB report.  Custom instruction for dumping TLB state.
           `ifndef MICRO
+           `ifndef CHERIOS
             debugInst(tlb.debugDump());
+           `endif // CHERIOS
           `endif
         end
         27: begin // CP0 register report.  Custom instruction for dumping CP0 state.
@@ -642,6 +691,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
           CP0Inst cp0Inst = unpack(data[5:0]);
           case (cp0Inst)
             `ifndef MICRO
+             `ifndef CHERIOS
               RDE: begin// Read indexed entry
                 TLBEntryT te = TLBEntryT{
                   write: False,
@@ -664,7 +714,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
                   tlbAddr: fromMaybe(?, tlbIndex),
                   assosEntry: TlbAssosEntry{
                     entryHi: tlbEntryHi,
-                    whichLoBit: 12-pack(countZerosMSB(tlbPageMask)),
+                    whichLoBit: zeroExtend(12-pack(countZerosMSB(tlbPageMask))),
                     valid: True,      // Always valid for a stored entry.  Will be returned invalid if there is no entry.
                     pageMask: tlbPageMask,      // The page mask register determines the page size
                     g: (tlbEntryLo0.g && tlbEntryLo1.g)  // Global.  This virtual address maps in all spaces.
@@ -697,7 +747,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
                   tlbAddr: tlbAddr,
                   assosEntry: TlbAssosEntry{
                     entryHi: tlbEntryHi,
-                    whichLoBit: 12-pack(countZerosMSB(tlbPageMask)),
+                    whichLoBit: zeroExtend(12-pack(countZerosMSB(tlbPageMask))),
                     valid: True,      // Always valid for a stored entry.  Will be returned invalid if there is no entry.
                     pageMask: tlbPageMask,      // The page mask register determines the page size
                     g: (tlbEntryLo0.g && tlbEntryLo1.g)      // Global.  This virtual address maps in all spaces.
@@ -729,6 +779,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
                 // Tell the pipeline we're waiting for an update.
                 writeIsDone = False;
               end
+             `endif // CHERIOS
             `endif
             ERET: begin // Exception Return
               if (!sr.erl) begin // er.erl should always be False...
@@ -743,8 +794,8 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
         end
         //default:        no default action.
       endcase
-      if (writeIsDone) expectWrites.deq;
     end
+    if (writeIsDone) expectWrites.deq;
     causeipWire.wset(newcauseip);
   endrule
 
@@ -753,13 +804,14 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     debug($display("CP0 read in"));
   endmethod
 
+  // Method to report when any CP0 register update is pending so that we can delay new tlbReads
+  // until these are done.
   method Bool writePending;
-    return (expectWrites.notEmpty || tlbProbeResponses.notEmpty || tlbReads.notEmpty);
+    return (expectWrites.notEmpty || tlbProbeResponses.notEmpty || tlbProbes.notEmpty || tlbReads.notEmpty);
   endmethod
 
   // readGet gets the result of a read.
-  // We block when we are waiting for a probe response since it can take longer than the standard TLB operation.
-  method ActionValue#(Word) readGet(Bool goingToWrite);// if (!tlbProbeResponses.notEmpty);
+  method ActionValue#(Word) readGet(Bool goingToWrite);
     if (goingToWrite) expectWrites.enq(?);
     RegNum regNum = readReqs.first.regNum();
     Bit#(3) sel = readReqs.first.sel();
@@ -770,7 +822,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     case (regNum)
       0: rv = signExtend({pack(!isValid(tlbIndex)), tlbIndexBase});
       1: rv = zeroExtend(tlbRandom);
-      `ifdef CAP
+      `ifdef USECAP
         2: rv = {pack(tlbEntryLo0)[35:34],28'b0,pack(tlbEntryLo0)[33:0]};
         3: rv = {pack(tlbEntryLo1)[35:34],28'b0,pack(tlbEntryLo1)[33:0]};
       `else
@@ -792,6 +844,12 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
         rv[1] = pack(hwrena.synci_step);
         rv[2] = pack(hwrena.cc);
         rv[3] = pack(hwrena.ccres);
+        rv[4] = pack(hwrena.insts);
+        rv[5] = pack(hwrena.instTLBMiss);
+        rv[6] = pack(hwrena.dataTLBMiss);
+        `ifdef STATCOUNTERS
+        rv[14:7] = pack(hwrena.statcounters);
+        `endif
         rv[29] = pack(hwrena.tls);
       end
       8: begin
@@ -801,7 +859,15 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
           default: rv = 0;
         endcase
       end
-      9: rv = zeroExtend(count);
+      9: begin
+        case (sel)
+          0: rv = zeroExtend(count);
+          4: rv = zeroExtend(instCount);
+          5: rv = zeroExtend(instTLBCount);
+          6: rv = zeroExtend(dataTLBCount);
+          default: rv = 0;
+        endcase
+      end
       10: begin
         rv = {tlbEntryHi.r,22'b0,tlbEntryHi.vpn2,5'b0,tlbEntryHi.asid};
       end
@@ -890,16 +956,18 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   endmethod
 
   method Action putException(ExceptionWriteback exp, Address ivaddr, MIPSReg dvaddr);
-    Address badVaddr = 64'b0;
+    Address newBadVAddr = badVAddr;
     if (exp.exception == ITLB || exp.exception == ITLBI || exp.exception == IADEL) begin
-      badVaddr = ivaddr;
+      newBadVAddr = ivaddr;
+      instTLBCount <= instTLBCount + 1;
     end
     if (exp.exception == DTLBL || exp.exception == DTLBLI || 
             exp.exception == DTLBS || exp.exception == DTLBSI || 
             exp.exception == CTLBS || 
             exp.exception == Mod || exp.exception == DADEL || 
             exp.exception == DADES) begin
-      badVaddr = dvaddr;
+      newBadVAddr = dvaddr;
+      dataTLBCount <= dataTLBCount + 1;
     end
     if (exp.exception != None && !exp.dead) begin
       CauseRegister cr = cause;
@@ -921,19 +989,19 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
       if (exp.exception == NMI /* || cacheErr */)
         errorEPC <= exp.victim;
       else
-        epc <= exp.victim;
+        if (sr.exl == False) epc <= exp.victim;
       case(exp.exception)
         ITLB, ITLBI, DTLBL, DTLBS, DTLBLI, DTLBSI, CTLBS, 
                 Mod, IADEL, DADEL, DADES: begin
           `ifdef MULTI
-            trace($display("Time:%0d, Core:%0d, Thread:0 :: Bad virtual address: %x", $time, coreid.coreID, badVaddr));
+            trace($display("Time:%0d, Core:%0d, Thread:0 :: Bad virtual address: %x", $time, coreid.coreID, newBadVAddr));
           `else
-            trace($display("Bad virtual address: %x", badVaddr));
+            trace($display("Bad virtual address: %x", newBadVAddr));
           `endif
-          badVAddr <= badVaddr;
+          badVAddr <= newBadVAddr;
           tlbEntryHi <= TlbEntryHi{
-            r: badVaddr[63:62],
-            vpn2: badVaddr[39:13],
+            r: newBadVAddr[63:62],
+            vpn2: newBadVAddr[39:13],
             asid: tlbEntryHi.asid
           };
         end
@@ -947,132 +1015,145 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
   endmethod
 
   `ifndef MICRO
-    interface Server tlbLookupInstruction;
-      interface Put request;
-        method Action put(reqIn);
-          tlb.lookup[1].request.put(reqIn);
+   `ifndef CHERIOS
+      interface TranslationIfc tlbLookupInstruction;
+        method ActionValue#(TlbResponse) request(TlbRequest reqIn);
+          TlbResponse retVal <- tlb.lookup[1].request(reqIn);
           debug($display("Instruction TLB Request %x. At time %d", reqIn.addr, $time));
-        endmethod
-      endinterface
-      interface Get response;
-        method get();
-          actionvalue
-            TlbResponse retVal <- tlb.lookup[1].response.get();
-            debug($display("Instruction TLB Testing Watch. Address=%x. Watch=%x. Read Flag=%d", retVal.addr[35:0], {watchHi,watchLo[31:3],3'b0}, watchLo[1]==1'b1));
-            if (!kernelMode) begin
-              if (retVal.priv==Kernel) retVal.exception = IADEL;
-              else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = IADEL;
-            end
-            if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} && watchLo[1]==1'b1) begin
-              if (retVal.exception == None) retVal.exception = Watch;
-            end
-            debug($display("Instruction TLB Response. Exception=%d. At time %d", retVal.exception!=None, $time));
-            return retVal;
-          endactionvalue
-        endmethod
-      endinterface
-    endinterface
-  
-    interface Server tlbLookupData;
-      interface Put request;
-        method Action put(reqIn);
-          tlb.lookup[2].request.put(reqIn);
-        endmethod
-      endinterface
-      interface Get response;
-        method get();
-          actionvalue
-            TlbResponse retVal <- tlb.lookup[2].response.get();
-            if (!kernelMode && !retVal.fromDebug) begin// && retVal.exception==None) begin
-              if (retVal.priv==Kernel) retVal.exception = (retVal.write) ? DADES : DADEL;
-              else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = (retVal.write) ? DADES : DADEL;
-            end
-  
-            if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} &&     // If there has not been an exception and the address matches
-              ((watchLo[1]==1'b1 && !retVal.write) || (watchLo[0]==1'b1 && retVal.write))) begin  // and the address is watching for a read or a write and the operation matches.
-              if (retVal.exception == None) retVal.exception = Watch;
-            end
-            return retVal;
-          endactionvalue
-        endmethod
-      endinterface
-    endinterface
-  `else                        
-    interface Server tlbLookupInstruction;
-      interface Put request;
-        method Action put(reqIn);
-          TlbResponse simpleResponse = TlbResponse{
-            addr: ?,
-            exception: None,
-            write:reqIn.write,
-            ll:reqIn.ll,
-            cached:True,
-            fromDebug:reqIn.fromDebug,
-            priv:Kernel,
-            instId:reqIn.instId
-          };
-          if (reqIn.addr[63:56] == 8'h90 || (reqIn.addr[63:32] == 32'hFFFFFFFF && reqIn.addr[31:29] == 3'b101)) begin
-            simpleResponse.cached = False;
+          if (!kernelMode) begin
+            if (retVal.priv==Kernel) retVal.exception = IADEL;
+            else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = IADEL;
           end
-          if (reqIn.addr[63:32] == 32'hFFFFFFFF && (reqIn.addr[31:29] == 3'b100 || reqIn.addr[31:29] == 3'b101)) begin // Simple translation for the kseg1 & kseg0 regions which map into 512MB of physical memory.
-            simpleResponse.addr = {11'b0,reqIn.addr[28:0]};
-            smt_fifos[0].enq(simpleResponse); // Shave off the top 35 bits...
-          end else begin // Simple translation for the xkphys regions which map into physical memory.
-            simpleResponse.addr = reqIn.addr[39:0];
-            smt_fifos[0].enq(simpleResponse); // Just shave off the top bits...
+          if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} && watchLo[1]==1'b1) begin
+            if (retVal.exception == None) retVal.exception = Watch;
           end
-          debug($display("Instruction TLB Request %x. At time %d", reqIn.addr, $time));
+          return retVal;
         endmethod
-      endinterface
-      interface Get response;
-        method ActionValue#(TlbResponse) get();
-          TlbResponse retVal = smt_fifos[0].first();
-          smt_fifos[0].deq;
-          debug($display("Instruction TLB Response. Exception=%d. At time %d", retVal.exception != None, $time));
+        method ActionValue#(TlbResponse) response();
+          TlbResponse retVal <- tlb.lookup[1].response();
+          debug($display("Instruction TLB Response %x. At time %d", retVal.addr, $time));
+          if (!kernelMode) begin
+            if (retVal.priv==Kernel) retVal.exception = IADEL;
+            else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = IADEL;
+          end
+          if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} && watchLo[1]==1'b1) begin
+            if (retVal.exception == None) retVal.exception = Watch;
+          end
           return retVal;
         endmethod
       endinterface
-    endinterface
-  
-    interface Server tlbLookupData;
-      interface Put request;
-        method Action put(reqIn);
-          TlbResponse simpleResponse = TlbResponse{
-            addr: ?,
-            exception: None,
-            write:reqIn.write,
-            ll:reqIn.ll,
-            cached:True,
-            fromDebug:reqIn.fromDebug,
-            priv:Kernel,
-            instId:reqIn.instId
-          };
-          if (reqIn.addr[63:56] == 8'h90 || (reqIn.addr[63:32] == 32'hFFFFFFFF && reqIn.addr[31:29] == 3'b101)) begin
-            simpleResponse.cached = False;
+
+      interface TranslationIfc tlbLookupData;
+        method ActionValue#(TlbResponse) request(TlbRequest reqIn);
+          TlbResponse retVal <- tlb.lookup[2].request(reqIn);
+          if (!kernelMode && !retVal.fromDebug) begin// && retVal.exception==None) begin
+            if (retVal.priv==Kernel) retVal.exception = (retVal.write) ? DADES : DADEL;
+            else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = (retVal.write) ? DADES : DADEL;
           end
-          if (reqIn.addr[63:32] == 32'hFFFFFFFF && (reqIn.addr[31:29] == 3'b100 || reqIn.addr[31:29] == 3'b101)) begin // Simple translation for the kseg1 & kseg0 regions which map into 512MB of physical memory.
-            simpleResponse.addr = {11'b0,reqIn.addr[28:0]};
-            smt_fifos[1].enq(simpleResponse); // Shave off the top 35 bits...
-          end else begin // Simple translation for the xkphys regions which map into physical memory.
-            simpleResponse.addr = reqIn.addr[39:0];
-            smt_fifos[1].enq(simpleResponse); // Just shave off the top bits...
+          if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} &&     // If there has not been an exception and the address matches
+            ((watchLo[1]==1'b1 && !retVal.write) || (watchLo[0]==1'b1 && retVal.write))) begin  // and the address is watching for a read or a write and the operation matches.
+            if (retVal.exception == None) retVal.exception = Watch;
           end
+          return retVal;
         endmethod
-      endinterface
-      interface Get response;
-        method ActionValue#(TlbResponse) get();
-          TlbResponse retVal = smt_fifos[1].first();
-          smt_fifos[1].deq;
+        method ActionValue#(TlbResponse) response();
+          TlbResponse retVal <- tlb.lookup[2].response();
+          if (!kernelMode && !retVal.fromDebug) begin// && retVal.exception==None) begin
+            if (retVal.priv==Kernel) retVal.exception = (retVal.write) ? DADES : DADEL;
+            else if (retVal.priv == Supervisor && !supervisorMode) retVal.exception = (retVal.write) ? DADES : DADEL;
+          end
+          if (retVal.addr[35:0] == {watchHi,watchLo[31:3],3'b0} &&     // If there has not been an exception and the address matches
+            ((watchLo[1]==1'b1 && !retVal.write) || (watchLo[0]==1'b1 && retVal.write))) begin  // and the address is watching for a read or a write and the operation matches.
+            if (retVal.exception == None) retVal.exception = Watch;
+          end
           return retVal;
         endmethod
       endinterface
+   `endif // CHERIOS
+  `else
+    interface TranslationIfc tlbLookupInstruction;
+      method ActionValue#(TlbResponse) request(TlbRequest reqIn);
+        TlbResponse simpleResponse = TlbResponse{
+          valid: True,
+          addr: ?,
+          exception: None,
+          write:reqIn.write,
+          ll:reqIn.ll,
+          cached:True,
+          fromDebug:reqIn.fromDebug,
+          priv:Kernel,
+          instId:reqIn.instId
+          `ifdef USECAP
+            , noCapLoad: False,
+            noCapStore: False
+          `endif
+        };
+        if (reqIn.addr[63:56] == 8'h90 || (reqIn.addr[63:32] == 32'hFFFFFFFF && reqIn.addr[31:29] == 3'b101)) begin
+          simpleResponse.cached = False;
+        end
+        if ( reqIn.addr[1:0] != 0 ) begin // report misaligned instruction access.
+          simpleResponse.exception = IADEL;
+        end
+
+        if (reqIn.addr[63:32] == 32'hFFFFFFFF && (reqIn.addr[31:29] == 3'b100 || reqIn.addr[31:29] == 3'b101)) begin // Simple translation for the kseg1 & kseg0 regions which map into 512MB of physical memory.
+          simpleResponse.addr = {11'b0,reqIn.addr[28:0]};
+          smt_fifos[0].enq(simpleResponse); // Shave off the top 35 bits...
+        end else begin // Simple translation for the xkphys regions which map into physical memory.
+          simpleResponse.addr = reqIn.addr[39:0];
+          smt_fifos[0].enq(simpleResponse); // Just shave off the top bits...
+        end
+        debug($display("Instruction TLB Request %x. At time %d", reqIn.addr, $time));
+        return simpleResponse;
+      endmethod
+      method ActionValue#(TlbResponse) response();
+        return ?; // This will never be called because "request" will always succeed!
+      endmethod
+    endinterface
+  
+    interface TranslationIfc tlbLookupData;
+      method ActionValue#(TlbResponse) request(TlbRequest reqIn);
+        TlbResponse simpleResponse = TlbResponse{
+          valid: True,
+          addr: ?,
+          exception: None,
+          write:reqIn.write,
+          ll:reqIn.ll,
+          cached:True,
+          fromDebug:reqIn.fromDebug,
+          priv:Kernel,
+          instId:reqIn.instId
+          `ifdef USECAP
+            , noCapLoad: False,
+            noCapStore: False
+          `endif
+        };
+        if (reqIn.addr[63:56] == 8'h90 || (reqIn.addr[63:32] == 32'hFFFFFFFF && reqIn.addr[31:29] == 3'b101)) begin
+          simpleResponse.cached = False;
+        end
+
+        if (reqIn.addr[63:32] == 32'hFFFFFFFF && (reqIn.addr[31:29] == 3'b100 || reqIn.addr[31:29] == 3'b101)) begin // Simple translation for the kseg1 & kseg0 regions which map into 512MB of physical memory.
+          simpleResponse.addr = {11'b0,reqIn.addr[28:0]};
+          smt_fifos[1].enq(simpleResponse); // Shave off the top 35 bits...
+        end else begin // Simple translation for the xkphys regions which map into physical memory.
+          simpleResponse.addr = reqIn.addr[39:0];
+          smt_fifos[1].enq(simpleResponse); // Just shave off the top bits...
+        end
+        return simpleResponse;
+      endmethod
+      method ActionValue#(TlbResponse) response();
+        return ?; // This will never be called because "request" will always succeed!
+      endmethod
     endinterface
   `endif
 
   method ActionValue#(Bool) setLlScReg(Address matchAddress, Bool link, Bool store);
     Maybe#(Address) newLlSc = llScReg;
     if (link) begin
-      newLlSc = tagged Valid zeroExtend(matchAddress[56:0]);
+      `ifndef CAP64
+          newLlSc = tagged Valid zeroExtend(matchAddress[56:0]);
+      `else
+          newLlSc = tagged Valid matchAddress;
+      `endif
       debug($display("%d: Setting Load Linked register to:%x", $time, matchAddress));
     end
     if ((isValid(llScReg) && (matchAddress[11:0] == fromMaybe(?,llScReg)[11:0]) &&
@@ -1121,7 +1202,7 @@ module mkCP0#(Bit#(16) coreId)(CP0Ifc);
     return doTrace;
   endmethod
   
-  method Action putCount(Bit#(32) commonCount);
+  method Action putCount(Bit#(48) commonCount);
     count <= (countInstructions) ? instCount:commonCount;
   endmethod
 

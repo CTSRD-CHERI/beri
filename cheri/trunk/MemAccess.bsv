@@ -39,10 +39,27 @@ import SpecialFIFOs::*;
 import ClientServer::*;
 `ifdef CAP
   import CapCop::*;
+  `define CAPTOP 4
   `define USECAP 1
 `elsif CAP128
   import CapCop128::*;
+  `define CAPTOP 3
   `define USECAP 1
+`elsif CAP64
+  import CapCop64::*;
+  `define CAPTOP 2
+  `define USECAP 1
+`endif
+
+`ifdef MEM128
+  `define LINETOP 3
+  `define LINETOPPLUS1 4
+`elsif MEM64
+  `define LINETOP 2
+  `define LINETOPPLUS1 3
+`else
+  `define LINETOP 4
+  `define LINETOPPLUS1 5
 `endif
 
 module mkMemAccess#(
@@ -60,14 +77,10 @@ module mkMemAccess#(
     Bool cap = False;
     `ifdef USECAP
       CoProResponse capResp <- capCop.getAddress();
-      if (mi.alu == Cap || mi.mem != None) begin
-        if (mi.exception == None) begin
-          mi.exception = capResp.exception;
-        end
+      if (mi.exception == None) begin
+        mi.exception = capResp.exception;
       end
-      if (er.inst matches tagged Coprocessor .ci &&& er.memSize==Line) begin
-        cap = True;
-      end
+      if (er.inst matches tagged Coprocessor .ci &&& er.memSize==CapWord) cap = True;
     `endif
 
     Bool scResult = True;
@@ -79,18 +92,19 @@ module mkMemAccess#(
     //Exception handling for unaligned accesses 
     //(exception when crossing cache line boundaries)
     `ifdef UNALIGNEDMEMORY
-      Bit#(6) unalignCheck = zeroExtend(addr[4:0]);
-      if (er.memSize != Line)
-        unalignCheck = unalignCheck + (case (er.memSize)
-                  DoubleWord: return 7;
-                  Word:       return 3;
-                  HalfWord:   return 1;
-                  Byte:       return 0;
-                  default:     return 0;
-                endcase);
-      else if (addr[4:0] != 5'b0) unalignCheck[5] = 1;
+      Bit#(6) unalignCheck = zeroExtend(addr[`LINETOP:0]);
+      unalignCheck = unalignCheck + (case (er.memSize)
+                DoubleWord: return 7;
+                Word:       return 3;
+                HalfWord:   return 1;
+                Byte:       return 0;
+                default:     return 0;
+              endcase);
+      `ifdef USECAP
+        if (er.memSize == CapWord && addr[`CAPTOP:0] != 0) unalignCheck[`LINETOPPLUS1] = 1;
+      `endif
       
-      if (mi.exception == None && unalignCheck[5] == 1) begin
+      if (mi.exception == None && unalignCheck[`LINETOPPLUS1] == 1) begin
         mi.exception = (case(er.mem)
                           Read: return DADEL;
                           Write: return DADES;
@@ -100,7 +114,9 @@ module mkMemAccess#(
     `else
       if (mi.exception == None &&
           case (er.memSize)
-            Line:       return addr[4:0] != 5'b0;
+            `ifdef USECAP
+              CapWord:    return addr[`CAPTOP:0] != 0;
+            `endif
             DoubleWord: return addr[2:0] != 3'b0;
             Word:       return addr[1:0] != 2'b0;
             HalfWord:   return addr[0] != 1'b0;
@@ -120,43 +136,35 @@ module mkMemAccess#(
                         default: return None;
                       endcase);
     end
-
-    case(er.mem)
-      Read: begin
-        debug($display("Put in Read"));
-        m.startRead(addr, er.memSize, er.test==LL, cap, er.id, er.epoch, er.fromDebug);
-      end
-      Write: begin
-        debug($display("Put in Write"));
-        if (scResult) begin
-          Bool storeConditional = False;
-          if (er.test == SC) begin
-            debug($display("MemAccess Store Conditional Attempt"));
-            `ifndef MICRO
-              `ifdef MULTI
-                storeConditional = True;
-              `endif 
-            `endif
-          end
-          else begin
-            debug($display("MemAccess Write Complete"));
-          end
-          m.startWrite(addr, er.storeData, er.memSize, er.id, er.epoch, er.fromDebug, storeConditional);
-        end else m.startNull(er.id, er.epoch);
-      end
-      DCacheOp, ICacheOp: begin
-        debug($display("Put in Cache Operation"));
-        m.startCacheOp(addr, er.cop, er.id, er.epoch);
-      end
-      default: begin
-        debug($display("Put in Null Cache Operation"));
-        m.startNull(er.id, er.epoch);
-      end
-    endcase
+    
+    Bool storeConditional = False;
+    if (er.mem == Write) begin
+      debug($display("Put in Write"));
+      if (scResult) begin
+        if (er.test == SC) begin
+          debug($display("MemAccess Store Conditional Attempt"));
+          `ifndef MICRO
+            `ifdef MULTI
+              storeConditional = True;
+            `endif 
+          `endif
+        end
+        else begin
+          debug($display("MemAccess Write Complete"));
+        end
+      end else mi.mem = None;
+    end
+    m.startMem(mi.mem, addr, er.cop, er.storeData, er.memSize, er.test==LL, cap, er.id, er.epoch, er.fromDebug, storeConditional);
+    `ifdef USECAP
+      // For arithmetic capability instructions that produce a late result...
+      if (er.alu == Cap && er.mem == None && er.pendingWrite) mi.opA = capResp.data;
+      else if (er.branch != Never && er.pendingWrite) mi.opB = capResp.data;
+    `endif
     outQ.enq(mi);
   endmethod
  
   method first = outQ.first;
   method deq   = outQ.deq;
+  method clear = noAction; // XXX This method should never be called.
 
 endmodule

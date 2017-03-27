@@ -49,9 +49,6 @@ test:		.ent test
 		# Wired Register
 		dmfc0	$a1, $6
 
-		# HWREna Register
-		dmfc0   $s1, $7
-		
 		# Count Register
 		dmfc0	$a2, $9
 

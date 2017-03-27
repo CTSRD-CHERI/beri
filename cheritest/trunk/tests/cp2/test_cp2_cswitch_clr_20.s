@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -48,6 +49,34 @@ test:		.ent test
 		sd	$ra, 24($sp)
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
+
+		# Ensure all capability registers are set to the default.
+    cmove		$c1, $c0
+    cmove		$c2, $c0
+    cmove		$c3, $c0
+    cmove		$c4, $c0
+    cmove		$c5, $c0
+    cmove		$c6, $c0
+    cmove		$c7, $c0
+    cmove		$c8, $c0
+    cmove		$c9, $c0
+    cmove		$c10, $c0
+    cmove		$c11, $c0
+    cmove		$c12, $c0
+    cmove		$c13, $c0
+    cmove		$c14, $c0
+    cmove		$c15, $c0
+    cmove		$c16, $c0
+    cmove		$c17, $c0
+    cmove		$c18, $c0
+    cmove		$c19, $c0
+    cmove		$c20, $c0
+    cmove		$c21, $c0
+    cmove		$c22, $c0
+    cmove		$c23, $c0
+    cmove		$c24, $c0
+    cmove		$c25, $c0
+    cmove		$c26, $c0
 
 		dli	$t3, 20
 loop:
@@ -88,91 +117,97 @@ dostore:
 		move	$t0, $t8
 		cscr	$c0, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+.if CAP_SIZE==128
+		cap_width = 16
+.else
+		cap_width = 32
+.endif
+
+		daddiu	$t0, $t0, cap_width
 		cscr	$c1, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c2, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c3, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c4, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c5, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c6, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c7, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c8, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c9, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c10, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c11, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c12, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c13, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c14, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c15, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c16, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c17, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c18, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c19, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c20, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c21, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c22, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c23, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c24, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c25, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c26, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c27, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c28, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		cscr	$c31, $t0($c30)
 
 invalidatecaps:
@@ -310,91 +345,91 @@ loadcaps:
 		move	$t0, $t8
 		clcr	$c0, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c1, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c2, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c3, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c4, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c5, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c6, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c7, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c8, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c9, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c10, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c11, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c12, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c13, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c14, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c15, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c16, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c17, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c18, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c19, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c20, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c21, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c22, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c23, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c24, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c25, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c26, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c27, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c28, $t0($c30)
 
-		daddiu	$t0, $t0, 32
+		daddiu	$t0, $t0, cap_width
 		clcr	$c31, $t0($c30)
 done:
 		daddiu	$t3, $t3, -1

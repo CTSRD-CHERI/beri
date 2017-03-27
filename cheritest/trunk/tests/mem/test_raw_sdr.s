@@ -83,3 +83,4 @@ end:
 
 		.data
 dword:		.dword 0x0000000000000000
+                .dword 0x0000000000000000

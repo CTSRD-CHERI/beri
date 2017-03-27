@@ -26,8 +26,11 @@
 #
 
 from beritest_tools import BaseBERITestCase
+from nose.plugins.attrib import attr
 
+@attr('madd')
 class test_madd(BaseBERITestCase):
+
 	def test_zero(self):
 		'''Test that hi and lo are zeroed'''
 		self.assertRegisterEqual(self.MIPS.a0, 0, "Hi was not zeroed")

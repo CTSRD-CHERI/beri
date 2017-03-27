@@ -45,7 +45,7 @@ class test_raw_fpu_cvt(BaseBERITestCase):
         self.assertRegisterMaskEqual(self.MIPS.s1, 0xfffffffe, 0x3e2aaaaa, "Didn't convert 1/6 from double.")
         self.assertRegisterMaskEqual(self.MIPS.s1, 0x1, 1, "Didn't round to nearest when converting from double to single.")
         self.assertRegisterEqual(self.MIPS.s2, 0xffffffffc36aa188, "Didn't convert -234.6311 from double")
-        self.assertRegisterEqual(self.MIPS.s3, 0x4f0c0474, "Didn't convert large number from double.")
+        self.assertRegisterEqual(self.MIPS.s3, 0x4f0c0473, "Didn't convert large number from double.")
 
     @attr('float64')
     def test_convert_singles_to_doubles(self):

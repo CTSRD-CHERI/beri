@@ -1,4 +1,5 @@
 /*-
+ * Copyright (c) 2016 Alexandre Joannou
  * Copyright (c) 2013 Jonathan Woodruff
  * Copyright (c) 2013 David T. Chisnall
  * Copyright (c) 2012 Robert N. M. Watson
@@ -38,323 +39,42 @@ import SpecialFIFOs::*;
 import ForwardingPipelinedRegFile::*;
 import ConfigReg::*;
 
-//Capability fields definition vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv  //
+import Capability128Libs::*;
+export Capability128Libs::*;
 
-// This is a compressed virtual address only used when a capability is sealed,
-// and therefore has an additional 16-bit type field.
-typedef struct {
-  Bit#(5)   seg;
-  Bit#(40)  address;
-} VirtAddress deriving(Bits, Eq, FShow);
+export mkCapCop;
 
-//Capability Type Field
-typedef Bit#(16) CType;
-
-// A type that bundles the type and the compressed virtual address.
-typedef struct {
-  CType        otype;
-  VirtAddress  shortAddr;
-} TypePointer deriving(Bits, Eq, FShow);
-
-// The tagged union of a simple 64-bit address and a compressed address
-// plus a type.  The tag of this field is the "sealed" bit of the capability.
-typedef union tagged {
-  Address     Full;
-  TypePointer Typed;
-} Pointer deriving (Bits, Eq, FShow);
-
-// These are the types to define the "base" and "length" reletive to the full
-// pointer address.  The Mantissa is signed, allowing you to go out of bounds.
-typedef Int#(17) Mantis;
-typedef Bit#(6) Exp;
-
-// The permissions field, including 8 "soft" permission bits.
-typedef struct {
-  Bit#(8) soft;
-  Bool access_CR28; // KR2C
-  Bool access_CR27; // KR1C
-  Bool access_CR29; // KCC
-  Bool access_CR30; // KDC
-  Bool access_CR31; // EPCC
-  Bool reserved;
-  Bool permit_set_type;
-  Bool permit_store_ephemeral_cap;
-  Bool permit_store_cap;
-  Bool permit_load_cap;
-  Bool permit_store;
-  Bool permit_load;
-  Bool permit_execute;
-  Bool non_ephemeral;
-} Perms deriving(Bits, Eq); // 22 bits
-
-// The full capability structure, including the "tag" bit.
-typedef struct {
-  Bool     isCapability;
-  Bit#(128) data;
-  Perms    perms;
-  Exp      exp;
-  Mantis   toTop;
-  Mantis   toBot;
-  Bool     sealed;
-  Pointer  pointer;
-} Capability deriving(Bits, Eq); // 128 bits + 1 (tag bit)
-
-// End Capability fields definition ^^^^^^^^^^^^^^^^^^^^^^^^^^^ //
-
-typedef Bit#(3)  Select;
-
-typedef struct {
-  Int#(64)  offset; // The offset into the capability
-  Address   pc;     // PC to be validated.
-  MemSize   size;
-  MemOp     memOp;
-} CapReq deriving(Bits, Eq);
-
-typedef Bit#(5) CapReg;
-
-typedef struct {
-  CapOp     op;      // Operation
-  CapReg    r0;      // Potential register name from bits 25-21
-  CapReg    r1;      // bits 20-16
-  CapReg    r2;      // bits 15-11
-  CapReg    r3;      // bits 10-6
-  MemSize   memSize;
-  InstId    instId;
-  Epoch     epoch;
-} CapInst deriving(Bits, Eq);
-
-typedef struct {
-  Capability memResponse;
-  Exception  mipsExp;
-  Address    pc;
-  Bool       dead;
-  InstId     instId;    // Instruction ID that requests the update
-} CapWritebackRequest deriving(Bits, Eq);
-
-typedef struct {
-  Bool   a;
-  Bool   b;
-} ExpectTags deriving(Bits, Eq);
-
-typedef struct {
-  CapInst    capInst; // Instruction passed in
-  CapCause   cause;   //
-  ExpectTags expectTags; // Whether to expect the fetched registers to be valid capabilities.
-  CapReg     regA;
-  CapReg     regB;
-  Bool       readA;
-  Bool       readB;
-  Capability writeCap;      // Capability to be written
-  CapReg     writeReg; // Capability register to be written
-  Bool       doWrite; // Write the destination register.
-  Bool       jump;
-  InstId     instId; // Instruction ID that requests the update
-  Epoch      epoch;
-} CapControlToken deriving(Bits, Eq);
-
-// Bounds check structure.  In the Execute stage, the coprocessor calculates
-// the virtual address and hands it back to the main pipeline.  It then passes
-// this structure to another stage inside the coprocessor, which notifies the
-// MemAccess stage whether the access should be allowed.  
-typedef struct {
-  Bool      valid;
-  Exp       exp;
-  Mantis    toTop;     // Last address, must be greater than or equal to address
-  Mantis    offset; // Address for the request
-  Mantis    toBot;    // Base, must be less than or equal to address 
-  MemSize   memSize; // Instruction ID that requests the update
-  CapReg    capReg;
-} LenCheck deriving(Bits, Eq, FShow);
-
-typedef struct {
-  CapReg     capReg;
-  Bool       pcc;
-  CapExpCode exp;
-} CapCause deriving(Bits, Eq, FShow);
-
-typedef struct {
-  Address    addr;
-  Mantis     toTop;
-  Mantis     toBot;
-  CapExpCode exp;
-} AddrExp deriving(Bits, Eq);
-
-typedef struct {
-  Capability pcc;
-  Epoch      epoch;
-} BufferedPCC deriving(Bits, Eq);
-
-Capability defaultCap = Capability{
-  sealed: False,
-  exp: 48, // Shift by 48 to get the 16 bits of toBot and toTop up to the 64th bit.
-  toBot: 0,
-  toTop: 17'h0FFFF,
-  pointer: tagged Full 64'b0,
-  perms: unpack(22'h3FFFFF),
-  isCapability: True,
-  data: 128'b0
-};
-
-typedef struct {
-  MemOp       memOp;
-  Address     address;
-  Bool        isCapability;
-  Capability  capability;
-  InstId      instId;
-} CapMemAccess deriving(Bits, Eq);
-
-function Address getPtr(Pointer ptr);
-  Address ret = 0;
-  case (ptr) matches
-    tagged Full  .p: ret = p;
-    tagged Typed .tp: begin
-      ret[57:0] = signExtend(tp.shortAddr.address);
-      ret[63:59] = tp.shortAddr.seg;
-    end
-  endcase
-  return ret;
-endfunction
-
-function Address getBase(Capability cap);
-  Address ret = getPtr(cap.pointer);
-  ret = ret + (signExtend(pack(cap.toBot))<<cap.exp);
-  Address mask = (-1)<<cap.exp;
-  ret = ret&mask; // Ensure the base is aligned.
-  return ret;
-endfunction
-
-function Address getLength(Capability cap);
-  // This is to basically left-shift in ones.
-  // I add 1 before shifting and then subtract one after.
-  // toTop - toBot should always be positive.
-  //if ((cap.toTop - cap.toBot) < 0) $display("Panic!  Capability has negative length!");
-  Address ret = zeroExtend(pack(cap.toTop - cap.toBot)) + 1;
-  ret = (ret << cap.exp) - 1;
-  return ret;
-endfunction
-
-function Address getOffset(Capability cap);
-  return (getPtr(cap.pointer) - getBase(cap));
-endfunction
-
-function Pointer buildPtr(Address ptr, CType otype, Bool validType);
-  Pointer ret = tagged Full ptr;
-  if (validType) 
-    ret = tagged Typed TypePointer{
-                         shortAddr: VirtAddress{
-                                      seg: ptr[63:59], 
-                                      address: ptr[39:0]
-                                    },
-                         otype: otype
-                       };
-  return ret;
-endfunction
-
-function Capability updatePointer(Capability cap, Address ptr);
-  Capability ret = cap;
-  ret.pointer = tagged Full ptr;
-  Mantis difference = unpack(truncate((ptr - getPtr(cap.pointer)) >> cap.exp));
-  ret.toBot = cap.toBot - difference;
-  ret.toTop = cap.toTop - difference;
-  return ret;
-endfunction
-
-function CType getType(Capability cap);
-  CType ret = (case (cap.pointer) matches
-                tagged Full  .p: return 0;
-                tagged Typed .tp: return tp.otype;
-              endcase);
-  return ret;
-endfunction
-
-function Bool outOfRange(Capability cap);
-  return (cap.toTop <= 0 || cap.toBot > 0);
-endfunction
-
-function Capability setLength(Capability cap, Address length);
-  Capability ret = cap;
-  // If "toBot == 0" assume that the real base is equal to the pointer.
-  if (cap.toBot == 0) begin // Normalise if (we assume) the base is precise.
-    cap.toBot = 0;
-    Exp newExp = 0;
-    Address shiftLength = length;
-    for (Integer i = 0; i <= 48; i = i+1) begin
-      if (shiftLength[63:16] != 0) newExp = newExp + 1;
-      shiftLength = shiftLength>>1;
-    end
-    cap.exp = newExp;
-    cap.toTop = unpack(truncate(length>>newExp));
-  end else begin // Otherwise, don't normalise.
-    cap.toTop = unpack(truncate((length + signExtend(pack(cap.toBot))<<cap.exp)>>cap.exp));
-  end
-  return ret;
-endfunction
-
-function AddrExp checkAndOffset(CapReq capReq, Capability cap);
-  Mantis size = case (capReq.size)
-    Line: return 32;
-    DoubleWord, DoubleWordLeft, DoubleWordRight: return 8;
-    Word, WordLeft, WordRight: return 4;
-    HalfWord: return 2;
-    Byte: return 1;
-    default: return 32; // Worst case default, just in case.
-  endcase;
-  Mantis shiftedOffset = unpack(truncate(pack(capReq.offset + zeroExtend(size)) >> cap.exp));
-  AddrExp retVal = AddrExp{
-    addr: pack(unpack(getPtr(cap.pointer)) + capReq.offset),
-    toTop: cap.toTop - shiftedOffset,
-    toBot: cap.toBot + shiftedOffset,
-    exp: None
-  };
-  if (retVal.toTop < 0 || retVal.toBot > 0) begin
-    retVal.exp = Len;
-  end
-  return retVal;
-endfunction
-
-
-function CapExpCode checkRegAccess(Perms pp, CapReg cr);
-  CapExpCode ret = None;
-  if      (!pp.access_CR27 && cr==27) ret = CR27;
-  else if (!pp.access_CR28 && cr==28) ret = CR28;
-  else if (!pp.access_CR29 && cr==29) ret = CR29;
-  else if (!pp.access_CR30 && cr==30) ret = CR30;
-  else if (!pp.access_CR31 && cr==31) ret = CR31;
-  return ret;
-endfunction
-
-typedef enum {Init, Ready, Except} CapState
+typedef enum {Init, Ready} CapState
   deriving (Bits, Eq);
 typedef enum {Except, Return, None} ExceptionEvent
   deriving (Bits, Eq);
 
-interface CapCopIfc;
-  method Action                           putCapInst(CapInst capInst);
-  method Address                          getArchPc(Address pc, Epoch epoch); // Translate absolute virtual address to arch PC
-  method ActionValue#(CoProResponse)      getCapResponse(CapReq capReq);
-  method ActionValue#(CoProResponse)      getAddress();
-  method ActionValue#(Maybe#(Capability)) commitWriteback(CapWritebackRequest wbReq);
-endinterface
-
+// The full capability structure, including the "tag" bit.
+typedef struct {
+  Capability fromMem;
+  CapFat     fromPipe;
+  Bool       useFromMem;
+  Bool       commit;
+} CapWriteback deriving(Bits, Eq, FShow); // 128 bits + 1 (tag bit)
+  
 `ifdef NOT_FLAT
   (*synthesize*)
 `endif
-module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
-  Reg#(Capability)            pcc                 <- mkConfigReg(defaultCap);
-  FIFOF#((BufferedPCC))       pccUpdate           <- mkUGFIFOF();
-  ForwardingPipelinedRegFileIfc#(Capability, 2) regFile <- mkForwardingPipelinedRegFile();
+module mkCapCop#(Bit#(16) coreId)(CapCopIfc);
+  Reg#(CapFat)                pcc                   <- mkConfigReg(defaultCapFat);
+  FIFOF#(BufferedPCC)         pccUpdate             <- mkUGFIFOF1();
+  ForwardingPipelinedRegFileIfc#(CapFat, 4) regFile <- mkForwardingPipelinedRegFile();
   `ifdef BLUESIM
-    Reg#(Capability) debugCaps[32];
-    for (Integer i=0; i<32; i=i+1) debugCaps[i]   <- mkReg(defaultCap);
+    Reg#(CapFat) debugCaps[32];
+    for (Integer i=0; i<32; i=i+1) debugCaps[i]   <- mkConfigReg(defaultCapFat);
     FIFOF#(Bool) reportCapRegs <- mkUGFIFOF;
   `endif
-  FIFO#(CapControlToken)      inQ                 <- mkLFIFO;
-  FIFO#(CapControlToken)      dec2exeQ            <- mkFIFO;
+  FIFO#(CapFetchToken)        inQ                 <- mkLFIFO;
+  FIFO#(CapFetchToken)        dec2exeQ            <- mkFIFO;
   FIFO#(CapControlToken)      exe2memQ            <- mkFIFO;
   FIFO#(CapControlToken)      mem2wbkQ            <- mkFIFO;
-  FIFO#(ExceptionEvent)       exception           <- mkFIFO;
-  FIFO#(CapReg)               expFetch            <- mkFIFO;
-  Reg#(CapCause)              causeReg            <- mkRegU;
+  FIFOF#(ExceptionEvent)      exception           <- mkFIFOF;
+  Reg#(CapCause)              causeReg            <- mkConfigRegU;
   FIFOF#(CapCause)            causeUpdate         <- mkUGFIFOF;
   FIFO#(LenCheck)             lenChecks           <- mkFIFO;
   FIFO#(CapCause)             lenCause            <- mkFIFO;
@@ -363,36 +83,34 @@ module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
   Reg#(UInt#(5))              count               <- mkReg(0);
 
   rule initialize(capState == Init);
-    Capability cap = defaultCap;
-    regFile.writeRaw(pack(count),defaultCap);
+    regFile.writeRaw(pack(count),defaultCapFat);
     count <= count + 1;
     if (count == 31) begin
       capState <= Ready;
     end
   endrule
 
-  rule doException(capState == Except);
-    ReadRegs#(Capability) tmp <- regFile.readRaw(expFetch.first, 0);
+  rule doException(capState == Ready);
+    CapFat regVal <- regFile.readRawGet();
+    CapFat dc = regVal;
     if (exception.first==Except) begin
-      Capability dc = pcc;
-      trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception in Capability Unit! PCC->EPCC u:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", $time, coreId, dc.sealed, dc.perms, getType(dc.pointer), getOffset(dc), getPtr(dc.pointer), getBase(dc), getLength(dc)));
-      regFile.writeRaw(31,pcc);
+      trace($display("Time:%0d, Core:%0d, Thread:0 :: KCC->PCC s:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", 
+                     $time, coreId, dc.sealed, getPerms(dc), dc.otype, getOffsetFat(dc, getTempFields(dc)), dc.pointer, getBotFat(dc, getTempFields(dc)), getLengthFat(dc, getTempFields(dc))));
+      //dc <- updatePointer(pcc, zeroExtend(exceptionPointer), getTempFields(pcc), causeReg);
+      dc = pcc;
+      trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception in Capability Unit! PCC->EPCC s:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", 
+                     $time, coreId, dc.sealed, getPerms(dc), dc.otype, getOffsetFat(dc, getTempFields(dc)), dc.pointer, getBotFat(dc, getTempFields(dc)), getLengthFat(dc, getTempFields(dc))));
+      regFile.writeRaw(31,dc);
       `ifdef BLUESIM
-        debugCaps[31] <= pcc;
+        debugCaps[31] <= dc;
       `endif
-      Capability kcc = tmp.regA;
-      pcc <= kcc;
-      dc = kcc;
-      trace($display("Time:%0d, Core:%0d, Thread:0 :: KCC->PCC u:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", $time, coreId, dc.sealed, dc.perms, getType(dc.pointer), getOffset(dc), getPtr(dc.pointer), getBase(dc), getLength(dc)));
     end else begin
-      Capability epcc = tmp.regA;
-      pcc <= epcc;
-      Capability dc = epcc;
-      trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception Return in Capability Unit! EPCC->PCC u:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", $time, coreId, dc.sealed, dc.perms, getType(dc.pointer), getOffset(dc), getPtr(dc.pointer), getBase(dc), getLength(dc)));
+      trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception Return in Capability Unit! EPCC->PCC s:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x",
+                     $time, coreId, dc.sealed, getPerms(dc), dc.otype, getOffsetFat(dc, getTempFields(dc)), dc.pointer, getBotFat(dc, getTempFields(dc)), getLengthFat(dc, getTempFields(dc))));
     end
-    expFetch.deq();
+    regVal = setCapPointer(regVal, truncate(getBotFat(regVal, getTempFields(regVal))));
+    pcc <= regVal;
     exception.deq();
-    capState <= Ready;
   endrule
   
   // This rule moves from the input queue to a larger queue.
@@ -401,180 +119,88 @@ module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
     dec2exeQ.enq(inQ.first);
     inQ.deq;
   endrule
+  
+  CapFat forwardedPCC = (pccUpdate.notEmpty() && pccUpdate.first.epoch==dec2exeQ.first.epoch) ?
+                         pccUpdate.first.pcc:pcc;
 
   method Address getArchPc(Address pc, Epoch epoch);
-    Capability forwardedPCC = (pccUpdate.notEmpty() && 
-                               pccUpdate.first.epoch==epoch) ? 
-                               pccUpdate.first.pcc:pcc;
-    if (capBranchDelay) forwardedPCC = pcc; // XXX Is this not fragile?
-    return (pc - getBase(forwardedPCC));
+    return (pc - truncate(forwardedPCC.pointer));
   endmethod
 
-  method Action putCapInst(capInst) if (capState == Ready);
-    Maybe#(CapReg) fetchA = tagged Invalid;
-    Maybe#(CapReg) fetchB = tagged Invalid;
-    Maybe#(CapReg) wbReg  = tagged Invalid;
+  method Action putCapInst(capInst) if (capState == Ready && !exception.notEmpty());
     ExpectTags expectTags = ExpectTags{a:False, b:False};
     CapCause cause = CapCause{exp: None, pcc: False, capReg: ?};
     Bool jump = False;
     case (capInst.op)
-      GetBase, GetLen, GetOffset, GetType, GetPerm, GetUnsealed, GetTag: begin // Move From Capability Register Field
-        fetchA = tagged Valid capInst.r2;
-      end
-      // For one of the capability-branch-if-tag-set/unset instructions, we
-      // need to fetch the tag, which we'll then use to decide whether we branch
-      BranchTagSet, BranchTagUnset: begin
-        fetchA = tagged Valid capInst.r1;
-      end
-      IncBase, IncBase2, IncBaseNull, SetLen, AndPerm: begin // Move to Capability Register Field
-        fetchA = tagged Valid capInst.r2;
+      SC,LC,L,S,IncBaseNull,AndPerm,SetBounds,GetRelBase,LegacyL,LegacyS: begin 
         expectTags.a = True;
-        wbReg = tagged Valid capInst.r1;
-      end
-      SetOffset, IncOffset: begin // Set the pointer
-        fetchA = tagged Valid capInst.r2;
-        wbReg = tagged Valid capInst.r1;
-      end
-      GetPCC: begin
-        wbReg = tagged Valid capInst.r2;
-      end
-      ClearTag: begin
-        fetchA = tagged Valid capInst.r2;
-        wbReg = tagged Valid capInst.r1;
-      end
-      SetType: begin
-        fetchA = tagged Valid capInst.r2;
-        expectTags.a = True;
-        wbReg = tagged Valid capInst.r1;
-      end
-      L: begin // Load Byte, Double and Word via Capability Register
-        fetchA = tagged Valid capInst.r1;
-        expectTags.a = True;
-      end
-      S: begin // Store Byte, Word and Double via Capability Register
-        fetchA = tagged Valid capInst.r1;
-        expectTags.a = True;
-      end
-      JALR: begin // Jump and link Capability Register
-        fetchA = tagged Valid capInst.r2;
-        expectTags.a = True;
-        wbReg = tagged Valid capInst.r1; // Link register.
-        jump = True;
-      end
-      JR: begin // Jump to Capability Register
-        fetchA = tagged Valid capInst.r2;
-        expectTags.a = True;
-        jump = True;
-      end
-      Seal: begin // Seal a data capability
-        fetchA = tagged Valid capInst.r2;
-        expectTags.a = True;
-        fetchB = tagged Valid capInst.r3;
-        expectTags.b = True;
-        wbReg = tagged Valid capInst.r1;
-      end
-      Unseal: begin
-        fetchA = tagged Valid capInst.r2;
-        expectTags.a = True;
-        fetchB = tagged Valid capInst.r3;
-        expectTags.b = True;
-        wbReg = tagged Valid capInst.r1;
-      end
-      GetRelBase: begin
-        fetchA = tagged Valid capInst.r2;
-        // Allow even non-tagged capability casts to pointer because
-        // the canonical null capability is not tagged as a capability.
-        //expectTags.a = True;
-        fetchB = tagged Valid capInst.r3;
-        expectTags.b = True;
       end
       CheckPerms: begin
-        fetchA = tagged Valid capInst.r1;
-        expectTags.a = True;
-      end
-      CheckType: begin
-        fetchA = tagged Valid capInst.r1;
-        expectTags.a = True;
-        fetchB = tagged Valid capInst.r2;
         expectTags.b = True;
       end
-      CmpEQ,CmpNE,CmpLT,CmpLE,CmpLTU,CmpLEU: begin
-        fetchA = tagged Valid capInst.r2;
-        fetchB = tagged Valid capInst.r3;
-      end
-      SC: begin // Store Capability Register
-        fetchA = tagged Valid capInst.r1;
+      CheckType,Call,Seal,Unseal: begin
         expectTags.a = True;
-        fetchB = tagged Valid capInst.r0;
+        expectTags.b = True;
       end
-      LC: begin // Load Capability Register
-        fetchA = tagged Valid capInst.r1;
+      CallFast: begin
         expectTags.a = True;
-        wbReg = tagged Valid capInst.r0;
+        expectTags.b = True;
+        jump = True;
       end
-      Call: begin
-        fetchA = tagged Valid capInst.r1;
-        fetchB = tagged Valid capInst.r2;
-        `ifdef HARDCALL
-          jump = True;
-          wbReg = tagged Valid 5'd26;
-        `endif
+      IncOffset: begin // Add to the pointer
+        if (capInst.r3 == 0) capInst.op = Move;
       end
-      Return: begin
-        //fetchA = tagged Valid capInst.r1;
-        //fetchB = tagged Valid capInst.r2;
-      end
-      ERET: begin
-        fetchA = tagged Valid 31;
-      end
-      None: begin
-        fetchA = tagged Valid 0;
+      JALR,JR: begin // Jump and link Capability Register
         expectTags.a = True;
+        jump = True;
       end
     endcase
     // Throw exceptions if improper registers are read, but always fetch to avoid stalls.
-    CapControlToken ctOut = CapControlToken{
+    CapFetchToken ctOut = CapFetchToken{
                                   capInst: capInst, 
                                   cause: cause, 
                                   expectTags: expectTags,
-                                  regA: 0,
-                                  regB: 0,
-                                  readA: ?,
-                                  readB: ?,
-                                  writeCap: ?,
-                                  writeReg: ?,
+                                  regA: capInst.fetchA,
+                                  regB: capInst.fetchB,
+                                  readA: capInst.doFetchA,
+                                  readB: capInst.doFetchB,
+                                  zeroOffset: False,
+                                  pccCheck: True,
                                   doWrite: False,
                                   jump: jump,
                                   instId: capInst.instId,
+                                  writeRegMask: False,
                                   epoch: capInst.epoch
                                 };
 
-    if (fetchA matches tagged Valid .regA) begin
-      ctOut.regA = regA;
-      ctOut.readA = True;
-      ctOut.cause.capReg = regA;
-    end
-    if (fetchB matches tagged Valid .regB &&& cause.exp == None) begin
-      ctOut.regB = regB;
-      ctOut.readB = True;
-    end
-    if (wbReg matches tagged Valid .writeReg &&& cause.exp == None) begin
-      ctOut.writeReg = writeReg;
+    ctOut.cause.capReg = capInst.fetchA;
+
+    if (capInst.doWriteDest && cause.exp == None) begin
+      ctOut.writeReg = capInst.dest;
       ctOut.doWrite = True;
     end
     
+    WriteType wt = None;
+    if (ctOut.doWrite) begin
+      case (capInst.op)
+        LC: wt = Pending;
+        `ifndef FAST_SETBOUNDS
+          SetBounds, SetBoundsExact: wt = Pending;
+        `endif
+        default: wt = Simple;
+      endcase
+    end
     ReadReq regReq = ReadReq{
                     epoch: capInst.epoch,
-                    a: ctOut.regA,
-                    b: ctOut.regB,
-                    write: ctOut.doWrite,
-                    pendingWrite: capInst.op==LC,
-                    dest: ctOut.writeReg,
+                    a: capInst.fetchA,
+                    b: capInst.fetchB,
+                    write: wt,
+                    dest: capInst.dest,
                     fromDebug: False,
-                    conditionalUpdate: False
+                    rawReq: False
                   };
     regFile.reqRegs(regReq);
-    debug2("cap", $display("%t Selecting to fetch CapRegA=%d and CapRegB=%d for instId=%d", $time(), fromMaybe(?,fetchA), fromMaybe(?,fetchB), capInst.instId));
+    debug2("cap", $display("%t Selecting to fetch CapRegA=%d and CapRegB=%d for instId=%d", $time(), regReq.a, regReq.b, capInst.instId));
     inQ.enq(ctOut);
 
     if (capInst.op != None) begin
@@ -582,21 +208,26 @@ module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
     end
   endmethod
 
-  method ActionValue#(CoProResponse) getCapResponse(CapReq capReq) if (capState == Ready && pccUpdate.notFull && causeUpdate.notFull);
-    CapControlToken ct <- toGet(dec2exeQ).get();
+  method ActionValue#(CoProResponse) getCapResponse(CapReq capReq, ExecuteType opType) if (capState == Ready 
+                                     && !(pccUpdate.notEmpty && dec2exeQ.first.jump) // Not if there is an outstanding jump and this is a jump 
+                                     && causeUpdate.notFull);
+    CapFetchToken ft <- toGet(dec2exeQ).get();
+    CapControlToken ct = fetchTok2ControlTok(ft);
+    ct.writeCap = ?;
+    ct.newPtr = ?;
+    ct.pc = ?;
+    ct.pccBot = ?;
+    ct.pccTop = ?;
+    ct.newRegMask = ?;
     CapInst capInst = ct.capInst;
     CapCause cause = ct.cause;
     ExpectTags expectTags = ct.expectTags;
 
-    ReadRegs#(Capability) capRegs <- regFile.readRegs();
-    Capability capA = capRegs.regA;
-    Capability capB = capRegs.regB;
+    ReadRegs#(CapFat) capRegs <- regFile.readRegs();
+    CapFat capA = capRegs.regA;
+    CapFat capB = capRegs.regB;
     CapReg regA = ct.regA;
     CapReg regB = ct.regB;
-    // Use forwarded PCC
-    Capability forwardedPCC = (pccUpdate.notEmpty() && 
-                               pccUpdate.first.epoch==ct.epoch) ? 
-                               pccUpdate.first.pcc:pcc;
     
     Perms pp = forwardedPCC.perms;
     if (ct.readA && cause.exp == None) begin
@@ -618,8 +249,7 @@ module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
       cause = CapCause{exp:Tag, pcc: False, capReg: regB};
     end
     
-    Capability writeback = capA;
-    Capability newPcc = capA;
+    CapFat writeback = capA;
     
     CapReq aCapReq = CapReq{
       pc: capReq.pc,
@@ -627,430 +257,489 @@ module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
       size: capReq.size,
       memOp: Read
     };
-    debug2("cap", $display("gotCapResponse! op=%d", capInst.op));
+    debug2("cap", $display("gotCapResponse! op=%d", fshow(capInst.op)));
+    debug2("cap", $display("gotCapResponse! Operand A CapReg %d =", regA, fshow(capA)));
+    debug2("cap", $display("gotCapResponse! Operand B CapReg %d =", regB, fshow(capB)));
+    Bit#(128) capBits = truncate(pack(packCap(capB)));
+    Line line = truncate({capBits,capBits,capBits,capBits});
     CoProResponse response = CoProResponse{valid: True, 
-                                           data: ?,  
-                                           storeData:?, 
+                                           data: pack(capReq.offset), 
+                                           storeData: tagged Line line, 
                                            exception: None
                                        };
-    AddrExp checkedPointer = checkAndOffset(aCapReq, capA);
+    TempFields tempA = getTempFields(capA);
+    LAddress capAbot = getBotFat(capA, tempA);
+    LAddress capAtop = getTopFat(capA, tempA);
+    TempFields tempPCC = getTempFields(forwardedPCC);
+    //ct.capAbot = capAbot;
+    //ct.capAtop = capAtop;
+    TempFields tempB = getTempFields(capB);
+    ct.zeroOffset = (aCapReq.offset==0);
+    LAddress checkedPointer = capA.pointer + zeroExtend(pack(aCapReq.offset));
+    //LAddress basePlusOffset = zeroExtend((capAbot + zeroExtend(pack(aCapReq.offset)))[63:0]);
     LenCheck lenCheck = LenCheck{
                           valid: False, 
-                          toTop: capA.toTop, 
-                          offset: truncate(aCapReq.offset >> capA.exp), 
-                          toBot: capA.toBot,
-                          exp: capA.exp,
+                          top: capAtop, 
+                          address: checkedPointer,   
+                          bot: capAbot,
                           memSize: aCapReq.size, 
-                          capReg: regA
+                          capReg: regA,
+                          ovExp: False
                         };
     Maybe#(CapCause) causeWrite = tagged Invalid;
-    case (capInst.op)
-      IncBase, IncBaseNull, IncBase2: begin
-        lenCheck = LenCheck{
-                      valid: True, 
-                      toTop: capA.toTop, 
-                      offset: truncate(aCapReq.offset >> capA.exp), 
-                      toBot: 0, 
-                      exp: capA.exp,
-                      memSize: None, 
-                      capReg: regA
-                    };
-        if (cause.exp == Tag && aCapReq.offset==0) begin
-          cause.exp = None;
-        end else if (capA.sealed && aCapReq.offset!=0 && cause.exp == None) begin
-          cause.exp = Seal;
-        end
-        // If the offset is 0, then we are doing a cmove, so don't touch any of
-        // the capability fields.
-        if (capInst.op == IncBase && aCapReq.offset==0) begin
-          // This is done above, but do it explicitly just to make sure...
-          writeback = capA;
-        // CFromPtr with a 0 source should give the canonical null capability.
-        end else if (capInst.op == IncBaseNull && aCapReq.offset==0) begin
-          writeback = unpack(0);
-          //writeback.isCapability = True;
-          //writeback.sealed = True;
-        end else if (cause.exp == None) begin
-          writeback.pointer = tagged Full checkedPointer.addr;
-          writeback.toTop = checkedPointer.toTop;
-          writeback.toBot = 0;
-          if (capInst.op == IncBase) begin
-            // This one is supposed to preserve the "offset", that is the relationship between
-            // the base and the pointer.  This is not possible when we don't know the base precisly.
-            if (capA.exp == 0) begin
-              writeback.pointer = tagged Full (getPtr(writeback.pointer) - signExtend(pack(capA.toBot)));
-              writeback.toBot = capA.toBot;
+    CapFat newPcc = capA;
+    //writeback <- updatePointerOffset(capA, checkedPointer, signExtend(aCapReq.offset));
+    // Ensure that the optimiser knows that these will not use an address calculation operand, which involves an add.
+    case (opType)
+      Arithmetic: begin
+        case (capInst.op)
+          Move: writeback = capA;
+          IncOffset: begin
+            writeback <- incOffset(capA, checkedPointer, pack(aCapReq.offset), tempA, False);
+            if (capA.isCapability && capA.sealed && cause.exp == None) begin
+              cause.exp = Seal;
+            end 
+          end
+          SetOffset, IncBaseNull: begin
+            writeback <- incOffset(capA, 0, pack(aCapReq.offset), tempA, True);
+            if (capInst.op == IncBaseNull && ct.zeroOffset) begin
+              if (cause.exp == Tag) cause.exp = None; // Clear any tag exception.
+              writeback = unpack(0);
+            end else if (capA.isCapability && capA.sealed && cause.exp == None) begin
+              cause.exp = Seal;
+            end 
+          end
+          SetBounds, SetBoundsExact: begin
+            if (capA.sealed && cause.exp == None) begin
+              cause.exp = Seal;
+            end if (!capInBounds(capA, tempA, True)) begin
+              cause.exp = Len;
+            end else begin
+              `ifndef FAST_SETBOUNDS
+                // Stash the length in the "top" field, do the setBounds in the next cycle.
+                ct.newPtr = zeroExtend(pack(aCapReq.offset));
+              `else
+                writeback <- setBounds(capA, pack(aCapReq.offset), (capInst.op==SetBoundsExact));
+                if (cause.exp == None) begin
+                  Bool setBoundsExactFailed = !writeback.isCapability;
+                  if (setBoundsExactFailed) begin
+                    cause = CapCause{exp: Inxact, pcc: False, capReg: ct.regB};
+                    response.exception = CAP;
+                  end // If there is no exception, the writeback will continue and succeed.
+                end
+              `endif
+            end
+            lenCheck.valid = True;
+            lenCheck.memSize = None;
+            lenCheck.ovExp = True;
+          end
+          AndPerm: begin
+            if (capA.sealed && cause.exp == None) begin
+              cause.exp = Seal;
+            end
+            writeback = capA;
+            writeback.perms.hard = unpack(pack(capA.perms.hard) & truncate(pack(aCapReq.offset)));
+            writeback.perms.soft = capA.perms.soft & truncate(pack(aCapReq.offset)[32:15]);
+          end
+          SetConfig: begin
+            if (!priveleged(forwardedPCC.perms) && cause.exp == None) begin
+              cause = CapCause{exp:SysRegs, pcc: True, capReg: ?};
+            end else begin
+              Bool pccWrite = (pack(aCapReq.offset)[7:0] == 8'hFF) ? True:False;
+              CapCause causeTemp = CapCause{
+                                exp:unpack(pack(aCapReq.offset)[15:8]), 
+                                pcc: pccWrite, 
+                                capReg: unpack(pack(aCapReq.offset)[4:0])
+                            };
+              causeWrite = tagged Valid causeTemp;
+              causeUpdate.enq(causeTemp);
             end
           end
-        end
-      end
-      IncOffset: begin
-        if (capA.isCapability && capA.sealed && cause.exp == None) begin
-          cause.exp = Seal;
-        end else writeback.pointer = tagged Full checkedPointer.addr;
-      end
-      SetOffset: begin
-        if (capA.isCapability && capA.sealed && cause.exp == None) begin
-          cause.exp = Seal;
-        end else begin
-          // If base is not precise, how can we do this?
-          if (capA.exp == 0) begin
-            writeback = updatePointer(capA, getBase(capA) + pack(aCapReq.offset));
+          ClearTag: begin
+            writeback.isCapability = False;
           end
-        end
-      end
-      SetLen: begin
-        if (capA.sealed && cause.exp == None) begin
-          cause.exp = Seal;
-        end else begin
-          writeback = setLength(capA, pack(aCapReq.offset));
-        end
-        lenCheck = LenCheck{
-                      valid: True, 
-                      toTop: capA.toTop, 
-                      offset: writeback.toTop, 
-                      toBot: 0, 
-                      exp: capA.exp,
-                      memSize: None, 
-                      capReg: regA
-                    };
-      end
-      SetType: begin
-        lenCheck.valid = True;
-        lenCheck.memSize = Byte;
-        Bit#(64) rawType = pack(aCapReq.offset);
-        CType newType = truncate(rawType);
-        if (capA.sealed && cause.exp == None) begin
-          cause.exp = Seal;
-        end else if (!capA.perms.permit_set_type && cause.exp == None) begin
-          cause.exp = SetType;
-        end else if (rawType!=zeroExtend(newType) && cause.exp == None) begin
-          cause.exp = SetType;
-        end else begin
-          //writeback.perms.permit_seal = True;
-          //writeback.otype = newType;
-          // Fold valid type in with pointer.  We lose (non-address) bits of the
-          // address in this case.
-          // The old "permit_seal" permission is now implied by the tagg on the pointer type.
-          // If it has a valid type, the "permit_seal" tag is set.
-          writeback.pointer = buildPtr(getPtr(writeback.pointer), newType, True);
-        end
-      end
-      AndPerm: begin
-        if (capA.sealed && cause.exp == None) begin
-          cause.exp = Seal;
-        end
-        writeback.perms = unpack(pack(capA.perms) & pack(aCapReq.offset)[21:0]);
-      end
-      SetConfig: begin
-        if (!pcc.perms.access_CR31 && cause.exp == None) begin
-          cause = CapCause{exp:CR31, pcc: True, capReg: ?};
-        end else begin
-          Bool pccWrite = (pack(aCapReq.offset)[7:0] == 8'hFF) ? True:False;
-          CapCause causeTemp = CapCause{
-                            exp:unpack(pack(aCapReq.offset)[15:8]), 
-                            pcc: pccWrite, 
-                            capReg: unpack(pack(aCapReq.offset)[4:0])
-                        };
-          causeWrite = tagged Valid causeTemp;
-          causeUpdate.enq(causeTemp);
-        end
-      end
-      ClearTag: begin
-        writeback.isCapability = False;
-      end
-      GetTag: begin
-        response.data = zeroExtend(pack(capA.isCapability));
-      end
-      BranchTagSet: begin
-        response.data = zeroExtend(pack(capA.isCapability));
-      end
-      BranchTagUnset: begin
-        response.data = zeroExtend(pack(!capA.isCapability));
-      end
-      GetLen: begin
-        response.data = getLength(capA);
-      end
-      GetBase: begin
-        response.data = getBase(capA);
-      end
-      GetOffset: begin
-        // The offset is basically -toBot.
-        response.data = getOffset(capA);
-      end
-      GetType: begin
-        response.data = zeroExtend(getType(capA.pointer));
-      end
-      GetPCC: begin
-        writeback = pcc;
-      end
-      GetConfig: begin
-        if (!pcc.perms.access_CR31 && cause.exp == None) begin
-          cause = CapCause{exp:CR31, pcc: True, capReg: ?};
-        end
-        // Use forwarded cause register if reading the cause register.
-        CapCause forwardedCauseReg = (causeUpdate.notEmpty()) ? causeUpdate.first():causeReg;
-        Bit#(8) regByte = (forwardedCauseReg.pcc) ? 8'hFF:zeroExtend(forwardedCauseReg.capReg);
-        response.data = zeroExtend({pack(forwardedCauseReg.exp), regByte});
-      end
-      ReportRegs: begin
-        `ifdef BLUESIM
-          reportCapRegs.enq(True);
-        `endif
-      end
-      GetPerm: begin
-        response.data = zeroExtend(pack(capA.perms));
-        response.valid = True;
-      end
-      GetUnsealed: begin
-        response.data = zeroExtend(pack(capA.sealed));
-        response.valid = True;
-      end
-      L: begin // Load via Capability Register
-        response.data = checkedPointer.addr;
-        if (cause.exp == None) begin
-          if (!capA.perms.permit_load) begin
-            cause.exp = Load;
-          end else if (capA.sealed) begin
-            cause.exp = Seal;
+          GetTag: begin
+            response.data = zeroExtend(pack(capA.isCapability));
           end
-          lenCheck.valid = True;
-        end
-      end
-      S: begin // Store via Capability Register
-        response.data = checkedPointer.addr;
-        if (cause.exp == None) begin
-          if (!capA.perms.permit_store) begin
-            cause.exp = Store;
-          end else if (capA.sealed) begin
-            cause.exp = Seal;
+          GetLen: begin
+            LAddress length = getLengthFat(capA,tempA);
+            response.data = truncate((length[64]==1) ? -1:length);
           end
-          lenCheck.valid = True;
-        end
-      end
-      JALR: begin // Jump and link Capability Register
-        if (!capA.perms.permit_execute && cause.exp == None) begin
-          cause.exp = Exe;
-        end else if (capA.sealed && cause.exp == None) begin
-          cause.exp = Seal;
-        end else if (!capA.perms.non_ephemeral && cause.exp == None) begin
-          cause.exp = Ephem;
-        end
-        newPcc = capA;              // Link the current program counter capability.
-        response.data = getPtr(capA.pointer);
-        writeback = forwardedPCC;
-        writeback.pointer = tagged Full pack(aCapReq.offset);
-      end
-      JR: begin // Jump to Capability Register
-        if (!capA.perms.permit_execute && cause.exp == None) begin
-          cause.exp = Exe;
-        end else if (capA.sealed && cause.exp == None) begin
-          cause.exp = Seal;
-        end else if (!capA.perms.non_ephemeral && cause.exp == None) begin
-          cause.exp = Ephem;
-        end
-        response.data = getPtr(capA.pointer);
-        newPcc = capA;
-      end
-      Seal: begin
-        Bool capBPermitSeal = False;
-        if (capB.pointer matches tagged Typed .tp) capBPermitSeal = True;
-        if (cause.exp == None) begin
-          if (capA.sealed) begin
-            cause.exp = Seal;
-          end else if (capB.sealed) begin
-            cause = CapCause{exp:Seal, pcc: False, capReg: regB};
-          end else if (!capBPermitSeal) begin
-            cause = CapCause{exp:PerSeal, pcc: False, capReg: regB};
-          end else if (getPtr(capB.pointer)[63:16] != 0) begin
-            cause = CapCause{exp:Len, pcc: False, capReg: regB};
-          end else if (outOfRange(capB)) begin
-            cause = CapCause{exp:Len, pcc: False, capReg: regB};
-          end else begin
-            writeback.sealed = True;
-            writeback.pointer = buildPtr(getPtr(writeback.pointer), truncate(getPtr(capB.pointer)), True);
+          GetBase: begin
+            response.data = truncate(capAbot);
           end
-        end
-      end
-      LC: begin // Load Capability Register
-        response.data = checkedPointer.addr;
-        if (cause.exp == None) begin
-          if (!capA.perms.permit_load_cap) begin
-            cause = CapCause{exp:LoadCap, pcc: False, capReg: regA};
-          end else if (capA.sealed) begin
-            cause = CapCause{exp:Seal, pcc: False, capReg: regA};
+          GetOffset: begin
+            //lenCheck.top = capA.pointer;
+            response.data = getOffsetFat(capA, tempA);
+            //response.data = truncate(capA.pointer - capAbot);
           end
-          lenCheck.valid = True;
-          lenCheck.memSize = Line;
-          debug2("cap", $display("Receiving Memory Response in CapCop."));
-          writeback = ?;
-        end
-        aCapReq.memOp = Read;
-        debug2("cap", $display("Doing a CLCR"));
-      end
-      SC: begin // Store Capability Register
-        response.data = checkedPointer.addr;
-        if (cause.exp == None) begin
-          if (!capA.perms.permit_store_cap) begin
-            cause = CapCause{exp:StoreCap, pcc: False, capReg: regA};
-          end else if (capA.sealed) begin
-            cause = CapCause{exp:Seal, pcc: False, capReg: regA};
-          end else if (!capA.perms.permit_store_ephemeral_cap && capB.isCapability && !capB.perms.non_ephemeral) begin
-            cause = CapCause{exp:StoreEph, pcc: False, capReg: regA};
+          GetType: begin
+            response.data = zeroExtend(capA.otype);
           end
-          lenCheck.valid = True;
-          lenCheck.memSize = Line;
-        end
-        aCapReq.memOp = Write;
-        if (capB.isCapability) 
-          response.storeData = tagged CapLine truncate(pack(capB));
-        else 
-          response.storeData = tagged Line truncate(pack(capB));
-        debug2("cap", $display("Doing a CSCR"));
-      end
-      Unseal: begin
-        Bool capBPermitSeal = False;
-        if (capB.pointer matches tagged Typed .tp) capBPermitSeal = True;
-        if (getType(capB.pointer) != zeroExtend(getType(capA.pointer)) && cause.exp == None) begin
-          cause = CapCause{exp:Type, pcc: False, capReg: regB};
-        end else if (!capBPermitSeal && cause.exp == None) begin
-          cause = CapCause{exp:PerSeal, pcc: False, capReg: regB};
-        end else if (!capA.sealed && cause.exp == None) begin
-          cause = CapCause{exp:Seal, pcc: False, capReg: regA};
-        end else begin
-          writeback.sealed = False;
-          writeback.perms.non_ephemeral = capA.perms.non_ephemeral && capB.perms.non_ephemeral;
-          writeback.pointer = tagged Full (getPtr(writeback.pointer));
-        end
-      end
-      GetRelBase: begin
-        // CToPtr.  CapA is the capability being turned into the pointer, CapB
-        // is the ambient capability.
-        // Turn zero-length capabilities, or capabilities with a pointer at the
-        // start of the ambient capability into a canonical null capability.
-        if (capA.isCapability) begin
-          response.data = getPtr(capA.pointer) - getBase(capB);
-        end else
-          response.data = 0;
-      end
-      CheckPerms: begin
-        if ((pack(capA.perms) & pack(aCapReq.offset)[21:0]) != pack(aCapReq.offset)[21:0]) cause = CapCause{exp:CkPerms, pcc: False, capReg: regA};
-      end
-      CheckType: begin
-        if (getType(capA.pointer) != getType(capB.pointer)) cause = CapCause{exp:Type, pcc: False, capReg: regA};
-      end
-      CmpEQ, CmpNE, CmpLT, CmpLE, CmpLTU, CmpLEU: begin
-        Bool sgndCmp = !(capInst.op == CmpLTU || capInst.op == CmpLEU);
-        Int#(65) aVal = unpack((sgndCmp) ? signExtend(getPtr(capA.pointer)):zeroExtend(getPtr(capA.pointer)));
-        Int#(65) bVal = unpack((sgndCmp) ? signExtend(getPtr(capB.pointer)):zeroExtend(getPtr(capB.pointer)));
-        Bool aNull = !capA.isCapability;
-        Bool bNull = !capB.isCapability;
-        Bool equal = (aVal==bVal);
-        // If one of them is NULL, they are only equal if both are NULL
-        if (aNull != bNull) equal = (aNull && bNull);
-        
-        Bool lessThan = ?;
-        // If they are equal, A is not less than B.
-        if (equal) lessThan = False;
-        // If one of them is NULL, they A is only less if A is NULL and B is not
-        else if (aNull != bNull) lessThan = aNull && !bNull;
-        else lessThan = (aVal < bVal);
-        response.data = case (capInst.op)
-                  CmpEQ: return (equal) ? 1:0;
-                  CmpNE: return (equal) ? 0:1;
-                  CmpLT, CmpLTU: return (lessThan) ? 1:0;
-                  CmpLE, CmpLEU: return (lessThan || equal) ? 1:0;
-                endcase;
-      end
-      Call: begin
-        Bool capAPermitSeal = False;
-        if (capA.pointer matches tagged Typed .tp) capAPermitSeal = True;
-        `ifdef HARDCALL
-          if (!capA.sealed && cause.exp == None) begin
-            cause.exp = Seal;
-          end else if (!capB.sealed && cause.exp == None) begin
-            cause = CapCause{exp:Seal, pcc: False, capReg: regB};
-          end else if (getType(capA) != getType(capB) && cause.exp == None) begin
-            cause.exp = Type;
-          end else if (!capA.perms.permit_execute && cause.exp == None) begin
-            cause.exp = Exe;
-          end else if (!capA.perms.permit_seal && cause.exp == None) begin
-            cause.exp = PerSeal;
-          end else if (capA.pointer < capA.base && cause.exp == None) begin
-            cause.exp = Len;
-          end else begin
-            capA.sealed = False;
-            newPcc = capA;
-            response.data = getPtr(capA.pointer);
-            capB.sealed = False;
+          GetPCC: begin
+            // Simply set the pointer to PC because we know it is in bounds,
+            // and therefore surely within representable bounds.
+            writeback = setCapPointer(forwardedPCC, capReq.pc);
+          end
+          SetPCCOffset: begin
+            // Set the offset of PCC and write to a capability register.
+            writeback <- incOffset(forwardedPCC, 0, pack(aCapReq.offset), tempPCC, True);
+          end
+          GetConfig: begin
+            if (!priveleged(forwardedPCC.perms) && cause.exp == None) begin
+              cause = CapCause{exp:SysRegs, pcc: True, capReg: ?};
+            end
+            // Use forwarded cause register if reading the cause register.
+            CapCause forwardedCauseReg = (causeUpdate.notEmpty()) ? causeUpdate.first():causeReg;
+            Bit#(8) regByte = (forwardedCauseReg.pcc) ? 8'hFF:zeroExtend(forwardedCauseReg.capReg);
+            response.data = zeroExtend({pack(forwardedCauseReg.exp), regByte});
+          end
+          ReportRegs: begin
+            `ifdef BLUESIM
+              reportCapRegs.enq(True);
+            `endif
+          end
+          GetPerm: begin
+            response.data = getPerms(capA);
+            response.valid = True;
+          end
+          GetSealed: begin
+            response.data = zeroExtend(pack(capA.sealed));
+            response.valid = True;
+          end
+          Seal: begin
+            writeback <- seal(capB, tempB, truncate(capA.pointer));
+            Bool sealFailed = !writeback.isCapability;
+            if (cause.exp == None) begin
+              if (capB.sealed) begin
+                cause = CapCause{exp:Seal, pcc: False, capReg: regB};
+              end else if (capA.sealed) begin
+                cause.exp = Seal;
+              end else if (!capA.perms.hard.permit_seal) begin
+                cause.exp = PerSeal;
+              end else if (capA.pointer[63:24] != 0) begin
+                cause.exp = Len;
+              end else if (!capInBounds(capB, tempB, False)) begin
+                // This is not a restriction in the uncompressed case!
+                // This is to ensure that trimming the representation does
+                // not leave us with a pointer out of new, smaller representable bounds.
+                cause = CapCause{exp:Inxact, pcc: False, capReg: regB};
+              end else if (sealFailed) begin
+                cause = CapCause{exp: Inxact, pcc: False, capReg: ct.regB};
+                response.exception = CAP;
+              end // If there is no exception, the writeback will continue and succeed.
+              lenCheck.valid = True;
+              lenCheck.memSize = Byte;
+            end
+          end
+          Unseal: begin
             writeback = capB;
+            if (!capB.sealed && cause.exp == None) begin
+              cause = CapCause{exp:Seal, pcc: False, capReg: regB};
+            end else if (capA.sealed && cause.exp == None) begin
+              cause = CapCause{exp:Seal, pcc: False, capReg: regA};
+            end else if (capA.pointer != zeroExtend(capB.otype) && cause.exp == None) begin
+              cause = CapCause{exp:Type, pcc: False, capReg: regA};
+            end else if (!capA.perms.hard.permit_seal && cause.exp == None) begin
+              cause = CapCause{exp:PerSeal, pcc: False, capReg: regA};
+            end else begin
+              writeback.sealed = False;
+              writeback.otype = 0;
+              writeback.perms.hard.non_ephemeral = capB.perms.hard.non_ephemeral && capA.perms.hard.non_ephemeral;
+            end
+            lenCheck.valid = True;
+            lenCheck.memSize = Byte;
           end
-          lenCheck.memSize = Word;
-          lenCheck.valid = True;
-        `else
-          if (!capA.sealed && cause.exp == None) begin
-            cause.exp = Seal;
-          end else if (!capB.sealed && cause.exp == None) begin
-            cause = CapCause{exp:Seal, pcc: False, capReg: regB};
-          end else if (getType(capA.pointer) != getType(capB.pointer) && cause.exp == None) begin
-            cause.exp = Type;
-          end else if (!capA.perms.permit_execute && cause.exp == None) begin
-            cause.exp = Exe;
-          end else if (!capAPermitSeal && cause.exp == None) begin
-            cause.exp = PerSeal;
-          end else if (outOfRange(capA) && cause.exp == None) begin
-            cause.exp = Len;
-          end else begin
-            cause = CapCause{exp:Call, pcc: False, capReg: regA};
+          GetRelBase: begin
+            lenCheck.top = capB.pointer;
+            if (!capB.isCapability) begin
+              lenCheck.top = capAbot; // Result will be 0.
+            end
+            // CToPtr.  CapA is the capability being turned into the pointer, CapB
+            // is the ambient capability.
+            // Turn zero-length capabilities, or capabilities with a pointer at the
+            // start of the ambient capability into a canonical null capability.
+            //if (capB.isCapability) begin
+            //  response.data = truncate(capB.pointer - capAbot);
+            //end else
+            //  response.data = 0;
           end
-          /*
-          // We're just doing the bounds-check here since it doesn't involve an offset.
-          lenCheck.memSize = Word;
-          lenCheck.valid = True;
-          */
-        `endif
+          Subtract: begin
+            response.data = truncate(capA.pointer - capB.pointer);
+          end
+          CheckPerms: begin
+            if ((pack(getPerms(capB)) & truncate(pack(aCapReq.offset))) != truncate(pack(aCapReq.offset)) && cause.exp == None) 
+              cause = CapCause{exp:CkPerms, pcc: False, capReg: regB};
+          end
+          CheckType: begin
+            if (capA.otype != capB.otype  && cause.exp == None) 
+              cause = CapCause{exp:Type, pcc: False, capReg: regB};
+          end
+          CmpEQ, CmpNE, CmpLT, CmpLE, CmpLTU, CmpLEU: begin
+            Bool sgndCmp = !(capInst.op == CmpLTU || capInst.op == CmpLEU);
+            Int#(65) aVal = unpack((sgndCmp) ? signExtend(capA.pointer[63:0]):zeroExtend(capA.pointer[63:0]));
+            Int#(65) bVal = unpack((sgndCmp) ? signExtend(capB.pointer[63:0]):zeroExtend(capB.pointer[63:0]));
+            Bool aNull = !capA.isCapability;
+            Bool bNull = !capB.isCapability;
+            Bool equal = (aVal==bVal);
+            // If both are NULL, they are equal even if the values differ
+            if (aNull != bNull) equal = False;
+            
+            Bool lessThan = ?;
+            // If they are equal, A is not less than B.
+            if (equal) lessThan = False;
+            // If A is NULL and B is not, then it is less than
+            else if (aNull != bNull) lessThan = (aNull && !bNull);
+            else lessThan = (aVal < bVal);
+            response.data = case (capInst.op)
+                      CmpEQ: return (equal) ? 1:0;
+                      CmpNE: return (equal) ? 0:1;
+                      CmpLT, CmpLTU: return (lessThan) ? 1:0;
+                      CmpLE, CmpLEU: return (lessThan || equal) ? 1:0;
+                    endcase;
+          end
+          CmpEQX: begin
+              response.data = architecturalFieldCompare(capA, capB) ? 1:0;
+            end
+          Clear: begin
+            ct.writeRegMask = True;
+            if (!pp.hard.acces_sys_regs) begin
+              if      (pack(aCapReq.offset)[27]!=1'b1)
+                  cause = CapCause{exp: SysRegs, pcc: False, capReg: 27};
+              else if (pack(aCapReq.offset)[28]!=1'b1)
+                  cause = CapCause{exp: SysRegs, pcc: False, capReg: 28};
+              else if (pack(aCapReq.offset)[29]!=1'b1)
+                  cause = CapCause{exp: SysRegs, pcc: False, capReg: 29};
+              else if (pack(aCapReq.offset)[30]!=1'b1)
+                  cause = CapCause{exp: SysRegs, pcc: False, capReg: 30};
+              else if (pack(aCapReq.offset)[31]!=1'b1)
+                  cause = CapCause{exp: SysRegs, pcc: False, capReg: 31};
+            end
+            ct.newRegMask = truncate(pack(aCapReq.offset));
+          end
+          Call: begin
+            Bool capAPermitSeal = False;
+            if (capA.sealed) capAPermitSeal = True;
+            if (!capA.sealed && cause.exp == None) begin
+              cause.exp = Seal;
+            end else if (!capB.sealed && cause.exp == None) begin
+              cause = CapCause{exp:Seal, pcc: False, capReg: regB};
+            end else if (capA.otype != capB.otype && cause.exp == None) begin
+              cause.exp = Type;
+            end else if (!capA.perms.hard.permit_execute && cause.exp == None) begin
+              cause.exp = Exe;
+            end else if (!capAPermitSeal && cause.exp == None) begin
+              cause.exp = PerSeal;
+            end else if (cause.exp == None) begin
+              cause = CapCause{exp:Call, pcc: False, capReg: regA};
+            end
+            // We're just doing the bounds-check here since it doesn't involve an offset.
+            lenCheck.memSize = Word;
+            lenCheck.valid = True;
+          end
+          Return: begin
+            cause = CapCause{exp:Return, pcc: True, capReg: ?};
+          end
+          None: begin
+            cause = CapCause{exp:None, pcc: ?, capReg: ?};
+            response.valid = False;
+          end
+          default: begin
+            cause = CapCause{exp:None, pcc: ?, capReg: ?};
+            response.valid = False;
+          end
+        endcase
       end
-      Return: begin
-        cause = CapCause{exp:Return, pcc: True, capReg: ?};
+      Branch: begin
+        Bool nullTest = (pack(capA)==0);
+        case (capInst.op)
+          BranchTagSet: begin
+            response.data = zeroExtend(pack(capA.isCapability));
+          end
+          BranchTagUnset: begin
+            response.data = zeroExtend(pack(!capA.isCapability));
+          end
+          BranchEqZero: begin
+            response.data = zeroExtend(pack(nullTest));
+          end
+          BranchNEqZero: begin
+            response.data = zeroExtend(pack(!nullTest));
+          end
+          JALR: begin // Jump and link Capability Register
+            if (!capA.perms.hard.permit_execute && cause.exp == None) begin
+              cause.exp = Exe;
+            end else if (capA.sealed && cause.exp == None) begin
+              cause.exp = Seal;
+            end else if (!capA.perms.hard.non_ephemeral && cause.exp == None) begin
+              cause.exp = Ephem;
+            end
+            lenCheck.valid = True;
+            lenCheck.address = zeroExtend(capA.pointer);
+            lenCheck.memSize = Word;
+            //newPcc = capA;              
+            response.data = truncate(capA.pointer);
+            //writeback <- updatePointer(forwardedPCC, zeroExtend(pack(aCapReq.offset)));
+            //writeback = forwardedPCC; // Link the current program counter capability.
+            writeback = setCapPointer(forwardedPCC, pack(aCapReq.offset));
+            //writeback.pointer = zeroExtend(pack(aCapReq.offset));
+          end
+          JR: begin // Jump to Capability Register
+            if (!capA.perms.hard.permit_execute && cause.exp == None) begin
+              cause.exp = Exe;
+            end else if (capA.sealed && cause.exp == None) begin
+              cause.exp = Seal;
+            end else if (!capA.perms.hard.non_ephemeral && cause.exp == None) begin
+              cause.exp = Ephem;
+            end
+            lenCheck.valid = True;
+            lenCheck.address = zeroExtend(capA.pointer);
+            lenCheck.memSize = Word;
+            response.data = truncate(capA.pointer);
+            //newPcc = capA;
+          end
+          CallFast: begin
+            Bool capAPermitSeal = False;
+            if (capA.sealed) capAPermitSeal = True;
+            if (!capA.sealed && cause.exp == None) begin
+              cause.exp = Seal;
+            end else if (!capB.sealed && cause.exp == None) begin
+              cause = CapCause{exp:Seal, pcc: False, capReg: regB};
+            end else if (capA.otype != capB.otype && cause.exp == None) begin
+              cause.exp = Type;
+            end else if (!capA.perms.hard.permit_execute && cause.exp == None) begin
+              cause.exp = Exe;
+            end else if (!capAPermitSeal && cause.exp == None) begin
+              cause.exp = PerSeal;
+            end else begin
+              capA.sealed = False;
+              //newPcc = capA;
+              response.data = truncate(capA.pointer);
+              capB.sealed = False;
+              writeback = capB;
+            end
+            lenCheck.memSize = Word;
+          end
+          ERET: begin
+            //response.data = truncate(basePlusOffset);
+            ct.newPtr = zeroExtend(pack(aCapReq.offset));
+          end
+          JumpRegister: begin
+            response.data = truncate(forwardedPCC.pointer) + pack(aCapReq.offset);
+          end
+          None: begin
+            cause = CapCause{exp:None, pcc: ?, capReg: ?};
+            response.valid = False;
+          end
+          default: begin
+            cause = CapCause{exp:None, pcc: ?, capReg: ?};
+            response.valid = False;
+          end
+        endcase
       end
-      ERET: begin
-        response.data = checkedPointer.addr;
-      end
-      JumpRegister: begin
-        response.data = getBase(forwardedPCC) + pack(aCapReq.offset);
-      end
-      None: begin
-        cause = CapCause{exp:None, pcc: ?, capReg: ?};
-        response.valid = False;
-      end
-      default: begin
-        cause = CapCause{exp:None, pcc: ?, capReg: ?};
-        response.valid = False;
+      Memory: begin
+        case (capInst.op)
+          L,LegacyL: begin // Load via Capability Register
+            response.data = truncate(checkedPointer);
+            if (cause.exp == None) begin
+              if (!capA.perms.hard.permit_load) begin
+                cause.exp = Load;
+              end else if (capA.sealed) begin
+                cause.exp = Seal;
+              end
+              lenCheck.valid = True;
+            end
+          end
+          S,LegacyS: begin // Store via Capability Register
+            response.data = truncate(checkedPointer);
+            if (cause.exp == None) begin
+              if (!capA.perms.hard.permit_store) begin
+                cause.exp = Store;
+              end else if (capA.sealed) begin
+                cause.exp = Seal;
+              end
+              lenCheck.valid = True;
+            end
+          end
+          LC: begin // Load Capability Register
+            response.data = truncate(checkedPointer);
+            if (cause.exp == None) begin
+              if (!capA.perms.hard.permit_load_cap) begin
+                cause = CapCause{exp:LoadCap, pcc: False, capReg: regA};
+              end else if (capA.sealed) begin
+                cause = CapCause{exp:Seal, pcc: False, capReg: regA};
+              end
+              lenCheck.valid = True;
+              lenCheck.memSize = CapWord;
+              debug2("cap", $display("Receiving Memory Response in CapCop."));
+              //writeback = ?;
+            end
+            aCapReq.memOp = Read;
+            debug2("cap", $display("Doing a CLCR"));
+          end
+          SC: begin // Store Capability Register
+            response.data = truncate(checkedPointer);
+            if (cause.exp == None) begin
+              if (!capA.perms.hard.permit_store_cap) begin
+                cause = CapCause{exp:StoreCap, pcc: False, capReg: regA};
+              end else if (capA.sealed) begin
+                cause = CapCause{exp:Seal, pcc: False, capReg: regA};
+              end else if (!capA.perms.hard.permit_store_ephemeral_cap && capB.isCapability && !capB.perms.hard.non_ephemeral) begin
+                cause = CapCause{exp:StoreEph, pcc: False, capReg: regA};
+              end
+              lenCheck.valid = True;
+              lenCheck.memSize = CapWord;
+            end
+            aCapReq.memOp = Write;
+            
+            if (capB.isCapability) response.storeData = tagged CapLine truncate(line);
+            debug2("cap", $display("Doing a CSCR"));
+            writeback = capB; // Just so that it can be reported in writeback.
+          end
+          None: begin
+            cause = CapCause{exp:None, pcc: ?, capReg: ?};
+            response.valid = False;
+          end
+          default: begin
+            cause = CapCause{exp:None, pcc: ?, capReg: ?};
+            response.valid = False;
+          end
+        endcase
       end
     endcase
 
     // Make sure there's room for the branch delay if we have one.
-    Address testPc = (ct.jump) ? capReq.pc+4:capReq.pc;
-    // Don't register an exception in the case of a branch delay because we checked it with the branch.
-    if (!capBranchDelay && 
-        (testPc >= ((getBase(forwardedPCC) + getLength(forwardedPCC)) & signExtend(4'hC)) || 
-        testPc < getBase(forwardedPCC))) begin
-      cause = CapCause{exp: Len, pcc: True, capReg: ?};
-      response.valid = True;
-      response.exception = ICAP;
-    end
-
+    Address testPc = capReq.pc;
     // Assign jump to the branch delay flag.  This will be reflected in the next cycle only.
     capBranchDelay <= ct.jump;
-    if (ct.jump) pccUpdate.enq(BufferedPCC{pcc: newPcc, epoch: ct.epoch});
-
-    response.exception = (cause.exp == None)?None:CAP;
-    if (capInst.op != None) begin
-      debug2("cap", $display("Use Cap Response. op=%x, r1=%x r2=%x exception=%d response=%x At time %d",
-          capInst.op, capInst.r1, capInst.r2, response.exception, response.data, $time));
+    if (ct.jump) begin
+      testPc = capReq.pc+4;
+      newPcc.pointer = capAbot;
+      newPcc.ptr = newPcc.bot;
+      pccUpdate.enq(BufferedPCC{pcc: newPcc, epoch: ct.epoch});
     end
-    if (response.exception != None && capInst.op != None) debug(
-          $display("Capability Exception! op=0x%x, capCause=0x%x causeReg=%d r1=%d r2=%d At time %d",
+    
+    // Don't register an exception in the case of a branch delay because we checked it with the branch.
+    ct.pccCheck = !capBranchDelay;
+    ct.pc = zeroExtend(testPc);
+    ct.pccTop = getTopFat(forwardedPCC, tempPCC) & signExtend(4'hC);
+    ct.pccBot = forwardedPCC.pointer;
+    if (!capBranchDelay && !forwardedPCC.isCapability) begin
+      cause = CapCause{exp: Tag, pcc: True, capReg: ?};
+      response.valid = True;
+      response.exception = ICAP;
+      debug2("cap", $display("PCC tag is not set! testPc: %x forwardedPCC: ",
+          testPc, fshow(forwardedPCC)));
+    end
+
+    Bool deliverPipelineException = (cause.exp != None);
+    if (cause.exp == Call || cause.exp == Return) deliverPipelineException = False;
+    response.exception = (deliverPipelineException)?CAP:None;
+    if (capInst.op != None) begin
+      debug2("cap", $display("Use Cap Response. op=%x, r1=%x r2=%x At time %d",
+          capInst.op, capInst.r1, capInst.r2, $time, fshow(response.storeData)));
+    end
+    if (response.exception != None && capInst.op != None) debug2(
+          "cap", $display("Capability Exception! op=0x%x, capCause=0x%x causeReg=%d r1=%d r2=%d At time %d",
           capInst.op, cause.exp, cause.capReg, capInst.r1, capInst.r2, $time));
     // Prepare a null writeback value in case we need a null writeback.
     CapControlToken ctOut = ct;
@@ -1058,10 +747,6 @@ module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
 
     if (capInst.op != None) begin
       debug2("cap", $display("Use Cap Update. op=%x, r1=%x r2=%x At time %d", capInst.op, capInst.r1, capInst.r2, $time));
-    end
-    // Pick up any exceptions from the writeback register.
-    if (response.exception==None) begin
-      response.exception = (cause.exp == None)?None:CAP;
     end
     if (cause.exp == None && capInst.op==SetConfig) begin
       cause = fromMaybe(cause, causeWrite);
@@ -1077,63 +762,130 @@ module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
   method ActionValue#(CoProResponse)  getAddress();
     LenCheck lenCheck = lenChecks.first;
     lenChecks.deq();
-    // Just pass the control token along; don't use it.  This prevents a deeper/slower FIFO.
     CapControlToken ct <- toGet(exe2memQ).get();
-    mem2wbkQ.enq(ct);
     CapCause cause = CapCause{exp:None, pcc: False, capReg: lenCheck.capReg};
     CoProResponse response = CoProResponse{valid: True, data: ?, 
-                                           storeData: ?, exception: None};
-    Mantis size = (
+                                        storeData: ?, exception: None};
+    TempFields tempWriteCap = getTempFields(ct.writeCap);
+    LAddress capAtop = lenCheck.top;
+    LAddress capAbot = lenCheck.bot;
+    // Perform "slow" (non-forwarded) operations.
+    LAddress basePlusOffset = zeroExtend((capAbot + ct.newPtr)[63:0]);
+    case (ct.capInst.op)
+      `ifndef FAST_SETBOUNDS
+        SetBounds, SetBoundsExact: begin
+          CapFat original = ct.writeCap;
+          ct.writeCap <- setBounds(ct.writeCap, truncate(ct.newPtr), (ct.capInst.op==SetBoundsExact));
+          debug2("cap", $display("Did Setbounds! Initial Cap: ", fshow(original)));
+          debug2("cap", $display("length: %x ", ct.newPtr));
+          debug2("cap", $display("New Cap: ", fshow(ct.writeCap)));
+          Bool setBoundsExactFailed = !ct.writeCap.isCapability;
+          if (ct.cause.exp == None) begin
+            if (setBoundsExactFailed) begin
+              cause = CapCause{exp: Inxact, pcc: False, capReg: ct.regB};
+              response.exception = CAP;
+            end // If there is no exception, the writeback will continue and succeed.
+          end
+        end
+      `endif
+      GetRelBase: begin
+        LAddress length = capAtop - capAbot;
+        debug2("cap", $display("Calculating length! capAtop: %x, capAbot: %x, top-bot: %x ", capAtop, capAbot, length));
+        response.data = truncate(length);
+        //if (ct.capInst.op==GetLen && length[64]==1) response.data = -1;
+      end
+      ERET: begin
+        response.data = truncate(basePlusOffset);
+      end
+    endcase
+    mem2wbkQ.enq(ct);
+
+    // Check the bounds of PCC.
+    // These are related to instruction fetch, and so are the highest priority and overwrite previous exceptions.
+    if (ct.pccCheck &&
+        ((ct.pc >= ct.pccTop) || (ct.pc <  ct.pccBot))) begin
+      cause = CapCause{exp: Len, pcc: True, capReg: ?};
+      response.exception = ICAP;
+      debug2("cap", $display("PCC out of bounds! testPc: %x pccTop: %x pccBot: %x ",
+          ct.pc, ct.pccTop, ct.pccBot));
+    end
+    
+    // Check the bounds of any capability operation.
+    Address size = (
       case(lenCheck.memSize)
-        Line: return 32;
+        CapWord: return 16;
         DoubleWord, DoubleWordLeft, DoubleWordRight: return 8;
         Word, WordLeft, WordRight: return 4;
         HalfWord: return 2;
         Byte: return 1;
         None: return 0;
-        default: return 32; // Worst case default, just in case.
+        default: return 16; // Worst case default, just in case.
       endcase
     );
     if (lenCheck.valid) begin
-      Mantis shiftedOffset = lenCheck.offset + (size >> lenCheck.exp);
-      if (shiftedOffset >= lenCheck.toTop || shiftedOffset < lenCheck.toBot) begin
-        cause.exp = Len;
+      //Maybe#(Address) vAddr = tagged Valid pack(unpack(cap.base) + capReq.offset);
+      // If we are not throwing an exception on overflow, zero out the top bits of all the operands.
+      if (!lenCheck.ovExp) begin
+        //lenCheck.top[65:64] = 0;
+        lenCheck.address = zeroExtend(lenCheck.address[63:0]);
+        lenCheck.bot = zeroExtend(lenCheck.bot[63:0]);
       end
-      //debug2("cap", $display("Cap length check, At time %d,  cause:", $time, fshow(lenCheck), fshow(cause)));
+      LAddress lastByte = lenCheck.address + zeroExtend(size);
+      if (cause.exp == None &&
+          (lastByte > lenCheck.top) ||
+          (lenCheck.address < lenCheck.bot)) begin
+        cause.exp = Len;
+        response.exception = CAP;
+      end
+      debug2("cap", $display("Cap length check, At time %d,  bot: %x, addr: %x (size:%x), top: %x, cause.exp:%x,  cause.pcc:%x, cause.capReg:%d", 
+                             $time, lenCheck.bot, lenCheck.address, size, lenCheck.top, 
+                             cause.exp, cause.pcc, cause.capReg));
     end
     lenCause.enq(cause);
-    if (cause.exp != None) begin
-      response.exception = CAP;
-    end
     return response;
   endmethod
 
-  method ActionValue#(Maybe#(Capability)) commitWriteback(CapWritebackRequest wbReq) if (capState == Ready);
+  method ActionValue#(CapFat) commitWriteback(CapWritebackRequest wbReq) if (capState == Ready);
     //CapCause fetchCheckCause = fetchCause.first;
     //fetchCause.deq;
     CapCause lenCheckCause <- toGet(lenCause).get();
     CapControlToken ct     <- toGet(mem2wbkQ).get();
     Bool commit = (!wbReq.dead && wbReq.mipsExp == None);
-    Capability newPcc = pcc;
-    Capability dc = ?; // Convenience name for debug printing.
+    CapFat newPcc = pcc;
+    CapFat dc = ?; // Convenience name for debug printing.
+    CapWriteback wb = CapWriteback{
+      fromMem: wbReq.memResponse,
+      fromPipe: ct.writeCap,
+      useFromMem: ct.capInst.op==LC,
+      commit: commit
+    };
+    //capWriteback.enq(wb); // Use this line if we want to delay the writeback.
+    // Do these two lines if we want to attempt to writeback without delay.
+    CapFat writeCap = (wb.useFromMem) ? unpackCap(wb.fromMem):wb.fromPipe;
+    regFile.writeReg(writeCap, wb.commit);
+    // --------------------------------------------------------------------
     if (ct.jump && commit) begin
       newPcc = pccUpdate.first.pcc;
       dc = pccUpdate.first.pcc;
-      trace($display("Time:%0d, Core:%0d, Thread:0 :: PCC <- tag:%d u:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", $time, coreId, dc.isCapability, dc.sealed, dc.perms, getType(dc.pointer), getOffset(dc), getPtr(dc.pointer), getBase(dc), getLength(dc)));
+      trace($display("Time:%0d, Core:%0d, Thread:0 :: PCC <- tag:%d s:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", 
+                     $time, coreId, dc.isCapability, dc.sealed, getPerms(dc), dc.otype, getOffsetFat(dc, getTempFields(dc)), dc.pointer, getBotFat(dc, getTempFields(dc)), getLengthFat(dc, getTempFields(dc))));
     end
     if (ct.jump && pccUpdate.notEmpty) pccUpdate.deq;
     if (ct.capInst.op==SetConfig && causeUpdate.notEmpty) causeUpdate.deq;
     if (ct.doWrite && commit) begin
-      if (ct.capInst.op == LC) ct.writeCap = wbReq.memResponse;
+      writeCap = (ct.capInst.op==LC) ? unpackCap(wbReq.memResponse):ct.writeCap;
       `ifdef BLUESIM
-        debugCaps[ct.writeReg] <= ct.writeCap;
+        debugCaps[ct.writeReg] <= writeCap;
       `endif
-      dc = ct.writeCap;
-      trace($display("Time:%0d, Core:%0d, Thread:0 :: CapReg %d <- tag:%d u:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", $time, coreId, ct.writeReg, dc.isCapability, dc.sealed, dc.perms, getType(dc.pointer), getOffset(dc), getPtr(dc.pointer), getBase(dc), getLength(dc)));
+      dc = writeCap;
+      debug2("cap", $display("CapReg %d <- ", ct.writeReg, fshow(writeCap)));
+      trace($display("Time:%0d, Core:%0d, Thread:0 :: CapReg %d <- tag:%d s:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x",
+      								 $time, coreId, ct.writeReg, dc.isCapability, dc.sealed, getPerms(dc), dc.otype, getOffsetFat(dc, getTempFields(dc)), dc.pointer, 
+                       getBotFat(dc, getTempFields(dc)), getLengthFat(dc, getTempFields(dc)), fshow(dc)));
     end
-    regFile.writeReg(ct.writeReg, ct.writeCap, ct.doWrite, commit);
-    if (!wbReq.dead && (wbReq.mipsExp==CAP||wbReq.mipsExp==CAPCALL||
-                        wbReq.mipsExp==CTLBS)) begin
+
+    if (!wbReq.dead && (wbReq.mipsExp==CAP  ||wbReq.mipsExp==CAPCALL||
+                        wbReq.mipsExp==CTLBS||wbReq.mipsExp==ICAP)) begin
       // The instruction fetch cause has the highest priority for the cap cause register!
       //if (fetchCheckCause.exp != None) ct.cause=fetchCheckCause;
       // Length exception has priority over Call exception.
@@ -1141,23 +893,30 @@ module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
         if (lenCheckCause.exp != None) ct.cause = lenCheckCause;
       end
       if (wbReq.mipsExp==CTLBS) ct.cause.exp = Ctlbs;
+      if (wbReq.mipsExp==ICAP) ct.cause = CapCause{exp: Len, pcc: True, capReg: ?};
       causeReg <= ct.cause;
-      trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception CapCause <- CapExpCode: 0x%x CauseReg: %d", $time, coreId, ct.cause.exp, ct.cause.capReg));
+      trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception CapCause <- CapExpCode: 0x%x CauseReg: %d PCC: %d", 
+                     $time, coreId, ct.cause.exp, ct.cause.capReg, ct.cause.pcc));
     end else if (ct.capInst.op == SetConfig && commit) begin
       causeReg <= ct.cause;
-      trace($display("Time:%0d, Core:%0d, Thread:0 :: SetConfig CapCause <- CapExpCode: 0x%x CauseReg: %d", $time, coreId, ct.cause.exp, ct.cause.capReg));
+      trace($display("Time:%0d, Core:%0d, Thread:0 :: SetConfig CapCause <- CapExpCode: 0x%x CauseReg: %d PCC: $d", 
+                     $time, coreId, ct.cause.exp, ct.cause.capReg, ct.cause.pcc));
     end
+
+    if (commit && ct.writeRegMask) regFile.clearRegs(ct.newRegMask);
     if (!wbReq.dead) begin
       ExceptionEvent ee = None;
       if (wbReq.mipsExp!=None) ee = Except;
       else if (ct.capInst.op==ERET) ee = Return;
       if (ee != None) begin
-        capState <= Except;
-        newPcc = updatePointer(newPcc, wbReq.pc);
+        // Just set the pointer because we know it is in bounds under normal circumstances.
+        newPcc = setCapPointer(newPcc, wbReq.pc);
+        // If it was out of bounds, treat as out of representable bounds.
+        if (ct.cause.exp == Len && ct.cause.pcc) newPcc = nullifyCap(newPcc);
         // Request KCC (register 29) from the register file to be placed in PCC
         // Or request EPCC (register 31) from the register file to be returned to PCC
         CapReg fetch = (ee==Except) ? 29:31;
-        expFetch.enq(fetch);
+        regFile.readRawPut(fetch);
         exception.enq(ee);
       end
     end
@@ -1165,18 +924,21 @@ module mkCapCop128#(Bit#(16) coreId)(CapCopIfc);
       if (reportCapRegs.notEmpty) begin
         debugInst($display("======   RegFile   ======"));
         debugInst($display("DEBUG CAP COREID %d", coreId));
-        debugInst($display("DEBUG CAP PCC u:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", pcc.sealed, pcc.perms, getType(pcc.pointer), getOffset(pcc), getPtr(pcc.pointer), getBase(pcc), getLength(pcc)));
+        debugInst($display("DEBUG CAP PCC t:%d s:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x",
+                           pcc.isCapability, pcc.sealed, getPerms(pcc), pcc.otype, getOffsetFat(pcc, getTempFields(pcc))[63:0], getBotFat(pcc, getTempFields(pcc))[63:0], getLengthFat(pcc, getTempFields(pcc))[63:0]));
         for (Integer i = 0; i<32; i=i+1) begin
           dc = debugCaps[i];
-          debugInst($display("DEBUG CAP REG %d u:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", i, dc.sealed, dc.perms, getType(dc.pointer), getOffset(dc), getPtr(dc.pointer), getBase(dc), getLength(dc)));
+          debugInst($display("DEBUG CAP REG %d t:%d s:%d perms:0x%x type:0x%x offset:0x%x base:0x%x length:0x%x",
+                             i, dc.isCapability, dc.sealed, getPerms(dc), dc.otype, getOffsetFat(dc, getTempFields(dc))[63:0], getBotFat(dc, getTempFields(dc))[63:0], getLengthFat(dc, getTempFields(dc))[63:0]));
         end
         debugInst(reportCapRegs.deq());
       end
     `endif
-    pcc <= newPcc;
+    if (!exception.notEmpty()) pcc <= newPcc;
     dc = newPcc;
-    debug2("cap", $display("PCC <- u:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x", dc.sealed, dc.perms, getType(dc.pointer), getOffset(dc), getPtr(dc.pointer), getBase(dc), getLength(dc)));
+    debug2("cap", $display("PCC <- t:%d s:%d perms:0x%x type:0x%x offset:0x%x pointer:0x%x base:0x%x length:0x%x",
+                           dc.isCapability, dc.sealed, getPerms(dc), dc.otype, getOffsetFat(dc, getTempFields(dc)), dc.pointer, getBotFat(dc, getTempFields(dc)), getLengthFat(dc, getTempFields(dc))));
     debug2("cap", $display("CapCop Writeback, instID:%d==capWBTags.id:%d, capWBTags.valid:%d, capWB.first.instID:%d", wbReq.instId, ct.instId, ct.doWrite, ct.instId));
-    return (ct.doWrite && commit) ? tagged Valid ct.writeCap: tagged Invalid;
+    return writeCap;
   endmethod
 endmodule

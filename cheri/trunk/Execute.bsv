@@ -39,7 +39,7 @@ import MIPS::*;
 import GetPut::*;
 import Decode::*;
 import MemAccess::*;
-import ForwardingPipelinedRegFile::*;
+//import ForwardingPipelinedRegFile::*;
 import FIFO::*;
 import FIFOF::*;
 import SpecialFIFOs::*;
@@ -59,6 +59,9 @@ import ConfigReg::*;
   `define USECAP 1
 `elsif CAP128
   import CapCop128::*;
+  `define USECAP 1
+`elsif CAP64
+  import CapCop64::*;
   `define USECAP 1
 `endif
 
@@ -108,7 +111,7 @@ module mkExecute#(
   `endif
   FIFO#(ControlTokenT) inQ
 )(PipeStageIfc);
-  FIFO#(ControlTokenT)        outQ <- mkLFIFO;
+  FIFO#(ControlTokenT)        outQ <- mkFIFO;
   MulDivIfc                    mul <- mkMulDiv;
   Reg#(MIPSReg)                 hi <- mkReg(64'b0);
   Reg#(MIPSReg)                 lo <- mkReg(64'b0);
@@ -187,7 +190,7 @@ module mkExecute#(
 
     er.opA = opA[63:0];
     er.opB = opB[63:0];
-    Bit#(65) calcResult = ?;
+    Bit#(65) calcResult = opA + opB;
 
     debug($display("======   PRE-EXECUTE INSTRUCTION   ======"));
     debug(displayControlToken(er));
@@ -196,7 +199,11 @@ module mkExecute#(
     `ifdef USECAP
       CapReq capReq = CapReq{
         offset: unpack(er.opA),
-        pc: di.pc,
+        `ifndef CAP64
+            pc: di.pc,
+        `else
+            pc: di.pc[31:0],
+        `endif
         size: di.memSize,
         memOp: di.mem
       };
@@ -223,29 +230,23 @@ module mkExecute#(
     `ifdef USECAP
       er.archPc = capCop.getArchPc(er.pc, er.epoch);
     `endif
+    
+    Bool 		writeReg = True;
+    MIPSReg writeVal = er.opA;
     if (di.mem != None) begin
+      `ifdef USECAP
+        case(di.alu)
+          Add: capReq.offset = unpack(calcResult[63:0]);
+          default: capReq.offset = unpack(er.opB);
+        endcase
+        capVal <- capCop.getCapResponse(capReq, Memory);
+        if (di.alu==Cap) calcResult = signExtend(capVal.data);
+        else 
+      `endif
       case(di.alu)
         Add: begin
-          calcResult = opA + opB;
-          `ifdef USECAP
-            capReq.offset = unpack(calcResult[63:0]);
-            capVal <- capCop.getCapResponse(capReq);
-          `endif
         end
-        `ifdef USECAP
-          Cap: begin
-            capReq.offset = unpack(er.opB);
-            capVal <- capCop.getCapResponse(capReq);
-            calcResult = signExtend(capVal.data);
-          end
-        `endif
-        default: begin
-          `ifdef USECAP
-            capReq.offset = unpack(er.opB);
-            capVal <- capCop.getCapResponse(capReq);
-          `endif
-          calcResult = opA;
-        end
+        default: calcResult = opA;
       endcase
 
       `ifdef USECAP
@@ -276,17 +277,14 @@ module mkExecute#(
           debug($display("Store Conditional! Result = %x, id=%d", scResult, er.id));
         end
       end
-      rf.writeRegSpeculative(er.opB, er.writeDest == RegFile);
-      outQ.enq(er);
+      writeVal = er.opB;
     end else if (di.branch != Never) begin
       Bit#(65) signedA = signExtend(opA[63:0]);
-      Bit#(65) signedB = signExtend(opB[63:0]);
       Int#(65) intA = unpack(signedA);
-      Int#(65) intB = unpack(signedB);
-
+      
       `ifdef USECAP
         capReq.offset = unpack(er.opB);
-        capVal <- capCop.getCapResponse(capReq);
+        capVal <- capCop.getCapResponse(capReq, Branch);
         if (capVal.valid) begin
           if (er.exception == None 
               || (er.exception == CAPCALL &&  capVal.exception != None)
@@ -296,7 +294,7 @@ module mkExecute#(
         end
         er.opB = capVal.data;
       `endif
-
+      
       //Address jumpTarget = 64'b0;
       case (di.inst) matches
         tagged Immediate .ii: begin
@@ -309,7 +307,7 @@ module mkExecute#(
               GTZ: return (intA > 0);
               GEZ: return (intA >= 0);
               `ifdef USECAP
-                CapTag: return (capVal.data == 1);
+                CapTag: return (capVal.data[0] == 1);
               `endif
             endcase) begin
             er.pcUpdate = signExtend(unpack({ii.imm, 2'b0})) + 4;
@@ -364,15 +362,15 @@ module mkExecute#(
       if (er.link || er.writeDest == RegFile) begin
         er.opA = er.archPc + 8;
       end
-      rf.writeRegSpeculative(er.opA, er.writeDest == RegFile);
-      outQ.enq(er);
+      writeVal = er.opA;
     end else begin // Not a memory op or a branch.
       Bit#(65) signedA = signExtend(opA[63:0]);
       Bit#(65) signedB = signExtend(opB[63:0]);
       Int#(65) intA = unpack(signedA);
       Int#(65) intB = unpack(signedB);
+      
       `ifdef USECAP
-        capVal <- capCop.getCapResponse(capReq);
+        capVal <- capCop.getCapResponse(capReq, Arithmetic);
         if (capVal.valid) begin
           if (er.exception == None 
               || (er.exception == CAPCALL &&  capVal.exception != None)
@@ -381,6 +379,7 @@ module mkExecute#(
           end
         end
       `endif
+      
       case(di.alu)
         Add, Sub :begin
           if (di.alu == Sub) opB = ~opB + 1; // 2s complement
@@ -429,6 +428,12 @@ module mkExecute#(
             if (opB[5]==1'b1) calcResult = calcResult >> 32;
           end
         end
+        /*
+        CLZ: begin
+            if(di.sixtyFourBitOp) calcResult = zeroExtend(pack(countZerosMSB(opA[63:0])));
+            else calcResult = zeroExtend(pack(countZerosMSB(opA[31:0])));
+        end
+         */
         SRA: begin
           if(di.sixtyFourBitOp) calcResult = signExtend(arithmeticShift2(opA[63:0], opB[5:0]));
           else begin
@@ -509,14 +514,18 @@ module mkExecute#(
 
       if (er.alu == MulI) begin
         pendingOps.enq(er);
-      end else begin
-        outQ.enq(er);
-        rf.writeRegSpeculative(er.opA, er.writeDest == RegFile);
+        writeReg = False;
       end
+      writeVal = er.opA;
     end // Not a memory op.
+    if (writeReg) begin
+    	outQ.enq(er);
+    	rf.writeRegSpeculative(writeVal, er.writeDest == RegFile);
+    end
   endmethod
   method ControlTokenT first = outQ.first;
   method Action deq = outQ.deq;
+  method clear = noAction; // XXX This method should never be called.
 endmodule
 
 /*

@@ -4,10 +4,10 @@
  * Copyright (c) 2012-2013 SRI International
  * Copyright (c) 2012 Simon W. Moore
  * Copyright (c) 2012-2014 Robert Norton
- * Copyright (c) 2012-2014 Bjoern A. Zeeb
+ * Copyright (c) 2012-2015 Bjoern A. Zeeb
  * Copyright (c) 2013 Colin Rothwell
  * Copyright (c) 2013 Jonathan Anderson
- * Copyright (c) 2015 A. Theodore Markettos
+ * Copyright (c) 2015 Theo Markettos
  * 
  * All rights reserved.
  *
@@ -82,6 +82,10 @@
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <string.h>
+#ifdef __FreeBSD__
+#include <sys/sockio.h>
+#endif
+#include <net/if.h>
 #endif
 #include <inttypes.h>
 #include <poll.h>
@@ -144,6 +148,7 @@ struct beri_debug {
 #define	BERI_NO_PAUSE_RESUME	0x00000004
 #define	BERI_PCIEXPRESS		0x00000008
 #define BERI_JTAG_ATLANTIC	0x00000010
+#define	BERI_NETFPGA_SUME_IOCTL	0x00000020
 	uint32_t	bd_flags;
 };
 
@@ -262,6 +267,14 @@ beri_debug_is_netfpga(struct beri_debug *bdp)
 	return ((bdp->bd_flags & BERI_NETFPGA_IOCTL) == BERI_NETFPGA_IOCTL);
 }
 
+int
+beri_debug_is_netfpga_sume(struct beri_debug *bdp)
+{
+
+	assert(bdp != NULL);
+	return ((bdp->bd_flags & BERI_NETFPGA_SUME_IOCTL) == BERI_NETFPGA_SUME_IOCTL);
+}
+
 #define	OUTSTANDING_MAX_DEFAULT         256
 #define	OUTSTANDING_MAX_BERI2           512
 #define	OUTSTANDING_MAX_PCIEXPRESS	4096
@@ -300,6 +313,19 @@ beri_debug_client_open_path(struct beri_debug **bdpp, const char *pathp,
 			return (BERI_DEBUG_ERROR_SOCKET);
 		}
 		bdp->bd_flags |= BERI_NETFPGA_IOCTL;
+		*bdpp = bdp;
+		return (BERI_DEBUG_SUCCESS);
+	}
+	if (oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA_SUME) {
+		bdp->bd_fd = socket(AF_INET6, SOCK_DGRAM, 0);
+		if (bdp->bd_fd == -1) {
+			bdp->bd_fd = socket(AF_INET, SOCK_DGRAM, 0);
+			if (bdp->bd_fd == -1) {
+				beri_debug_destroy(bdp);
+				return (BERI_DEBUG_ERROR_SOCKET);
+			}
+		}
+		bdp->bd_flags |= BERI_NETFPGA_SUME_IOCTL;
 		*bdpp = bdp;
 		return (BERI_DEBUG_SUCCESS);
 	}
@@ -730,6 +756,24 @@ beri_debug_client_write(struct beri_debug *bdp, void *bufferp,
 }
 
 #ifdef BERI_NETFPGA
+int
+beri_debug_client_netfpga_sume_ioctl(struct beri_debug *bdp,
+    struct sume_ifreq *sifr, unsigned long request, char *ifnam)
+{
+	struct ifreq ifr;
+	size_t ifnamlen;
+
+	memset(&ifr, 0, sizeof(ifr));
+	ifnamlen = strlen(ifnam);
+	if (ifnamlen >= sizeof(ifr.ifr_name))
+		return (-1);
+	memcpy(ifr.ifr_name, ifnam, ifnamlen);
+	ifr.ifr_name[ifnamlen] = '\0';
+	ifr.ifr_data = (char *)sifr;
+
+	return (ioctl(bdp->bd_fd, request, &ifr));
+}
+
 static int
 beri_debug_client_write_netfpga_ioctl(struct beri_debug *bdp, uint8_t command,
     void *bufferp, size_t bufferlen)
@@ -765,6 +809,64 @@ beri_debug_client_write_netfpga_ioctl(struct beri_debug *bdp, uint8_t command,
 
 	return (BERI_DEBUG_SUCCESS);
 }
+
+static int
+beri_debug_client_write_netfpga_sume_ioctl(struct beri_debug *bdp,
+    uint8_t command, void *bufferp, size_t bufferlen)
+{
+	struct sume_ifreq sifr;
+	size_t l;
+	uint8_t *vp;
+	int ret;
+
+	if (bufferlen > NETFPGA_IOCTL_PAYLOAD_MAX)
+		return (BERI_DEBUG_ERROR_DATA_TOOBIG);
+
+	/*
+	 * The 'axi-debug bridge protocol' goes as follows:
+	 * 1 clear the registers
+	 * 2 write command, length and payload
+	 * 3 write length (entire T+L+V) to pass to beridebug core
+	 * 4 tell axi-debug bridge to send it off
+	 *[5 read answer back, elsewhere]
+	 */
+        sifr.addr = NETFPGA_AXI_DEBUG_BRIDGE_WR;
+        sifr.val = command;
+	ret = beri_debug_client_netfpga_sume_ioctl(bdp, &sifr,
+	    SUME_IOCTL_CMD_WRITE_REG, SUME_IFNAM_DEFAULT);
+	if (ret == -1)
+		return (BERI_DEBUG_ERROR_SEND);
+
+        sifr.addr = NETFPGA_AXI_DEBUG_BRIDGE_WR;
+        sifr.val = bufferlen;
+	ret = beri_debug_client_netfpga_sume_ioctl(bdp, &sifr,
+	    SUME_IOCTL_CMD_WRITE_REG, SUME_IFNAM_DEFAULT);
+	if (ret == -1)
+		return (BERI_DEBUG_ERROR_SEND);
+
+	l = bufferlen;
+	vp = (uint8_t *)bufferp;
+	while (l > 0) {
+		sifr.addr = NETFPGA_AXI_DEBUG_BRIDGE_WR;
+		sifr.val = *vp;
+		ret = beri_debug_client_netfpga_sume_ioctl(bdp, &sifr,
+		    SUME_IOCTL_CMD_WRITE_REG, SUME_IFNAM_DEFAULT);
+		if (ret == -1)
+			return (BERI_DEBUG_ERROR_SEND);
+		vp++, l--;
+	}
+	sifr.addr = NETFPGA_AXI_DEBUG_BRIDGE_WR_GO;
+	sifr.val = 1;
+	ret = beri_debug_client_netfpga_sume_ioctl(bdp, &sifr,
+	    SUME_IOCTL_CMD_WRITE_REG, SUME_IFNAM_DEFAULT);
+	if (ret == -1)
+		return (BERI_DEBUG_ERROR_SEND);
+
+	/* Give the system a chance to catch up. */
+	usleep(1000);
+
+	return (BERI_DEBUG_SUCCESS);
+}
 #endif
 
 /*
@@ -784,6 +886,9 @@ beri_debug_client_packet_write(struct beri_debug *bdp, uint8_t command,
 #ifdef BERI_NETFPGA
 	if (beri_debug_is_netfpga(bdp))
 		return (beri_debug_client_write_netfpga_ioctl(bdp,
+		    command, bufferp, bufferlen));
+	if (beri_debug_is_netfpga_sume(bdp))
+		return (beri_debug_client_write_netfpga_sume_ioctl(bdp,
 		    command, bufferp, bufferlen));
 #endif
 	ret = beri_debug_client_write(bdp, &command, sizeof(command));
@@ -821,6 +926,33 @@ beri_debug_client_read_netfpga_ioctl(struct beri_debug *bdp, void *bufferp,
 }
 
 static int
+beri_debug_client_read_netfpga_sume_ioctl(struct beri_debug *bdp, void *bufferp,
+    size_t readlen)
+{
+	struct sume_ifreq sifr;
+	int ret;
+	uint8_t *p;
+
+	if (readlen == 0)
+		return (BERI_DEBUG_SUCCESS);
+
+        sifr.addr = NETFPGA_AXI_DEBUG_BRIDGE_RD;
+        sifr.val = 0;
+	p = bufferp;
+	do {
+		ret = beri_debug_client_netfpga_sume_ioctl(bdp, &sifr,
+		    SUME_IOCTL_CMD_READ_REG, SUME_IFNAM_DEFAULT);
+		if (ret == -1)
+			return (BERI_DEBUG_ERROR_READ);
+		*p = sifr.val & 0xff;
+		p++;
+		readlen--;
+	} while (readlen > 0);
+
+	return (BERI_DEBUG_SUCCESS);
+}
+
+static int
 beri_debug_client_netfpga_drain(struct beri_debug *bdp)
 {
 	uint64_t rv;
@@ -831,6 +963,25 @@ beri_debug_client_netfpga_drain(struct beri_debug *bdp)
 		if (ret == -1)
 			return (BERI_DEBUG_ERROR_READ);
 	} while ((rv & NETFPGA_AXI_FIFO_RD_BYTE_VALID) ==
+	    NETFPGA_AXI_FIFO_RD_BYTE_VALID);
+
+	return (BERI_DEBUG_SUCCESS);
+}
+
+static int
+beri_debug_client_netfpga_sume_drain(struct beri_debug *bdp)
+{
+	struct sume_ifreq sifr;
+	int ret;
+
+        sifr.addr = NETFPGA_AXI_DEBUG_BRIDGE_RD;
+        sifr.val = 0;
+	do {
+		ret = beri_debug_client_netfpga_sume_ioctl(bdp, &sifr,
+		    SUME_IOCTL_CMD_READ_REG, SUME_IFNAM_DEFAULT);
+		if (ret == -1)
+			return (BERI_DEBUG_ERROR_READ);
+	} while ((sifr.val & NETFPGA_AXI_FIFO_RD_BYTE_VALID) ==
 	    NETFPGA_AXI_FIFO_RD_BYTE_VALID);
 
 	return (BERI_DEBUG_SUCCESS);
@@ -856,8 +1007,10 @@ beri_debug_client_drain(struct beri_debug *bdp)
 	int ret;
 
 #ifdef BERI_NETFPGA
-	if ((bdp->bd_flags & BERI_NETFPGA_IOCTL) == BERI_NETFPGA_IOCTL)
+	if (beri_debug_is_netfpga(bdp))
 		return (beri_debug_client_netfpga_drain(bdp));
+	if (beri_debug_is_netfpga_sume(bdp))
+		return (beri_debug_client_netfpga_sume_drain(bdp));
 #endif
 
 	do {
@@ -885,8 +1038,11 @@ beri_debug_client_read(struct beri_debug *bdp, void *bufferp,
 	ssize_t len, total;
 
 #ifdef BERI_NETFPGA
-	if ((bdp->bd_flags & BERI_NETFPGA_IOCTL) == BERI_NETFPGA_IOCTL)
+	if (beri_debug_is_netfpga(bdp))
 		return (beri_debug_client_read_netfpga_ioctl(bdp,
+		    bufferp, readlen));
+	if (beri_debug_is_netfpga_sume(bdp))
+		return (beri_debug_client_read_netfpga_sume_ioctl(bdp,
 		    bufferp, readlen));
 #endif
 
@@ -965,7 +1121,7 @@ beri_debug_client_packet_read_excode(struct beri_debug *bdp,
     uint8_t command, void *bufferp, size_t bufferlen, uint8_t *excodep)
 {
 	uint64_t addr;
-	int ret;
+	int ret, i;
 	uint8_t b;
 	uint8_t replyop;
 	uint8_t excode;
@@ -1036,6 +1192,13 @@ restart:
 		goto restart;
 	}
 readreply:
+  if (replyop != command) {
+    ret = beri_debug_client_read(bdp, &b, sizeof(b));
+    warnx("Expected response code %x, found %x, size %d", command, replyop, b);
+    // Read the specified number of bytes to clean out the buffer. 
+    for (i=0; i<b; i++) beri_debug_client_read(bdp, &replyop, 1);
+    return (BERI_DEBUG_USAGE_ERROR);
+  }
 	b = bufferlen;
 	ret = beri_debug_client_read_expect(bdp, &b, sizeof(b));
 	if (ret != BERI_DEBUG_SUCCESS)

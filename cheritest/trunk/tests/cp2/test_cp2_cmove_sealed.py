@@ -41,12 +41,12 @@ class test_cp2_cmove_sealed(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_cmove_sealed_base(self):
         '''Test that cmove copied the base field'''
-        self.assertRegisterEqual(self.MIPS.a1, 0x100, "cmove failed to copy base when sealed bit was set")
+        self.assertRegisterEqual(self.MIPS.a1, 0x1000, "cmove failed to copy base when sealed bit was set")
 
     @attr('capabilities')
     def test_cp2_cmove_sealed_len(self):
         '''Test that cmove copied the len field'''
-        self.assertRegisterEqual(self.MIPS.a2, 8, "cmove failed to copy len when sealed bit was set")
+        self.assertRegisterEqual(self.MIPS.a2, 0x1000, "cmove failed to copy len when sealed bit was set")
 
     @attr('capabilities')
     def test_cp2_cmove_sealed_otype(self):

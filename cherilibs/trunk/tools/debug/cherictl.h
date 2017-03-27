@@ -5,7 +5,7 @@
  * Copyright (c) 2012-2014 SRI International
  * Copyright (c) 2013 David T. Chisnall
  * Copyright (c) 2013 Colin Rothwell
- * Copyright (c) 2015 A. Theodore Markettos
+ * Copyright (c) 2015 Theo Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -47,13 +47,18 @@
 extern int debugflag;
 extern int quietflag;
 
+struct sume_ifreq;
+
 int	hex2addr(const char *string, uint64_t *addrp);
 int	str2regnum(const char *string, u_int *regnump);
 
 int	berictl_breakpoint(struct beri_debug *bdp, const char *addrp,
 	    int waitflag);
+int	beri_debug_client_netfpga_sume_ioctl(struct beri_debug *,
+	    struct sume_ifreq *, unsigned long, char *);
 int	beri_debug_getfd(struct beri_debug *);
 int	beri_debug_is_netfpga(struct beri_debug *);
+int	beri_debug_is_netfpga_sume(struct beri_debug *);
 int	berictl_console(struct beri_debug *, const char *filenamep,
 	    const char *cablep, const char *devicep);
 int	berictl_c0regs(struct beri_debug *bdp);

@@ -1,6 +1,7 @@
 #-
 # Copyright (c) 2011 Robert N. M. Watson
 # Copyright (c) 2013 Michael Roe
+# Copyright (c) 2015 SRI International
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -26,6 +27,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -52,28 +54,28 @@ test:		.ent test
 		nop
 
 		dla	$t1, dword
+		csetoffset $c1, $c0, $t1
 
 		#
-		# Load the double word into another register between clldr and
-		# cscdr; this shouldn't cause the store to fail.
+		# Load the double word into another register between clld and
+		# cscd; this shouldn't cause the store to fail.
 		#
 
-		clldr	$a0, $t1($c0)
+		clld	$a0, $c1
 		ld	$t0, 0($t1)
-		cscdr	$a0, $t1($c0)
+		cscd	$a0, $a4, $c1
 
 		#
-		# Store to double word between clldr and cscdr; check to make
-		# sure that the cscdr not only returns failure, but doesn't
+		# Store to double word between clld and cscd; check to make
+		# sure that the cscd not only returns failure, but doesn't
 		# store.
 		#
 
 		li	$t0, 1
-		clldr	$a1, $t1($c0)
+		clld	$a1, $c1
 		sd	$a1, 0($t1)
-		cscdr	$t0, $t1($c0)
+		cscd	$t0, $a3, $c1
 		ld	$a2, 0($t1)
-		daddiu	$a3, $t0, 0
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

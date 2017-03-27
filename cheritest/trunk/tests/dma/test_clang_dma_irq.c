@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2014-2015 Colin Rothwell
+ * Copyright (c) 2015 Colin Rothwell
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of

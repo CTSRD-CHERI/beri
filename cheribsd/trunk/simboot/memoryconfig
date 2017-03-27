@@ -2,7 +2,7 @@
 # Copyright (c) 2012 Philip Paeps
 # Copyright (c) 2012 Robert N. M. Watson
 # Copyright (c) 2014 Colin Rothwell
-# Copyright (c) 2014 Alexandre Joannou
+# Copyright (c) 2014, 2015 Alexandre Joannou
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -30,10 +30,11 @@
 
 # Default cheri configuration.
 
-module ../../../cherilibs/trunk/peripherals/dram.so
-module ../../../cherilibs/trunk/peripherals/ethercap.so
-module ../../../cherilibs/trunk/peripherals/uart.so
-module ../../../cherilibs/trunk/peripherals/fb.so
+module dram.so
+module ethercap.so
+module virtio_block.so
+module uart.so
+module fb.so
 
 device "dram0" {
 	class dram;
@@ -63,6 +64,14 @@ ifdef "CHERI_SDCARD" device "sdcard0" {
 	length 0x400;
 	option path getenv "CHERI_SDCARD";
 	option readonly "yes";
+};
+
+ifdef "CHERI_VIRTIO_IMAGE" device "virtio_block0" {
+	class virtio_block;
+	addr 0x7f020000;
+	length 0x1000;
+	option path getenv "CHERI_VIRTIO_IMAGE";
+	irq 1;
 };
 
 #

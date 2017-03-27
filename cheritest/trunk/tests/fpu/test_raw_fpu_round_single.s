@@ -54,27 +54,27 @@ start:
 
 		lui $t0, 0xbf40		# -0.75
 		mtc1 $t0, $f1
-		cvt.w.s $f1, $f1
+		round.w.s $f1, $f1
 		mfc1 $a1, $f1
 
 		lui $t0, 0xbf00		# -0.5
 		mtc1 $t0, $f1
-		cvt.w.s $f1, $f1
+		round.w.s $f1, $f1
 		mfc1 $a2, $f1
 
 		lui $t0, 0xbe80		# -0.25
 		mtc1 $t0, $f1
-		cvt.w.s $f1, $f1
+		round.w.s $f1, $f1
 		mfc1 $a3, $f1
 
 		lui $t0, 0x3f00		# 0.5
 		mtc1 $t0, $f1
-		cvt.w.s $f1, $f1
+		round.w.s $f1, $f1
 		mfc1 $a4, $f1
 
 		lui $t0, 0x3fc0		# 1.5
 		mtc1 $t0, $f1
-		cvt.w.s $f1, $f1
+		round.w.s $f1, $f1
 		mfc1 $a5, $f1
 
 		# Dump registers on the simulator (gxemul dumps regs on exit)

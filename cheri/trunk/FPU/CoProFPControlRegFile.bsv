@@ -35,7 +35,7 @@ module mkCoProFPControlRegFile(CoProFPControlRegFile);
     Reg#(FCSR) fcsr <- mkReg(unpack(0));
 
     FIR fir = FIR { f64: True, 
-                    l: False, w: False,
+                    l: True, w: True,
                     threeD: False,
                     ps: True, d: True, s: True,
                     pid: 0, rev: 0 };

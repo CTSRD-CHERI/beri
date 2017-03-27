@@ -1,8 +1,6 @@
 #!/bin/bash
-
-#-
-# Copyright (c) 2014 Simon Moore
-# Copyright (c) 2014 Matthew Naylor
+#
+# Copyright (c) 2015 Matthew Naylor
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -12,6 +10,10 @@
 # This software was developed by SRI International and the University of
 # Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-11-C-0249
 # ("MRC2"), as part of the DARPA MRC research programme.
+#
+# This software was developed by the University of Cambridge Computer
+# Laboratory as part of the Rigorous Engineering of Mainstream
+# Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
 #
 # @BERI_LICENSE_HEADER_START@
 #
@@ -32,24 +34,71 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
-#!/bin/bash
-
 BSC="bsc"
 BSCFLAGS="-keep-fires -cross-info -aggressive-conditions \
-          -wait-for-license -suppress-warnings G0043"
+          -wait-for-license -suppress-warnings G0043 \
+          -steps-warn-interval 300000"
 SUFFIXES=
 
-#TOPMOD=testStack
-#TOPMOD=testStackID
-TOPMOD=testStackIDClassify
-#TOPMOD=testStackAlg
-#TOPMOD=testStackAlgID
+# UI
+# ==
 
-#SYNTH=1
-#TOPMOD=testStackSynth
-#TOPMOD=testStackIDSynth
+echo "(1) Simple arithmetic properties"
+echo "(2) firstHot properties"
+echo "(3) Custom generator example"
+echo "(4) Stack"
+echo "(5) Stack + ID"
+echo "(6) Stack + ID + Classify"
+echo "(7) Stack(algebraic)"
+echo "(8) Stack(algebraic) + ID"
+echo "(9) Stack(synthesisable)"
+echo "(10) Stack(synthesisable) + ID"
+echo "(11) Stack + ID + custom parameters"
 
-TOPFILE=StackExample.bsv
+read OPTION
+case "$OPTION" in
+  1) TOPFILE=SimpleExamples.bsv
+     TOPMOD=mkArithChecker
+     ;;
+  2) TOPFILE=SimpleExamples.bsv
+     TOPMOD=mkFirstHotChecker
+     ;;
+  3) TOPFILE=SimpleExamples.bsv
+     TOPMOD=mkCustomGenExample
+     ;;
+  4) TOPFILE=StackExample.bsv
+     TOPMOD=testStack
+     ;;
+  5) TOPFILE=StackExample.bsv
+     TOPMOD=testStackID
+     ;;
+  6) TOPFILE=StackExample.bsv
+     TOPMOD=testStackIDClassify
+     ;;
+  7) TOPFILE=StackExample.bsv
+     TOPMOD=testStackAlg
+     ;;
+  8) TOPFILE=StackExample.bsv
+     TOPMOD=testStackAlgID
+     ;;
+  9) TOPFILE=StackExample.bsv
+     TOPMOD=testStack
+     SYNTH=1
+     ;;
+ 10) TOPFILE=StackExample.bsv
+     TOPMOD=testStackID
+     SYNTH=1
+     ;;
+ 11) TOPFILE=StackExample.bsv
+     TOPMOD=testStackIDCustom
+     ;;
+  *) echo "Option not recognised"
+     exit
+     ;;
+esac
+  
+# Build it
+# ========
 
 echo Compiling $TOPMOD in file $TOPFILE
 if [ "$SYNTH" = "1" ]
@@ -60,7 +109,7 @@ else
   then
     if $BSC $BSCFLAGS -sim -o $TOPMOD -e $TOPMOD  $TOPMOD.ba
     then
-        ./$TOPMOD -m 10000000
+        ./$TOPMOD
     else
         echo Failed to generate executable simulation model
     fi

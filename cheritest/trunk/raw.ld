@@ -32,13 +32,19 @@ __sp = __mem_top__;
 __heap_top__ = __mem_top__ - __stack_size__;
 __sp_bottom = __heap_top__;
 
+
+MEMORY 
+{
+       dmem : ORIGIN = 0x40000000, LENGTH = 1024M
+}
+
 SECTIONS
 {
 	. = 0x9000000040000000;
 
-	.text ALIGN(0x8): { *(.text) } 
-	.bss ALIGN(0x8): { *(.bss) }
-	.data ALIGN(0x8): { *(.data)}
+	.text ALIGN(0x8): { *(.text) . = ALIGN(8); } AT> dmem
+	.bss ALIGN(0x8): { *(.bss) . = ALIGN(8); } AT> dmem
+	.data ALIGN(0x8): { *(.data)  . = ALIGN(8);} AT> dmem
 
 	__heap = ALIGN(0x8);	/* 64-bit aligned heap pointer */
 	__bss_start = ADDR(.bss);

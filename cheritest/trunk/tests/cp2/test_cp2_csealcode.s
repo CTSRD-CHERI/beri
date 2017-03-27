@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -36,10 +37,11 @@
 
 # In this test, sandbox isn't actually called, but its address is used
 # in a code capability.
-
+		.align 12
 sandbox:
 		creturn
 
+		.align 12
 		.global test
 test:		.ent test
 		daddu 	$sp, $sp, -32
@@ -52,6 +54,8 @@ test:		.ent test
 
 		dla	 $t0, sandbox
 		csetoffset $c2, $c0, $t0
+		li       $t0, 0x1000
+		csetbounds $c2, $c2, $t0
 
 		cseal 	 $c2, $c2, $c1
 

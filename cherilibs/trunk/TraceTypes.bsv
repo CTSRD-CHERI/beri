@@ -38,6 +38,8 @@
   `define USECAP 1
 `elsif CAP128
   `define USECAP 1
+`elsif CAP64
+  `define USECAP 1
 `endif
  
 `ifdef USECAP
@@ -68,8 +70,8 @@
   
   typedef struct {
     Bool        isCapability; // 1
-    ShortPerms  perms;        // 8
     Bool        sealed;       // 1
+    ShortPerms  perms;        // 8
     Bit#(22)    otype;        // 22
     ShortAddr offset;         // 32
     ShortAddr base;           // 32

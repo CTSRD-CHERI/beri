@@ -68,7 +68,7 @@ start:
 		sw $s2,52($s1)
 		lw $s2,56($s0)
 		sw $s2,56($s1)
-		dli $t0, 0x801fffc     # set the distance we want to move the branch
+		dli $t0, 0x801fff4     # set the distance we want to move the branch, note 4 not c because branch is relative to branch delay slot
 		dsub $s1, $s0, $t0     # generate the target address
 		lw $s2, 0($s0)         # move the words to the target
 		sw $s2, 0($s1)
@@ -78,8 +78,16 @@ start:
 		sw $s2, 8($s1)
 		lw $s2,12($s0)
 		sw $s2,12($s1)
+		sync
 		nop										# some nops to give the data time to propagate
 		nop                   # before the instruction fetch.
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
 		nop
 		nop
 		nop

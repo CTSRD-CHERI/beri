@@ -65,7 +65,7 @@ function Float doubleToFloat(Double in);
         resp.exp = truncate(in.exp - 896);
         // Round up if more than half way between, or half way between, and
         // significand is odd
-        if (in.sfd[22] == 1 && (|in.sfd[21:0] != 0 || in.sfd[23] == 1))
+        if (in.sfd[28] == 1 && (in.sfd[27:0] != 0 || in.sfd[29] == 1))
             resp = unpack((pack(resp) + 1)[31:0]);
         return resp;
     end

@@ -34,11 +34,10 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
-
 ##############################################################################
 # Makefile to build an Altera FPGA system designed in Qsys and Quartus
 ##############################################################################
-# Updated and tested on Quartus 13.0.1
+# Updated and tested on Quartus 16.0.0
 #
 # Notes:
 # - Use the IDEs (Quartus and Qsys) to setup the system including
@@ -55,7 +54,7 @@ QUARTUS_PROJECT_VERSION=DE4_BERI
 QSYS_PROJECT=DE4_SOC
 FPGA="Stratix IV"
 # Version of Quartus this has been tested on:
-QUARTUS_VERSION?='13.1.0'
+QUARTUS_VERSION?='16.0.0'
 # User specific temporary area to avoid collisions
 TEMP=/tmp/$(USER)
 TMP=$(TEMP)
@@ -89,11 +88,7 @@ QUARTUS_CONFIG=$(QUARTUS_PROJECT).qpf $(wildcard *.sdc)
 ifdef PCIEXPRESS
 QSYS_TEMPLATE=$(QSYS_PROJECT)_pciexpress_template
 else
-ifeq ($(MULTI),2)
-QSYS_TEMPLATE=$(QSYS_PROJECT)_dualcore_template
-else
 QSYS_TEMPLATE=$(QSYS_PROJECT)_template
-endif
 endif
 QSYS_GENERATED=$(QSYS_PROJECT)
 QSYS_PROJECT_SRCS=$(QSYS_PROJECT).qsys
@@ -141,6 +136,9 @@ ifdef CAP
 endif
 ifdef MULTI
 	CHERI_CONFIG_VARS += MULTI=$(MULTI)
+        ifdef TIMEBASED
+		CHERI_CONFIG_VARS += TIMEBASED=t
+        endif
 endif
 ifdef GENERICL1
 	CHERI_CONFIG_VARS += GENERICL1=1
@@ -151,6 +149,9 @@ endif
 ifdef MICRO
 	CHERI_CONFIG_VARS += MICRO=t
 endif
+ifdef CHERIOS
+	CHERI_CONFIG_VARS += CHERIOS=t
+endif
 ifdef NOBRANCH
 	CHERI_CONFIG_VARS += NOBRANCH=t
 endif
@@ -158,6 +159,9 @@ ifdef HARDCALL
 	CHERI_CONFIG_VARS += HARDCALL=t
 endif
 ifdef COP1
+	CHERI_CONFIG_VARS += COP1=t
+endif
+ifdef FPU
 	CHERI_CONFIG_VARS += COP1=t
 endif
 ifdef TRACE
@@ -169,6 +173,9 @@ ifdef PCIEXPRESS
 endif
 ifdef DMA
 	CHERI_CONFIG_VARS += DMA=1
+endif
+ifdef DMA_VIRT
+	CHERI_CONFIG_VARS += DMA_VIRT=1
 endif
 
 # Patch files for cheri2 build. Note that we set the timestamps on
@@ -227,11 +234,11 @@ else
 	@echo "**********************************************************************"
 	@echo "* Build miniboot ROM (mem64.hex) in " $(MINIBOOT_DIR)
 	@echo "**********************************************************************"
-	$(MAKE) -C $(MINIBOOT_DIR)
-	cp $(MINIBOOT_DIR)/mem64.hex ./
-	$(MAKE) -C $(MINIBOOT_DIR) clean
-	$(MAKE) -C $(MINIBOOT_DIR) ALWAYS_WAIT=yesplease
-	cp $(MINIBOOT_DIR)/mem64.hex ./mem64-nodip.hex
+ifdef CHERIOS
+	$(MAKE) -C $(CHERI_DIR) miniboot CHERIOS=cherios
+else
+	$(MAKE) -C $(CHERI_DIR) miniboot
+endif
 endif
 
 # Force version.hex to be regenerated for every build.
@@ -265,7 +272,7 @@ $(QUARTUS_PROJECT).dtb: $(QUARTUS_PROJECT).dts
 
 # Intel hex format file of the FDT to include in a ROM
 dtb.hex: $(QUARTUS_PROJECT).dtb
-	srec_cat -Output $@ -Intel -Output_Block_Size 4 $< -Binary -Byte_Swap 4 --address-length=2
+	srec_cat -Output $@ -Intel -Output_Block_Size 4 $< -Binary -Byte_Swap 4 -fill=0x00 0x00 0x2000 --address-length=2
 	perl -p -i -e '$$line = $$_; $$fmt = sprintf("%04X",$$i); $$line =~ s/\:04....(.*)../\:04$$fmt$$1/; $$_ = $$line; $$i++;' dtb.hex
 	perl -p -i -e '$$line = $$_; if ($$line =~ /\:04/) {$$line =~ s/\n//; $$tmp = $$line; $$sum = 0; $$tmp =~ s/([0-9A-F]{2})/$$sum+=hex($$1)/eg; $$sum = (~$$sum & 0xFF) + 1; $$sum = sprintf("%02X",$$sum); $$sum =~ s/.*(..)/$$1/; $$_ = $$line.$$sum."\n";}' dtb.hex
 
@@ -277,6 +284,10 @@ build_qsys: check_env check_bash megawizard $(CHERI_DIR)/ip_name.txt
 	#rm $(QSYS_PROJECT).qsys
 	# patch the Qsys project with various changes we have to make
 	perl fixup_qsys.pl $(DIMM) `cat $(CHERI_DIR)/ip_name.txt` $(QSYS_TEMPLATE).qsys $(QSYS_GENERATED).qsys
+ifdef MULTI
+	# reduce multicore clock frequency to 80MHz
+	sed -i 's/200\.0/180\.180/g' $(QSYS_GENERATED).qsys 
+endif
 	ip-generate \
 	  --report-file=bsf:./output_files/$(QSYS_PROJECT).bsf \
 	  --standard-reports \
@@ -437,7 +448,6 @@ cleanall: cleanq restore_originals
 	$(MAKE) -C $(CHERI_DIR) clean
 	$(MAKE) -C $(PERIPHERALS_DIR) clean
 	$(MAKE) -C $(MINIBOOT_DIR) clean
-	$(MAKE) -C $(CHERILIBSDIR) clean
 
 .PHONY : clean
 clean: cleanq

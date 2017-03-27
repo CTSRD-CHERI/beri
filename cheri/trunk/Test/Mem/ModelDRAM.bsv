@@ -1,10 +1,17 @@
-/*-
- * Copyright (c) 2015 Matthew Naylor
+/* Copyright 2015 Matthew Naylor
  * All rights reserved.
  *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-11-C-0249
+ * ("MRC2"), as part of the DARPA MRC research programme.
+ *
  * This software was developed by the University of Cambridge Computer
- * Laboratory as part of the Rigorous Engineering of Mainstream Systems (REMS)
- * project, funded by EPSRC grant EP/K008528/1.
+ * Laboratory as part of the Rigorous Engineering of Mainstream
+ * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
  *
  * @BERI_LICENSE_HEADER_START@
  *
@@ -34,6 +41,7 @@ import MasterSlave  :: *;
 import MemTypes     :: *;
 import RegFileAssoc :: *;
 import RegFileHash  :: *;
+import MemTypes     :: *;
 
 interface ModelDRAM#(numeric type addrWidth);
   interface Slave#(CheriMemRequest, CheriMemResponse) slave;
@@ -43,11 +51,11 @@ module mkModelDRAMGeneric#
          ( Integer maxOutstandingReqs         // Max outstanding requests
          , Integer latency                    // Latency (cycles)
          , RegFile# (Bit#(addrWidth)
-                   , Bit#(256)
+                   , Bit#(CheriDataWidth)
                    ) ram                      // For storage
          )
          (ModelDRAM#(addrWidth))
-         provisos (Add#(a, addrWidth, 35));
+         provisos (Add#(a, addrWidth, CheriLineAddrWidth));
 
   // Slave interface
   FIFOF#(CheriMemRequest)  preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
@@ -64,7 +72,7 @@ module mkModelDRAMGeneric#
   //RegFile#(Bit#(addrWidth), Bit#(256)) ram <- mkRegFileFull;
 
   // State for burst writes
-  Reg#(Maybe#(Bit#(35))) burstWriteAddr <- mkConfigReg(tagged Invalid);
+  Reg#(Maybe#(CheriPhyLineNumber)) burstWriteAddr <- mkConfigReg(tagged Invalid);
 
   // State for burst reads
   Reg#(UInt#(TLog#(MaxNoOfFlits))) burstReadCount <- mkConfigReg(0);
@@ -76,10 +84,11 @@ module mkModelDRAMGeneric#
   rule unrollBurstReads (!init);
     // Extract request
     let req  = preReqFifo.first;
-    let addr = pack(req.addr)[39:5];
+    let addr = req.addr.lineNumber;
 
     // Update address to account for bursts
-    req.addr = unpack({addr + zeroExtend(pack(burstReadCount)), 5'b00000});
+    req.addr.lineNumber = addr + zeroExtend(pack(burstReadCount));
+    req.addr.byteOffset = 0;
 
     // Only dequeue read request if burst read finished
     Bool last = False;
@@ -107,7 +116,7 @@ module mkModelDRAMGeneric#
     // Extract request
     let req  = tpl_1(reqFifo.first);
     let last = tpl_2(reqFifo.first);
-    let addr = pack(req.addr)[39:5];
+    let addr = req.addr.lineNumber;
     reqFifo.deq;
 
     // Data lookup
@@ -120,6 +129,9 @@ module mkModelDRAMGeneric#
     resp.masterID      = req.masterID;
     resp.transactionID = req.transactionID;
     resp.error         = NoError;
+    // Produce read response
+    CheriData d = Data {data: data};
+    resp.data          = d; 
 
     case (req.operation) matches
       // Cache operation ======================================================
@@ -143,13 +155,12 @@ module mkModelDRAMGeneric#
             burstWriteAddr <= tagged Valid addr;
 
           // Perform write
-          Vector#(32, Bit#(8)) bytes    = unpack(zeroExtend(data));
-          Vector#(32, Bit#(8)) newBytes = unpack(writeOp.data.data);
-          for (Integer i = 0; i < 32; i=i+1)
+          Vector#(CheriBusBytes, Bit#(8)) bytes    = unpack(zeroExtend(data));
+          Vector#(CheriBusBytes, Bit#(8)) newBytes = unpack(writeOp.data.data);
+          for (Integer i = 0; i < valueOf(CheriBusBytes); i=i+1)
             if (writeOp.byteEnable[i])
               bytes[i] = newBytes[i];
           ram.upd(truncate(addr), pack(bytes));
-         
           // Produce response
           resp.operation = tagged Write;
           validResponse = writeOp.last;
@@ -158,9 +169,7 @@ module mkModelDRAMGeneric#
       // Read =================================================================
       tagged Read .readOp:
         begin
-          // Produce response
-          Data#(256) d = Data {data: data};
-          resp.operation = tagged Read {data: d, last: last};
+          resp.operation = tagged Read {last: last};
           validResponse  = True;
         end
     endcase
@@ -201,8 +210,8 @@ module mkModelDRAM#
          , Integer latency                    // Latency (cycles)
          )
          (ModelDRAM#(addrWidth))
-         provisos (Add#(a, addrWidth, 35));
-  RegFile#(Bit#(addrWidth), Bit#(256)) ram <- mkRegFileFull;
+         provisos (Add#(a, addrWidth, CheriLineAddrWidth));
+  RegFile#(Bit#(addrWidth), Bit#(CheriDataWidth)) ram <- mkRegFileFull;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, latency, ram);
   interface Slave slave = dram.slave;
 endmodule
@@ -214,19 +223,20 @@ module mkModelDRAMAssoc#
          , Integer latency                    // Latency (cycles)
          )
          (ModelDRAM#(addrWidth))
-         provisos (Add#(a, addrWidth, 35));
-  RegFile#(Bit#(addrWidth), Bit#(256)) ram <- mkRegFileAssoc;
+         provisos (Add#(a, addrWidth, CheriLineAddrWidth));
+  RegFile#(Bit#(addrWidth), Bit#(CheriDataWidth)) ram <- mkRegFileAssoc;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, latency, ram);
   interface Slave slave = dram.slave;
 endmodule
+
 
 // Version using hash table implemented in C
 module mkModelDRAMHash#
          ( Integer maxOutstandingReqs         // Max outstanding requests
          , Integer latency                    // Latency (cycles)
          )
-         (ModelDRAM#(35));
-  RegFile#(Bit#(35), Bit#(256)) ram <- mkRegFileHash(8192);
+         (ModelDRAM#(CheriLineAddrWidth));
+  RegFile#(Bit#(CheriLineAddrWidth), Bit#(CheriDataWidth)) ram <- mkRegFileHash(8192);
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, latency, ram);
   interface Slave slave = dram.slave;
 endmodule

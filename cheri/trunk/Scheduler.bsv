@@ -3,7 +3,7 @@
  * Copyright (c) 2013 Colin Rothwell
  * Copyright (c) 2013 David T. Chisnall
  * Copyright (c) 2013 Jonathan Woodruff
- * Copyright (c) 2014 Alexandre Joannou
+ * Copyright (c) 2014, 2015 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -52,6 +52,13 @@ import ClientServer::*;
 `elsif CAP128
   import CapCop128::*;
   `define USECAP 1
+`elsif CAP64
+  import CapCop64::*;
+  `define USECAP 1
+`endif
+`ifdef STATCOUNTERS
+import StatCounters::*;
+import Debug::*;
 `endif
 
 // The unknownInstruction function returns a control token appropriate for an 
@@ -91,6 +98,9 @@ module mkScheduler#(
   InstructionMemory m
   // The scheduler exports a PipeStageIfc interface, (a FIFO#(ControlTokenT) interface),
   // for integration with the pipeline.
+  `ifdef STATCOUNTERS
+  , StatCounters statCounters
+  `endif
 )(PipeStageIfc);
 
   // The lastWasBranch register records whether the last instruction was a
@@ -131,8 +141,10 @@ module mkScheduler#(
       end
       // Also if this control token is not from debug, take the instruction from
       // the memory response.
-      cto.inst = instResp.inst;
+      //cto.inst = instResp.inst;
     end
+    // Take the instruction from the memory response.
+    cto.inst = instResp.inst;
     // Create the branch type which must be decided in this module, default to
     // None (not a branch).
     BranchType branchType = None;
@@ -155,11 +167,6 @@ module mkScheduler#(
     RegNum reqB = 5'b0;
     RegNum reqC = 5'b0;
     Bit#(3) reqSel = 3'b0; // This "select" for CP0
-
-    `ifdef MULTI
-      // Flags a store conditional
-      Bool storeConditionalPending = False;
-    `endif
     
     // Prepare nop coprocessor instructions for the general purpose coprocessors.
     CoProInst coProInst = unpack(0);
@@ -167,21 +174,43 @@ module mkScheduler#(
     coProInst.instId = cti.id;
     CoProInst coProInst1 = coProInst;
     `ifdef USECAP
-      CapInst capInst = CapInst{
+      /*CapInst capInst = CapInst{
         op: None,
-        r0: 0,
-        r1: 0,
-        r2: 0,
-        r3: 0,
-        memSize: Line,
+        r0: ?,
+        r1: ?,
+        r2: ?,
+        r3: ?,
+        memSize: CapWord,
         instId: cti.id,
         epoch: cti.epoch
-      };
+      };*/
+      Bool couldBeCapLoadOrStore = False; // Use this bool to detect if this could be a capability load/store
+      Ctype cinst = unpack(truncate(pack(cto.inst)));
+      CapInst capInst = CapInst{
+                op: None,
+                r0: pack(cinst.cOp),
+                r1: cinst.r1,
+                r2: cinst.r2,
+                r3: cinst.r3,
+                fetchA: 0,
+                doFetchA: False,
+                fetchB: ?,
+                doFetchB: False,
+                dest: ?,
+                doWriteDest: False,
+                memSize: CapWord,
+                instId: cti.id,
+                epoch: cti.epoch
+              };
+    `endif
+    `ifdef STATCOUNTERS
+    // prepare default statcounters request
+    StatCountersReq statcounters_req = tagged Nop;
     `endif
 
     debug($display("======   PRE-SCHEDULER INSTRUCTION   ======"));
     debug(displayControlToken(cto));
-    
+    debug($display("INSTRUCTION FORMAT: ", fshow(cto.inst)));
     // A case statement on the instruction type.
     case (cto.inst) matches
       // Case for the immediate instruction format, which has a 16 bit immediate operand.
@@ -297,6 +326,7 @@ module mkScheduler#(
               default: reqB = 0;
             endcase
             cto.mem = Read;
+            cto.observesCP0 = True; // Loads and stores observe the TLB
             case (ii.op)
               LB, LBU: cto.memSize = Byte;
               LH, LHU: cto.memSize = HalfWord;
@@ -312,6 +342,7 @@ module mkScheduler#(
             cto.opBsrc = ControlToken;
             cto.storeDatasrc = RegFile;
             cto.mem = Write;
+            cto.observesCP0 = True; // Loads and stores observe the TLB
             case (ii.op)
               SB:  cto.memSize = Byte;
               SH:  cto.memSize = HalfWord;
@@ -329,9 +360,14 @@ module mkScheduler#(
             cto.opBsrc = ControlToken;
             cto.storeDatasrc = RegFile;
             cto.mem = Write;
+            cto.observesCP0 = True; // Loads and stores observe the TLB
 
             `ifdef MULTI
-              storeConditionalPending = True;
+              // If its a store conditional we don't want Execute to write into the
+              // RegFile as the success or failure depends in the state of the shared
+              // L2Cache. This allows us to delay the Reg write until the Writeback
+              // stage.
+              cto.pendingWrite = True;
             `endif
 
             case (ii.op)
@@ -465,12 +501,24 @@ module mkScheduler#(
                 reqA = ri.rt;
                 reqB = ri.rs;
               end
+              /*
+              CLZ,DCLZ: begin
+                  reqA = ri.rs;
+                  reqB = ri.rt;
+                  cto.opAsrc = RegFile;
+                  cto.opBsrc = RegFile;
+                  cto.mem = None;
+                  cto.writeDest = RegFile;
+                  cto.dest = ri.rd;
+              end
+               */
             endcase
           end
           SPECIAL3: begin
             // This field is the more common Func type by default, but this case
             // needs the Func2 interpretation of this field.
             Func3 func3 = unpack(pack(ri.f));
+            cto.observesCP0 = True;
             case (func3)
               RDHWR: begin
                 case (ri.rd)
@@ -492,6 +540,43 @@ module mkScheduler#(
                     cto.opBsrc = ControlToken;
                     cto.dest = ri.rt;
                   end
+                  4: begin
+                    reqC = 9;
+                    reqSel = 4;  // insts
+                    cto.opAsrc = CoPro0;
+                    cto.dest = ri.rt;
+                  end
+                  5: begin
+                    reqC = 9;
+                    reqSel = 5; // instTLBMiss
+                    cto.opAsrc = CoPro0;
+                    cto.dest = ri.rt;
+                  end
+                  6: begin
+                    reqC = 9;
+                    reqSel = 6; // dataTLBMiss
+                    cto.opAsrc = CoPro0;
+                    cto.dest = ri.rt;
+                  end
+                  `ifdef STATCOUNTERS
+                  7: begin
+                    debug2("StatCounters", $display("<time %0t, Scheduler> RDHWR %0d (reset stat counters)", $time, ri.rd));
+                    statcounters_req = tagged ResetAll;
+                    cto.opAsrc = None;
+                    cto.opBsrc = None;
+                    cto.dest   = ri.rt;
+                  end
+                  8,9,10,11,12,13,14: begin
+                    debug2("StatCounters", $display("<time %0t, Scheduler> RDHWR %0d (read stat counters)", $time, ri.rd));
+                    statcounters_req = tagged Read Selectors {
+                      moduleSelector:   ri.rd-8,
+                      counterSelector: ri.sa
+                    };
+                    cto.opAsrc = None;
+                    cto.opBsrc = None;
+                    cto.dest   = ri.rt;
+                  end
+                  `endif
                   29: begin
                     cto.coProSelect = 0;
                     reqC = 4;
@@ -505,6 +590,7 @@ module mkScheduler#(
           end
           // Coprocessor 0 instructions
           COP0: begin
+            cto.observesCP0 = True;
             CoProOp copro = unpack(ri.rs);
             //  This is the shadow register select for coprocessor 0.
             reqSel = pack(ri.f)[2:0];
@@ -545,6 +631,15 @@ module mkScheduler#(
                     reqC = 14; // request the PC for an exception return.
                     `ifdef USECAP
                       capInst.op = ERET;
+                      `ifdef CAP128
+                        // Not actually writing to regiter file, but indicating 
+                        // that the branch target will come late.
+                        cto.pendingWrite = True;
+                      `elsif CAP64
+                        cto.pendingWrite = True;
+                      `endif
+                      capInst.fetchA = 31;
+                      capInst.doFetchA = True;
                     `endif
                     cto.flushPipe = True;
                     cto.newPcSource = OpB;
@@ -662,16 +757,27 @@ module mkScheduler#(
           `endif
           `ifdef USECAP
             COP2,LWC2,LDC2,SWC2,SDC2: begin
+              couldBeCapLoadOrStore = True;
               reqA = ci.r3;
               reqB = ci.r2;
+              cto.opAsrc = RegFile;
+              cto.opBsrc = RegFile;
               reqC = 0;
               cto.writeDest = None;
               cto.alu = Cap;
               cto.signedOp = False;
               cto.sixtyFourBitOp = True;
+              capInst.memSize = cto.memSize;
+              CapReg fa = ?;
+              Bool dfa = False;
+              CapReg fb = ?;
+              Bool dfb = False;
+              CapReg wb = ?;
+              Bool dwb = False;
               case (ci.op)
                 COP2: begin
                   reqB = ci.r1;
+                  cto.memSize = Byte;
                   case (ci.cOp) // This case statement checks dependencies
                     // Offset manipulation instructions 
                     COffset: begin
@@ -680,18 +786,22 @@ module mkScheduler#(
                         CIncOffset: begin
                           cto.coProSelect = ci.select;
                           cto.capOp = IncOffset;
+                          fa = capInst.r2; dfa = True;
+                          wb = capInst.r1; dwb = True;
                         end
                         CSetOffset: begin
                           cto.capOp = SetOffset;
+                          fa = capInst.r2; dfa = True;
+                          wb = capInst.r1; dwb = True;
                         end
                         CGetOffset: begin
                           cto.writeDest = RegFile;
                           cto.dest = ci.r1;
                           cto.capOp = GetOffset;
-                        end
-                        CIncBase2: begin
-                          cto.coProSelect = ci.select;
-                          cto.capOp = IncBase2;
+                          fa = capInst.r2; dfa = True;
+                          //`ifdef CAP128
+                          //  cto.pendingWrite = True;
+                          //`endif
                         end
                         default: begin
                           cto <- unknownInstruction(cto);
@@ -708,55 +818,269 @@ module mkScheduler#(
                         3: cto.capOp = CmpLE;
                         4: cto.capOp = CmpLTU;
                         5: cto.capOp = CmpLEU;
-                        default: cto.capOp = CmpEQ;
+                        6: cto.capOp = CmpEQX;
+                        default: cto <- unknownInstruction(cto);
                       endcase
+                      fa = capInst.r2; dfa = True;
+                      fb = capInst.r3; dfb = True;
                     end
                     MFC: begin
                       cto.writeDest = RegFile;
                       cto.dest = ci.r1;
-                      //cto.coProSelect = ci.select;
-                      if (ci.select == 7) begin
-                        cto.opAsrc = ControlToken;
-                      end
-                      case(ci.select)
-                        0: cto.capOp = GetPerm;
-                        1: cto.capOp = GetType;
-                        2: cto.capOp = GetBase;
-                        3: cto.capOp = GetLen;
-                        4: cto.capOp = GetConfig;
-                        5: cto.capOp = GetTag;
-                        6: cto.capOp = GetUnsealed;
-                        7: begin
+                      CapFuncThreeOpCode capFuncThreeOp = unpack({ci.spacer,ci.select});
+                      fa = capInst.r2; dfa = True;
+                      case(capFuncThreeOp)
+                        CapFuncGetPermOld: cto.capOp = GetPerm;
+                        CapFuncGetTypeOld: cto.capOp = GetType;
+                        CapFuncGetBaseOld: begin
+                          cto.capOp = GetBase;
+                        end
+                        CapFuncGetLenOld: begin
+                          cto.capOp = GetLen;
+                        end
+                        CapFuncGetCauseOld:  begin
+                          cto.capOp = GetConfig;
+                          dfa = False;
+                        end
+                        CapFuncGetTagOld:    cto.capOp = GetTag;
+                        CapFuncGetSealedOld: cto.capOp = GetSealed;
+                        CapFuncGetPCCOld: begin
+                          cto.writeDest = None;
                           cto.alu = Nop;
                           cto.capOp = GetPCC;
-                          cto.opA = cti.pc;
+                          dfa = False;
+                          wb = capInst.r1; dwb = True;
                         end
+                        /*CapFuncSetBounds: begin
+                          cto.writeDest = None;
+                          cto.capOp = SetBounds;
+                          wb = capInst.r1; dwb = True;
+                        end*/
+                        CapFuncSetBoundsExact: begin
+                          cto.writeDest = None;
+                          cto.capOp = SetBoundsExact;
+                          wb = capInst.r1; dwb = True;
+                        end
+                        CapFuncSub: begin
+                          cto.dest = ci.r1;
+                          cto.capOp = Subtract;
+                          fa = capInst.r2; dfa = True;
+                          fb = capInst.r3; dfb = True;
+                        end
+                        /*CapFuncSeal: begin
+                          cto.capOp = Seal;
+                          reqA = 0; // Make sure offset is 0 in cap unit.
+                          reqB = 0;
+                          fa = capInst.r3; dfa = True;
+                          fb = capInst.r2; dfb = True;
+                          wb = capInst.r1; dwb = True;
+                        end
+                        CapFuncUnseal: begin
+                          cto.capOp = Unseal;
+                          reqA = 0; // Make sure offset is 0 in cap unit.
+                          reqB = 0;
+                          fa = capInst.r3; dfa = True;
+                          fb = capInst.r2; dfb = True;
+                          wb = capInst.r1; dwb = True;
+                        end
+                        CapFuncAndPerm: begin
+                          cto.coProSelect = ci.select;
+                          cto.capOp = AndPerm;
+                          wb = capInst.r1; dwb = True;
+                        end
+                        CapFuncSetOffset: begin
+                          cto.writeDest = None;
+                          cto.capOp = SetOffset;
+                          wb = capInst.r1; dwb = True;
+                        end
+                        CapFuncIncOffset: begin
+                          cto.writeDest = None;
+                          cto.coProSelect = ci.select;
+                          cto.capOp = IncOffset;
+                          wb = capInst.r1; dwb = True;
+                        end
+                        CapFuncCToPtr: begin
+                          cto.dest = ci.r1;
+                          cto.capOp = GetRelBase;
+                          fa = capInst.r3; dfa = True;
+                          fb = capInst.r2; dfb = True;
+                          `ifdef CAP128
+                            cto.pendingWrite = True;
+                          `elsif CAP64
+                            cto.pendingWrite = True;
+                          `endif
+                        end
+                        CapFuncCFromPtr: begin
+                          cto.writeDest = None;
+                          cto.coProSelect = ci.select;
+                          cto.capOp = IncBaseNull;
+                          wb = capInst.r1; dwb = True;
+                        end
+                        CapFuncEQ: begin
+                          cto.dest = ci.r1;
+                          cto.capOp = CmpEQ;
+                          fb = capInst.r3; dfb = True;
+                        end
+                        CapFuncNE: begin
+                          cto.dest = ci.r1;
+                          cto.capOp = CmpNE;
+                          fb = capInst.r3; dfb = True;
+                        end
+                        CapFuncLT: begin
+                          cto.dest = ci.r1;
+                          cto.capOp = CmpLT;
+                          fb = capInst.r3; dfb = True;
+                        end
+                        CapFuncLE: begin
+                          cto.dest = ci.r1;
+                          cto.capOp = CmpLE;
+                          fb = capInst.r3; dfb = True;
+                        end
+                        CapFuncLTU: begin
+                          cto.dest = ci.r1;
+                          cto.capOp = CmpLTU;
+                          fb = capInst.r3; dfb = True;
+                        end
+                        CapFuncLEU: begin
+                          cto.dest = ci.r1;
+                          cto.capOp = CmpLEU;
+                          fb = capInst.r3; dfb = True;
+                        end
+                        CapFuncEXEQ: begin
+                          cto.dest = ci.r1;
+                          cto.capOp = CmpEQX;
+                          fb = capInst.r3; dfb = True;
+                        end*/
+                        CapFuncTwoOp: begin
+                          CapFuncTwoOpCode capFuncTwoOp = unpack(ci.r3);
+                          case (capFuncTwoOp)
+                            /*CapFuncGetPerm: begin
+                              cto.capOp = GetPerm;
+                            end
+                            CapFuncGetType: begin
+                              cto.capOp = GetType;
+                            end
+                            CapFuncGetBase: begin
+                              cto.capOp = GetBase;
+                            end
+                            CapFuncGetLen: begin
+                              cto.capOp = GetLen;
+                            end
+                            CapFuncGetTag: begin
+                              cto.capOp = GetTag;
+                            end
+                            CapFuncGetSealed: begin
+                              cto.capOp = GetSealed;
+                            end
+                            CapFuncGetOffset: begin
+                              cto.writeDest = RegFile;
+                              cto.dest = ci.r1;
+                              cto.capOp = GetOffset;
+                            end*/
+                            CapFuncGetPCCSetOffset: begin
+                              cto.writeDest = None;
+                              cto.alu = Nop;
+                              reqA = ci.r2;
+                              cto.capOp = SetPCCOffset;
+                              dfa = False;
+                              wb = capInst.r1; dwb = True;
+                            end
+                            /*CapFuncCheckPerm: begin
+                              cto.capOp = CheckPerms;
+                              fa = capInst.r1; dfa = True;
+                            end
+                            CapFuncCheckType: begin
+                              cto.capOp = CheckType;
+                              fa = capInst.r1; dfa = True;
+                              fb = capInst.r2; dfb = True;
+                            end
+                            CapFuncMove: begin
+                              cto.capOp = Move;
+                              wb = capInst.r1; dwb = True;
+                            end
+                            CapFuncClearTag: begin
+                              cto.capOp = ClearTag;
+                              wb = capInst.r1; dwb = True;
+                            end*/
+                            CapFuncOneOp: begin
+                              CapFuncOneOpCode capFuncOneOp = unpack(ci.r2);
+                              dfa = False;
+                              case(capFuncOneOp) 
+                                CapFuncGetPCC: begin
+                                  cto.writeDest = None;
+                                  cto.alu = Nop;
+                                  cto.capOp = GetPCC;
+                                  wb = capInst.r1; dwb = True;
+                                end
+                                CapFuncGetCause: begin
+                                  cto.capOp = GetConfig;
+                                end
+                                CapFuncSetCause: begin
+                                  cto.writeDest = None;
+                                  cto.capOp = SetConfig;
+                                  reqA = ci.r1;
+                                end
+                                CapFuncCJR: begin
+                                  cto.writeDest = None;
+                                  branchType = JumpReg;
+                                  cto.branch = Always;
+                                  cto.capOp = JR;
+                                  cto.newPcSource = OpB;
+                                  fa = capInst.r2; dfa = True;
+                                end
+                                default: cto <- unknownInstruction(cto);
+                              endcase
+                            end
+                            default: cto <- unknownInstruction(cto);
+                          endcase
+                        end
+                        default: cto <- unknownInstruction(cto);
                       endcase
                     end
                     MTC: begin
                       cto.coProSelect = ci.select;
+                      fa = capInst.r2; dfa = True;
+                      wb = capInst.r1; dwb = True;
                       case(ci.select)
                         0: cto.capOp = AndPerm;
-                        1: cto.capOp = SetType;
-                        2: cto.capOp = IncBase;
-                        3: cto.capOp = SetLen;
-                        4: cto.capOp = SetConfig;
+                        4: begin
+                          cto.capOp = SetConfig;
+                          dfa = False;
+                          dwb = False;
+                        end
                         5: cto.capOp = ClearTag;
-                        6: cto.capOp = ReportRegs;
+                        6: begin
+                          cto.capOp = ReportRegs;
+                          dfa = False;
+                          dwb = False;
+                        end
                         7: cto.capOp = IncBaseNull;
-                        //default: cto <- unknownInstruction(cto);
+                        default: cto <- unknownInstruction(cto);
                       endcase
+                    end
+                    CSetBounds: begin
+                      cto.capOp = SetBounds;
+                      fa = capInst.r2; dfa = True;
+                      wb = capInst.r1; dwb = True;
                     end
                     CRelBase: begin
                       cto.writeDest = RegFile;
                       cto.dest = ci.r1;
                       cto.capOp = GetRelBase;
+                      fa = capInst.r3; dfa = True;
+                      fb = capInst.r2; dfb = True;
+                      `ifdef CAP128
+                        cto.pendingWrite = True;
+                      `elsif CAP64
+                        cto.pendingWrite = True;
+                      `endif
                     end
                     CJR: begin
                       branchType = JumpReg;
                       cto.branch = Always;
                       cto.capOp = JR;
                       cto.newPcSource = OpB;
+                      fa = capInst.r2; dfa = True;
                     end
                     CJALR: begin
                       branchType = JumpReg;
@@ -765,8 +1089,10 @@ module mkScheduler#(
                       // We will manually feed PC + 8 into operand B
                       cto.opBsrc = ControlToken;
                       cto.newPcSource = OpB;
+                      fa = capInst.r2; dfa = True;
+                      wb = capInst.r1; dwb = True;
                     end
-                    CBTS,CBTU: begin
+                    CBTS,CBTU,CBEZ,CBNZ: begin
                       // The capability unit will return 1 or 0, depending on whether
                       // we should take the branch, so we tell the execute and
                       // writeback stages just to branch on that result.
@@ -780,32 +1106,128 @@ module mkScheduler#(
                       case(ci.cOp)
                         CBTS: cto.capOp = BranchTagSet;
                         CBTU: cto.capOp = BranchTagUnset;
+                        CBEZ: cto.capOp = BranchEqZero;
+                        CBNZ: cto.capOp = BranchNEqZero;
                       endcase
+                      fa = capInst.r1; dfa = True;
                     end
-                    CSeal: cto.capOp = Seal;
-                    CUnseal: cto.capOp = Unseal;
+                    CSeal: begin
+                      cto.capOp = Seal;
+                      reqA = 0; // Make sure offset is 0 in cap unit.
+                      reqB = 0;
+                      fa = capInst.r3; dfa = True;
+                      fb = capInst.r2; dfb = True;
+                      wb = capInst.r1; dwb = True;
+                    end
+                    CUnseal: begin
+                      cto.capOp = Unseal;
+                      reqA = 0; // Make sure offset is 0 in cap unit.
+                      reqB = 0;
+                      fa = capInst.r3; dfa = True;
+                      fb = capInst.r2; dfb = True;
+                      wb = capInst.r1; dwb = True;
+                    end
                     Check: begin
                       case(ci.select)
                         0: cto.capOp = CheckPerms;
-                        1: cto.capOp = CheckType;
+                        1: begin
+                          cto.capOp = CheckType;
+                          fa = capInst.r2; dfa = True;
+                        end
                         default: cto <- unknownInstruction(cto);
                       endcase
+                      fb = capInst.r1; dfb = True;
                     end
                     CCall: begin
-                      `ifdef HARDCALL
-                        branchType = JumpReg;
-                        cto.branch = True;
-                        cto.opBsrc = ControlToken;
-                        cto.newPcSource = OpB;
-                      `else
-                        cto.exception = CAPCALL;
-                      `endif
-                      cto.capOp = Call;
+                      // Select field is the bottom 11 bits of the instruction.
+                      Bit#(11) select = {ci.r3,ci.spacer,ci.select};
+                      case (select)
+                        0:  begin
+                          cto.exception = CAPCALL;
+                          cto.capOp = Call;
+                        end
+                        42: begin
+                          branchType = JumpReg;
+                          cto.branch = Always;
+                          cto.opBsrc = ControlToken;
+                          cto.newPcSource = OpB;
+                          cto.capOp = CallFast;
+                          wb = 5'd26; dwb = True;
+                        end
+                        default: cto <- unknownInstruction(cto);
+                      endcase
+                      reqA = 0; // Make sure offset is 0 in cap unit.
+                      reqB = 0;
                       cto.writeDest = None;
+                      fa = capInst.r1; dfa = True;
+                      fb = capInst.r2; dfb = True;
                     end
                     CReturn: begin
                       cto.capOp = Return;
                       cto.exception = CAPCALL;
+                    end
+                    CClear: begin
+                      cto.alu = Nop;
+                      cto.opAsrc = ControlToken;
+                      case(ci.r1)
+                        0,1: cto.writeRegMask = True;
+                        2,3: cto.capOp = Clear;
+                        default: cto <- unknownInstruction(cto);
+                      endcase
+                    end
+                    CLLSC: begin
+                      Bool load = (ci.spacer[0]==1'b1);
+                      reqA = 0;
+                      reqB = 0;
+                      cto.writeDest = RegFile;
+                      capInst.r0 = ci.r1;
+                      capInst.r1 = ci.r2;
+                      cto.alu = Cap;
+                      cto.observesCP0 = True; // Loads and stores observe the TLB
+                      case (ci.select[1:0])
+                        0: cto.memSize = Byte;
+                        1: cto.memSize = HalfWord;
+                        2: cto.memSize = Word;
+                        3: cto.memSize = (ci.select[2]==1'b1) ? CapWord:DoubleWord;
+                      endcase
+                      if (load) begin // Load Linked
+                        cto.mem = Read;
+                        cto.signExtendMem = (ci.select[2] == 1); // "signed" bit.
+                        cto.test = LL;
+                      end else begin // Store Conditional
+                        cto.dest = pack(ci.r3);
+                        cto.mem = Write;
+                        cto.test = SC;
+                        `ifdef MULTI
+                          cto.pendingWrite = True;
+                        `endif
+                      end
+                      if (cto.memSize != CapWord) begin
+                        if (load) begin // Load Linked
+                          cto.dest = pack(ci.r1);
+                          cto.capOp = L;
+                        end else begin
+                          cto.capOp = S;
+                          cto.opBsrc = ControlToken;
+                          cto.storeDatasrc = RegFile;
+                          reqB = ci.r1;
+                        end
+                      end else begin // Load Linked or Store Conditional of a capability!
+                        if (load) begin // Load Linked
+                          cto.writeDest = CoPro2;
+                          cto.capOp = LC;
+                          cto.test = LL;
+                          wb = capInst.r0; dwb = True;
+                        end else begin // Store Conditional
+                          cto.capOp = SC;
+                          cto.storeDatasrc = CoPro2;
+                          `ifdef MULTI
+                            cto.pendingWrite = True;
+                          `endif
+                          fb = capInst.r0; dfb = True;
+                        end
+                      end
+                      fa = capInst.r1; dfa = True;
                     end
                     default: begin
                       cto <- unknownInstruction(cto);
@@ -815,14 +1237,25 @@ module mkScheduler#(
                 LWC2: begin
                   reqA = ci.r2;
                   cto.opBsrc = ControlToken;
+                  cto.opB = signExtend({ci.r3, ci.spacer});
                   cto.dest = pack(ci.cOp);
                   cto.writeDest = RegFile;
                   cto.mem = Read;
+                  cto.observesCP0 = True; // Loads and stores observe the TLB
                   case (ci.select[1:0])
                     0: cto.memSize = Byte;
-                    1: cto.memSize = HalfWord;
-                    2: cto.memSize = Word;
-                    3: cto.memSize = DoubleWord;
+                    1: begin
+                      cto.memSize = HalfWord;
+                      cto.opB = cto.opB << 1;
+                    end
+                    2: begin
+                      cto.memSize = Word;
+                      cto.opB = cto.opB << 2;
+                    end
+                    3: begin
+                      cto.memSize = DoubleWord;
+                      cto.opB = cto.opB << 3;
+                    end
                   endcase
                   cto.capOp = L;
                   cto.signExtendMem = (ci.select[2] == 1);
@@ -830,7 +1263,7 @@ module mkScheduler#(
                     cto.test = LL;
                   end
                   cto.alu = Add;
-                  cto.opB = signExtend({ci.r3, ci.spacer});
+                  fa = capInst.r1; dfa = True;
                 end
                 SWC2: begin
                   reqA = ci.r2;
@@ -839,6 +1272,8 @@ module mkScheduler#(
                   cto.storeDatasrc = RegFile;
                   cto.dest = pack(ci.cOp);
                   cto.mem = Write;
+                  cto.observesCP0 = True; // Loads and stores observe the TLB
+                  cto.opB = signExtend({ci.r3, ci.spacer});
                   if (ci.select == 3'b111) begin // Linked operation
                     cto.writeDest = RegFile;
                     cto.dest = pack(ci.cOp);
@@ -847,27 +1282,36 @@ module mkScheduler#(
                   end
                   case (ci.select[1:0])
                     0: cto.memSize = Byte;
-                    1: cto.memSize = HalfWord;
-                    2: cto.memSize = Word;
-                    3: cto.memSize = DoubleWord;
+                    1: begin
+                      cto.memSize = HalfWord;
+                      cto.opB = cto.opB << 1;
+                    end
+                    2: begin
+                      cto.memSize = Word;
+                      cto.opB = cto.opB << 2;
+                    end
+                    3: begin
+                      cto.memSize = DoubleWord;
+                      cto.opB = cto.opB << 3;
+                    end
                   endcase
                   cto.capOp = S;
-                  if (ci.select == 3'b111) begin // Linked operation
-                    cto.test = SC;
-                    cto.sixtyFourBitOp = True;
-                  end
+                  if (ci.select[2] == 1'b1) cto.test = SC;
                   cto.alu = Add;
-                  cto.opB = signExtend({ci.r3, ci.spacer});
+                  fa = capInst.r1; dfa = True;
                 end
                 LDC2: begin
                   reqA = ci.r2;
                   cto.opBsrc = ControlToken;
                   cto.writeDest = CoPro2;
                   cto.mem = Read;
-                  cto.memSize = Line;
+                  cto.observesCP0 = True; // Loads and stores observe the TLB
+                  cto.memSize = CapWord;
                   cto.capOp = LC;
                   cto.alu = Add;
-                  cto.opB = signExtend({ci.r3, ci.spacer, ci.select});
+                  cto.opB = signExtend({ci.r3, ci.spacer, ci.select, 4'b0});
+                  fa = capInst.r1; dfa = True;
+                  wb = capInst.r0; dwb = True;
                 end
                 SDC2: begin
                   reqA = ci.r2;
@@ -875,26 +1319,26 @@ module mkScheduler#(
                   cto.storeDatasrc = CoPro2;
                   cto.writeDest = None;
                   cto.mem = Write;
-                  cto.memSize = Line;
+                  cto.observesCP0 = True; // Loads and stores observe the TLB
+                  cto.memSize = CapWord;
                   cto.capOp = SC;
                   cto.alu = Add;
-                  cto.opB = signExtend({ci.r3, ci.spacer, ci.select});
+                  cto.opB = signExtend({ci.r3, ci.spacer, ci.select, 4'b0});
+                  fa = capInst.r1; dfa = True;
+                  fb = capInst.r0; dfb = True;
                 end
                 default: begin
                   cto <- unknownInstruction(cto);
                 end
               endcase
-              if (ci.op == COP2) cto.memSize = Byte;
-              capInst = CapInst{
-                op: cto.capOp,
-                r0: pack(ci.cOp),
-                r1: ci.r1,
-                r2: ci.r2,
-                r3: ci.r3,
-                memSize: cto.memSize,
-                instId: cti.id,
-                epoch: cti.epoch
-              };
+              capInst.op = cto.capOp;
+              capInst.memSize = cto.memSize;
+              capInst.fetchA = fa;
+              capInst.doFetchA = dfa;
+              capInst.fetchB = fb;
+              capInst.doFetchB = dfb;
+              capInst.dest = wb;
+              capInst.doWriteDest = dwb;
             end
           `endif
           default:
@@ -1000,44 +1444,51 @@ module mkScheduler#(
       cto.writePC = True;
     end
 
-    debug($display("Requesting registers %d (A) and %d (B) in Decode for id %d", reqA, reqB, cto.id));
-    // Submit a register fetch address for operand A & B
-    Bool pendingWrite = cto.mem == Read && cto.memSize != Line;
-
-    `ifdef MULTI
-      // If its a store conditional we don't want Execute to write into the
-      // RegFile as the success or failure depends in the state of the shared
-      // L2Cache. This allows us to delay the Reg write until the Writeback
-      // stage.
-      if (storeConditionalPending) begin
-        pendingWrite = True;
-      end
-    `endif
+    if (cto.mem == Read && cto.memSize != CapWord) cto.pendingWrite = True;
     
     // Cancel writes if they are to register 0.
     if (cto.writeDest == RegFile && cto.dest==0) cto.writeDest = None;
 
+    WriteType wtype = None;
+    if (cto.writeDest==RegFile) begin
+      if (cto.pendingWrite) wtype = Pending;
+      else if (conditionalUpdate) wtype = Conditional;
+      else wtype = Simple;
+    end
+    debug($display("Requesting registers %d (A) and %d (B) in Scheduler for id %d", reqA, reqB, cto.id));
     theRF.reqRegs(ReadReq{
       a: reqA,
       b: reqB,
-      write: cto.writeDest == RegFile,
-      pendingWrite: pendingWrite,
+      write: wtype,
       dest: cto.dest,
       epoch: cti.epoch,
       fromDebug: cti.fromDebug,
-      conditionalUpdate: conditionalUpdate
+      rawReq: False
     });
     // Submit a register fetch address (register number and shadow register
     // select) to coprocessor 0, the system control coprocessor. The result of
     // this fetch will be discarded for most instructions.
     cp0.readReq(reqC, reqSel);
+    `ifdef STATCOUNTERS
+    // enqueue the request to the statcounters module (default is Invalid)
+    debug2("StatCounters", $display("<time %0t, Scheduler> put statcounters request: ", $time, fshow(statcounters_req)));
+    statCounters.request.put(statcounters_req);
+    `endif
     // Submit read requests to other coprocessors.
     cop1.putCoProInst(coProInst1);
     `ifdef USECAP
-      if (cto.capOp==None) begin
-        if (cto.mem!=None) capInst.memSize = cto.memSize;
-        if (cto.mem==Read) capInst.op = L;
-        if (cto.mem==Write) capInst.op = S;
+      if (!couldBeCapLoadOrStore) begin
+        // Default value of capInst.fetchA is 0, and is relied upon here.
+        // Choosing 0 in only this case is slow for decoding.
+        if (cto.mem!=None)  capInst.memSize = cto.memSize;
+        if (cto.mem==Read)  begin
+          capInst.op = LegacyL;
+          capInst.doFetchA = True;
+        end
+        if (cto.mem==Write) begin
+          capInst.op = LegacyS;
+          capInst.doFetchA = True;
+        end
         if (cto.branch==Always && !cto.flushPipe) capInst.op = JumpRegister;
       end
       capCop.putCapInst(capInst);
@@ -1048,4 +1499,5 @@ module mkScheduler#(
   endmethod
   method ControlTokenT first = outQ.first;
   method deq = outQ.deq;
+  method clear = noAction; // XXX This method should never be called.
 endmodule

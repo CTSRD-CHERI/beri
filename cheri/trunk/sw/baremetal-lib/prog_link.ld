@@ -3,7 +3,7 @@
  * Copyright (c) 2010-2013 Jonathan Woodruff
  * Copyright (c) 2011 Robert N. M. Watson
  * Copyright (c) 2011 Wojciech A. Koszek
- * Copyright (c) 2013 A. Theodore Markettos
+ * Copyright (c) 2013 Theo Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of

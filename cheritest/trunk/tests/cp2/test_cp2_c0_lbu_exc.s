@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -45,31 +46,30 @@ test:		.ent test
 		#
 		# Set up 'handler' as the RAM exception handler.
 		#
-		jal	bev_clear
-		nop
+
 		dla	$a0, exception_handler
 		jal	bev0_handler_install
 		nop
-		dla	$a0, exception_handler
-		jal	bev1_handler_install
+
+		jal	bev_clear
 		nop
 
 		#
 		# Set up $c1 to point at data.
-		#
-		dla	$t0, data
-		cincbase	$c1, $c1, $t0
-
-		#
 		# We want $c1.length to be 8.
 		#
+
+		cgetdefault $c1
+		dla	$t0, data
+		csetoffset $c1, $c1, $t0
 		dli	$t1, 8
-		csetlen	$c1, $c1, $t1
+		csetbounds $c1, $c1, $t1
 
 		#
 		# Install new $c0
 		#
-		cmove	$c0, $c1
+
+		csetdefault $c1
 
 		dli	$t0, 0
 		lbu	$a0, 0($t0)		# 64-bit aligned
@@ -80,7 +80,8 @@ test:		.ent test
 		#
 		# Restore privileged c0 for test termination.
 		#
-		cmove	$c0, $c30
+
+		csetdefault $c30
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
@@ -103,7 +104,7 @@ data:		.dword	0x0011223344556677
 exception_handler:
 		# Capture cause register so we can make sure that an
 		# exception was thrown for the right reason!
-		dmfc0	$s1, $13	# Get cause register
+		mfc0	$s1, $13	# Get cause register
 		daddiu	$s2, $s2, 1	# Increment trap counter
 		dmfc0	$k1, $14	# EPC
 		daddiu	$k0, $a5, 4	# EPC += 4 to bump PC forward on ERET

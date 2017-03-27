@@ -34,6 +34,7 @@
  */
 #define _BSD_SOURCE
 #define _XOPEN_SOURCE 
+#define _GNU_SOURCE
 
 #include <sys/types.h>
 #include <sys/mman.h>
@@ -52,6 +53,7 @@
 #include <unistd.h>
 
 #include "pismdev/pism.h"
+#include "pismdev/dram/dram.h"
 
 /*-
  * PISM simulation of DRAM.  Regions of DRAM may be backed by zero-filled
@@ -71,19 +73,6 @@ static pism_dev_request_put_t		dram_dev_request_put;
 static pism_dev_response_ready_t	dram_dev_response_ready;
 static pism_dev_response_get_t		dram_dev_response_get;
 static pism_dev_addr_valid_t		dram_dev_addr_valid;
-
-/*
- * Data structure describing per-DRAM instance fields, hung off of
- * pism_device_t->pd_private.  Once we support pipelining, dp_reqfifo will
- * need to actually be a FIFO, and the reply cycle will be per-entry.
- */
-struct dram_private {
-	uint8_t		*dp_data;
-	pism_data_t	 dp_reqfifo;
-	bool		 dp_reqfifo_empty;
-	uint		 dp_delay;
-	uint64_t	 dp_replycycle;	/* Earliest cycle reply permitted. */
-};
 
 /*
  * DRAM-specific option names.
@@ -109,6 +98,11 @@ struct dram_private {
 #define	DRAM_DELAY_DEFAULT	1
 #define	DRAM_DELAY_MINIMUM	1
 #define	DRAM_DELAY_MAXIMUM	UINT_MAX
+
+/*
+ * Memory aligment required for Virtio device
+ */
+#define	DRAM_ALIGN		4096
 
 static char		*g_dram_debug = NULL;
 
@@ -263,8 +257,9 @@ dram_dev_init(pism_device_t *dev)
 	assert(dpp != NULL);
 	switch (dram_type) {
 	case DRAM_TYPE_ZERO:
-		dpp->dp_data = calloc(1, dev->pd_length);
+		posix_memalign((void **)&dpp->dp_data, DRAM_ALIGN, dev->pd_length);
 		assert(dpp->dp_data != NULL);
+		DDBG(dev, "dp_data 0x%016lx\n", (uint64_t)dpp->dp_data);
 		break;
 
 	case DRAM_TYPE_MMAP:

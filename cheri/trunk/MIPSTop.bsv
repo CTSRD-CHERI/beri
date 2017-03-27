@@ -7,7 +7,7 @@
  * Copyright (c) 2013 Robert N. M. Watson
  * Copyright (c) 2013 Alan A. Mujumdar
  * Copyright (c) 2014 Colin Rothwell
- * Copyright (c) 2014 Alexandre Joannou
+ * Copyright (c) 2014, 2015 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -52,10 +52,12 @@ import FIFOF::*;
 import ConfigReg::*;
 import MemTypes::*;
 import Vector::*;
+import Debug::*;
 
 // MIPS.bsv contains types and interface declarations that are common among many
 // files.
 import MIPS::*;
+import MIPSTopIfc::*;
 // Memory.bsv describes the memory hierarchy.
 import Memory::*;
 // ForwardingPipelinedRegFile.bsv describes the register file.
@@ -103,6 +105,9 @@ import ResetBuffer::*;
   // memory protection.
   import CapCop128::*;
   `define USECAP 1
+`elsif CAP64
+  import CapCop64::*;
+  `define USECAP 1
 `endif
 // The COP1 flag enables the inclusion of the optional floating point unit.
 `ifdef COP1
@@ -112,48 +117,6 @@ import ResetBuffer::*;
   import CoProFPTypes::*;
   import CoProFPInst::*;
 `endif
-
-// MIPSTopIfc is the interface for the processor top level, exporting the memory
-// interface as well as interrupts and a debug interface.
-interface MIPSTopIfc;
-  `ifdef MULTI
-    // Instruction cache invalidate interface
-    method Action invalidateICache(PhyAddress addr);
-    // Data cache invalidate interface
-    method Action invalidateDCache(PhyAddress addr);
-  interface Master#(CheriMemRequest, CheriMemResponse) imemory;
-  interface Master#(CheriMemRequest, CheriMemResponse) dmemory;
-  `else
-  // Memory client interface (which initializes transactions), 256 bit data
-  // width, 35-bit WORD address width. As there are 2^5 = 32 bytes per word,
-  // this is equivalent to a 35 + 5 = 40-bit byte address.
-  interface Master#(CheriMemRequest, CheriMemResponse) memory;
-  `endif
-  // interface below is required for the multiport L2Cache
-  //interface Client#(MemoryRequest#(35, 32), BigMemoryResponse#(256)) memory;
-  // 5 interrupt lines, matching the standard MIPS spec.
-  (* always_ready, always_enabled *)
-  method Action putIrqs(Bit#(5) interruptLines);
-  // Deliver common state to this core.
-  method Action putState(Bit#(48) count, Bool pause);
-  // Tell the system to pause.  This should pause all cores.
-  method Bool getPause();
-  // The debug interface is a byte stream interface, a channel of bytes in and a
-  // channel of bytes out.
-  interface Server#(Bit#(8), Bit#(8)) debugStream;
-    // Also a reset out interface. This allows us to reset the system and also
-    // ourselves (if it is fed back in).
-  method Bool reset_n();
-  // Whether we want the trace unit to be recording at each cycle.
-
-  // For testing the memory sub-system
-  interface MIPSMemory mipsMemory;
-
-  `ifdef DMA_VIRT
-      interface Vector#(2, Server#(TlbRequest, TlbResponse)) tlbs;
-  `endif
-endinterface
-
 
 /***** mkMIPSTop *****
 The mkMIPSTop module instantiates the main processor pipeline and memory hierarchy.
@@ -207,29 +170,37 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
   // The decode stage of the pipeline gets the result of register fetches
   // and therefore has access to any module interface which contains
   // registers the may be used by an instruction.
+  `ifndef STATCOUNTERS
   PipeStageIfc decode <- mkDecode(theCP0);
+  `else
+  PipeStageIfc decode <- mkDecode(theCP0, theMem.statCounters);
+  `endif
   // These are the module instantiations for the "Capability" case which
   // includes our memory protection extensions.
   `ifdef USECAP
       // theCapCop is the "Capability coprocessor", logically MIPS coprocessor
       // 2, which inserts itself into the general purpose pipeline for register
       // reads and writes and which also becomes part of the memory path.
-      `ifdef CAP
-        CapCopIfc theCapCop <- mkCapCop(coreId);
-      `elsif CAP128
-        CapCopIfc theCapCop <- mkCapCop128(coreId);
-      `endif
+      CapCopIfc theCapCop <- mkCapCop(coreId);
       
       // memAccess is the memory access stage of the pipeline which imports data
       // memory and the capability coprocessor interface
       PipeStageIfc memAccess <- mkMemAccess(theMem.dataMemory, theCapCop);
       // The writeback stage of the pipeline imports lots of interfaces because
       // it updates all system state that results from an instruction commit.
+      `ifndef STATCOUNTERS
       WritebackIfc writeback <- mkWriteback(theMem, theRF, theCP0, branch, theDebug, cop1, theCapCop, memAccess);
+      `else
+      WritebackIfc writeback <- mkWriteback(theMem, theRF, theCP0, branch, theDebug, cop1, theCapCop, theMem.statCounters, memAccess);
+      `endif
       // The scheduler pulls the instruction out of the instruction memory interface
       // and reports any branches to the branch unit. The scheduler also submits
       // register read addresses to the register file
+      `ifndef STATCOUNTERS
       PipeStageIfc scheduler <- mkScheduler(branch, theRF, theCP0, cop1, theCapCop, theMem.instructionMemory);
+      `else
+      PipeStageIfc scheduler <- mkScheduler(branch, theRF, theCP0, cop1, theCapCop, theMem.instructionMemory, theMem.statCounters);
+      `endif
       // The execute stage of the pipeline has access to the coprocessor
       // interfaces since they may hold their own uncommitted temporary values,
       // and also the decode interface which it directly accesses so that it can
@@ -243,11 +214,19 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
       PipeStageIfc memAccess <- mkMemAccess(theMem.dataMemory);
       // The writeback stage of the pipeline imports lots of interfaces because
       // it updates all system state that results from an instruction commit.
+      `ifndef STATCOUNTERS
       WritebackIfc writeback <- mkWriteback(theMem, theRF, theCP0, branch, theDebug, cop1, memAccess);
+      `else
+      WritebackIfc writeback <- mkWriteback(theMem, theRF, theCP0, branch, theDebug, cop1, theMem.statCounters, memAccess);
+      `endif
       // The scheduler pulls the instruction out of the instruction memory interface
       // and reports any branches to the branch unit. The scheduler also submits
       // register read addresses to the register file
+      `ifndef STATCOUNTERS
       PipeStageIfc scheduler <- mkScheduler(branch, theRF, theCP0, cop1, theMem.instructionMemory);
+      `else
+      PipeStageIfc scheduler <- mkScheduler(branch, theRF, theCP0, cop1, theMem.instructionMemory, theMem.statCounters);
+      `endif
       // The execute stage of the pipeline has access to the coprocessor
       // interfaces since they may hold their own uncommitted temporary values,
       // and also the decode interface which it directly accesses so that it can
@@ -369,7 +348,7 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
     // Increment the instruction ID for the next fetch.
     nextId <= nextId + 1;
     // Submit the read request to instruction memory.
-    theMem.instructionMemory.reqInstruction(nextPC, ct.id);
+    theMem.instructionMemory.reqInstruction(nextPC, ct.id, ct.inst);
     debug($display("Fetching from %X at time %t, Id=%d", nextPC, $time(), nextId));
   endrule
   // This rule, debug instruction fetch, is similar to the previous rule but
@@ -406,7 +385,7 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
     // Submit the (rubbish) instruction memory request to instruction memory.
     // This will likely cause a TLB miss.
     Address addr = 64'b0;
-    theMem.instructionMemory.reqInstruction(addr, ct.id);
+    theMem.instructionMemory.reqInstruction(addr, ct.id, ct.inst);
     debug($display("Debug fetching at time %t, Id=%d", $time(), nextId));
   endrule
   // This rule deqs from the toScheduler fifo and enqs to the scheduler, likely
@@ -420,27 +399,12 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
     // Deq the toScheduler fifo.
     toScheduler.deq();
   endrule
-  // This function checks if an instruction is a CP0 instruction. This is used
-  // in the next rule to avoid instructions that may read CP0 state from
-  // proceeding until all instructions that modify CP0 state have completed.
-  function Bool isCP0(InstructionT x);
-      // Return False (not a CP0 instruction) by default.
-      Bool ret = False;
-      // If the instruction is of the Register category...
-      if (x matches tagged Register .ri) begin
-        // And the opcode is COP0, indicate that this is a CP0 instruction.
-        if (ri.op == COP0 || ri.op == SPECIAL3) ret = True;
-      end
-      if (x matches tagged Coprocessor .ci) begin
-        ret = True;
-      end
-      return ret;
-  endfunction
+
   // This rule takes a token from the scheduler/register rename stage and enqs
   // it to the decode stage. The conditions on this rule only allow it to fire
   // when a CP0 write is pending and we are about to decode (and fetch the
   // registers for) another CP0 instruction.
-  rule fromSchedulerToDecode(!(isCP0(scheduler.first.inst) && theCP0.writePending));
+  rule fromSchedulerToDecode(!(scheduler.first.observesCP0 && theCP0.writePending));
     // Enq the top element in the scheduler output fifo to decode.
     // The enq interface of this module actually performs the decode pipeline stage.
     decode.enq(scheduler.first);
@@ -483,9 +447,6 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
     resetBuffer.resetIn(theDebug.reset_n());
   endrule
 
-  // Export the interrupts interface on theCP0 as the putIrqs interface of this
-  // module.
-  interface putIrqs = theCP0.interrupts;
   `ifndef MULTI
   // Export theMem.memory main memory interface as the memory interface of this
   // top level module.
@@ -501,11 +462,16 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
   // For testing the memory sub-system
   `ifdef TEST_MEM
     interface mipsMemory = theMem;
+  `else
+    interface mipsMemory = ?;
   `endif
     
   `ifdef MULTI
-    interface invalidateICache = theMem.invalidateICache;
-    interface invalidateDCache = theMem.invalidateDCache;
+    `ifndef TIMEBASED
+      interface  invalidateICache = theMem.invalidateICache;
+      interface  invalidateDCache = theMem.invalidateDCache;
+      interface getInvalidateDone = theMem.getInvalidateDone;
+    `endif
   `endif
   // Assign the reset_n output of this module to the reset_n_out method of the
   // resetBuffer module.
@@ -513,10 +479,11 @@ module mkMIPSTop#(Bit#(16) coreId)(MIPSTopIfc);
   // Delever a new pause state to the system.
   method getPause() = theDebug.getPause();
   // Get some state elements for the system.
-  method Action putState(Bit#(48) count, Bool commonPause);
-    theCP0.putCount(count[31:0]);
+  method Action putState(Bit#(48) count, Bool commonPause, Bit#(5) interruptLines);
+    theCP0.putCount(count);
     writeback.putCycleCount(count);
     theDebug.pause(commonPause);
+    theCP0.interrupts(interruptLines);
     pause <= commonPause;
   endmethod
 

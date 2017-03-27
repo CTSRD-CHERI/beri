@@ -4,7 +4,7 @@
  * Copyright (c) 2013 Jonathan Woodruff
  * Copyright (c) 2013 Robert M. Norton
  * Copyright (c) 2013 Alan A. Mujumdar
- * Copyright (c) 2014 Alexandre Joannou
+ * Copyright (c) 2014-2017 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -47,6 +47,9 @@ import CP0 :: *;
 `elsif CAP128
   import CapCop128::*;
   `define USECAP 1
+`elsif CAP64
+  import CapCop64::*;
+  `define USECAP 1
 `endif
 import FIFO :: *;
 import FIFOF :: *;
@@ -58,13 +61,21 @@ import Debug::*;
 import ConfigReg::*;
 import TraceTypes::*;
 import MemTypes::*;
+`ifdef STATCOUNTERS
+import StatCounters::*;
+`endif
 
 typedef struct {
   ControlTokenT ct;
   MIPSReg       result;
   Address       nextPc;
-  Bit#(16)      count;
+  Bit#(10)      count;
 } InstructionReport deriving (Bits); // total=256
+
+typedef struct {
+  Exception   exp;
+  Address     nextPc;
+} ExpPc deriving (Bits); // total=256
 
 module mkWriteback#(
   MIPSMemory m,
@@ -76,21 +87,27 @@ module mkWriteback#(
   `ifdef USECAP
     CapCopIfc capCop,
   `endif
+  `ifdef STATCOUNTERS
+    StatCounters statCnt,
+  `endif
   FIFO#(ControlTokenT) inQ
 )(WritebackIfc);
 
   FIFOF#(Bool)                   hiLoCommit <- mkFIFOF();
   Reg#(InstructionReport) instructionReport <- mkRegU;
   `ifdef USECAP
-    Reg#(Maybe#(ShortCap))       writtenCap <- mkRegU; 
+    Reg#(CapFat)                 writtenCap <- mkRegU; 
   `endif
-  Reg#(Bit#(16))               lastReportId <- mkReg(0);
+  // These two registers are used for tracing.
+  Reg#(Bit#(10))             lastReportTime <- mkReg(0);
+  Reg#(InstId)                 lastReportId <- mkConfigReg(1);
+  // These are different.
   Reg#(InstId)           lastCommitReportId <- mkConfigReg(1);
   Reg#(Exception)        preMemExceptionReg <- mkConfigReg(?);
 
-  Reg#(UInt#(48)) instCount <- mkReg(0);
-  Reg#(UInt#(48)) cyclCount <- mkReg(0);
-  Reg#(UInt#(48)) lsInCycCt <- mkReg(0);
+  Reg#(Bit#(48)) instCount <- mkReg(0);
+  Reg#(Bit#(48)) cyclCount <- mkReg(0);
+  Reg#(Bit#(48)) lsInCycCt <- mkReg(0);
   Reg#(Bool)  doCycleReport <- mkReg(True);
   
   ControlTokenT nexT = inQ.first;
@@ -105,33 +122,49 @@ module mkWriteback#(
   // Handling ALU exceptions
   Bool needTrap = (case(nexT.test)
         EQ: return (!nexT.signedOp) ? (nexT.opA == 0)     : False;
-        GE: return (!nexT.signedOp) ? (nexT.carryout == 0): (nexT.opA[63] == 0);
-        LT: return (!nexT.signedOp) ? (nexT.carryout == 1): (nexT.opA[63] == 1);
+        GE: return (!nexT.signedOp) ? (nexT.carryout == 0): (nexT.opA[63] == ((preMemException==Ov) ? 1:0));
+        LT: return (!nexT.signedOp) ? (nexT.carryout == 1): (nexT.opA[63] == ((preMemException==Ov) ? 0:1));
         NE: return (!nexT.signedOp) ? (nexT.opA != 0)     : False;
         default: return False;
       endcase);
-  if (needTrap && preMemException==None) preMemException=TRAP;
+  if (needTrap && (preMemException==None || preMemException==Ov)) preMemException=TRAP;
+  if (nexT.test!=Nop && preMemException==Ov) preMemException=None;
   if (nextDead) preMemException = None;
 
   `ifdef BLUESIM
     Vector#(32, Reg#(Bit#(64))) debugRegFile <- replicateM(mkRegU);
   `endif
+  
+  // A single element buffer for debug reports to help with timing.
+  FIFO#(DebugReport)           debugReports <- mkFIFO1;
+  rule passDebugReport;
+    debugUnit.client.response.put(debugReports.first);
+    debugReports.deq;
+  endrule
 
   function Address getExceptionEntryROM(Exception exc);
     case (exc)
-      NMI:                return 64'h9000000040000000;
-      ITLB, DTLBL, DTLBS: return 64'hFFFFFFFFBFC00280; //TLB exception.
-      CAPCALL:            return 64'hFFFFFFFFBFC00480;
-      default:            return 64'hFFFFFFFFBFC00380; //General purpose exception.
+      `ifndef CAP64
+          NMI:                return 64'h9000000040000000;
+      `else
+          NMI:                return 64'hFFFFFFFFE0000000;
+      `endif
+          ITLB, DTLBL, DTLBS: return 64'hFFFFFFFFBFC00280; //TLB exception.
+          CAPCALL:            return 64'hFFFFFFFFBFC00480;
+          default:            return 64'hFFFFFFFFBFC00380; //General purpose exception.
     endcase
   endfunction
 
   function Address getExceptionEntryRAM(Exception exc);
     case (exc)
-      NMI:                return 64'h9000000040000000;
-      ITLB, DTLBL, DTLBS: return 64'hFFFFFFFF80000080; //TLB exception.
-      CAPCALL:            return 64'hFFFFFFFF80000280;
-      default:            return 64'hFFFFFFFF80000180; //General purpose exception.
+      `ifndef CAP64
+          NMI:                return 64'h9000000040000000;
+      `else
+          NMI:                return 64'hFFFFFFFFE0000000;
+      `endif
+          ITLB, DTLBL, DTLBS: return 64'hFFFFFFFF80000080; //TLB exception.
+          CAPCALL:            return 64'hFFFFFFFF80000280;
+          default:            return 64'hFFFFFFFF80000180; //General purpose exception.
     endcase
   endfunction
 
@@ -140,26 +173,37 @@ module mkWriteback#(
     Address pc,
     Bit#(3) sel,
     MIPSReg result,
-    CacheResponseDataT memResponse,
+    MemResponseDataT memResponse,
     SizedWord storeData,
     WriteBack writeDest,
+    MemOp mem,
+    Bool writeRegMask,
     Bool fromDebug,
     Exception exp,
     Bool dead,
+    `ifdef MULTI
+      Bit#(16) coreID,
+    `endif
     InstId id
   );
     action
+      MIPSReg regResult = (mem==Read) ? memResponse.data:result;
       Bool instructionIsCommitting = (!dead && exp == None);
-      rf.writeReg(dest, result, writeDest==RegFile, instructionIsCommitting);
+      rf.writeReg(regResult, instructionIsCommitting);
       if (instructionIsCommitting) begin // If we had an exception, flush the pipe with no effect on register file.
         if (writeDest == RegFile) begin
           `ifdef BLUESIM
-            debugRegFile[dest] <= result;
+            debugRegFile[dest] <= regResult;
           `endif
         end
         if (cyclCount - lsInCycCt > 1) begin
-          cycReport($display("%3d dead cycles", cyclCount - lsInCycCt - 1));
+          `ifdef MULTI
+            cycReport($display("c%d: %3d dead cycles", coreID, cyclCount - lsInCycCt - 1));
+          `else
+            cycReport($display("%3d dead cycles", cyclCount - lsInCycCt - 1));
+          `endif
         end
+        if (writeRegMask) rf.clearRegs(truncate(result));
         lsInCycCt <= cyclCount;
         instCount <= instCount + 1;
       end
@@ -171,50 +215,41 @@ module mkWriteback#(
         debug($display("Writeback: CoPro0 dest=%d, sel=%d, result=%x, fromDebug=%x, instructionIsCommitting=%b", dest, sel, result, fromDebug, instructionIsCommitting));
       end
       if (fromDebug) begin
-        if (dest==0) begin
-          debugUnit.client.response.put(DebugReport{
-            writeback: tagged Valid result,
-            expType: getExceptionCode(exp)
-          });
-        end else begin
-          debugUnit.client.response.put(DebugReport{
-            writeback: tagged Invalid,
-            expType: getExceptionCode(exp)
-          });
-        end
+        debugReports.enq(DebugReport{
+          valid: (dest==0),
+          writeback: regResult,
+          expType: getExceptionCode(exp)
+        });
       end
       `ifdef USECAP
-        Capability capMemResponse = ?;
-        if (memResponse.data matches tagged Line .l)
-          capMemResponse = unpack({pack(memResponse.capability),l});
-        Maybe#(Capability) newWC 
-              <- capCop.commitWriteback(CapWritebackRequest{
+        Capability capMemResponse = unpack({pack(memResponse.isCap),memResponse.loadedCap});
+        CapFat newWC <- capCop.commitWriteback(CapWritebackRequest{
           mipsExp: exp,
           dead: dead,
           memResponse: capMemResponse,
           instId: id,
-          pc: pc
+          `ifndef CAP64
+              pc: pc
+          `else
+              pc: pc[31:0]
+          `endif
         });
-        if (memResponse.data matches tagged Line .l) 
-          writtenCap <= tagged Valid cap2short(unpack({pack(memResponse.capability),l}));
-        else if (newWC matches tagged Valid .wc) 
-          writtenCap <= tagged Valid cap2short(wc);
-        else if (storeData matches tagged Line .l)
-          writtenCap <= tagged Valid cap2short(unpack({pack(False),l}));
-        else if (storeData matches tagged CapLine .c)
-          writtenCap <= tagged Valid cap2short(unpack({pack(True),c}));
-        else writtenCap <= tagged Invalid;
+        // This case should be subsumed by the next case.
+        writtenCap <= newWC;
       `endif
       cop1.commitWriteback(CoProWritebackRequest{
           dead: dead,
           commit: instructionIsCommitting,
           instId: id,
-          data: result
+          data: regResult
         });
+      `ifdef STATCOUNTERS
+        statCnt.commitReset(instructionIsCommitting);
+      `endif
     endaction
   endfunction
 
-  function ActionValue#(Address) doPCUpdate(
+  function ActionValue#(ExpPc) doPCUpdate(
     InstructionT inst,
     Address pc,
     Address archPc,
@@ -233,6 +268,9 @@ module mkWriteback#(
     `ifdef MULTI
       Bit#(16) coreID,
     `endif
+    `ifdef USECAP
+      CapOp capOp,
+    `endif
     PCSource  newPcSource
   );
     actionvalue
@@ -247,6 +285,15 @@ module mkWriteback#(
         OpB:        target = opB;
         Immediate:  target = jumpTarget;
       endcase
+      /*`ifdef USECAP
+        Bool targetInBounds <- capCop.targetInBounds(target);
+        Bool capJump = capOp==JR || capOp==JALR;
+        if (!capJump
+            && !branchDelay
+            && exp.exception == None 
+            && !targetInBounds
+           ) exp.exception = ICAP;
+      `endif*/
       if (exp.exception != None) begin
         target = exp.entry;
       end
@@ -269,19 +316,19 @@ module mkWriteback#(
         if (exp.branchDelay) begin
           exp.victim = exp.victim - 4;
         end
-        debug($display("Exception in MemAccess"));
+        debug($display("Exception in Writeback"));
         `ifndef MULTI
-          trace($display("     Exception!  Code=0x%x in MA", getExceptionCode(exp.exception)));
+          trace($display("     Exception!  Code=0x%x (", getExceptionCode(exp.exception), fshow(exp.exception), ")"));
           trace($display("     Victim = %x, Instruction = %x", exp.victim, exp.instruction));
         `else
-          trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception!  Code=0x%x in MA", $time, coreID, getExceptionCode(exp.exception)));
+          trace($display("Time:%0d, Core:%0d, Thread:0 :: Exception!  Code=0x%x", $time, coreID, getExceptionCode(exp.exception)));
           trace($display("Time:%0d, Core:%0d, Thread:0 :: Victim = %x, Instruction = %x", $time, coreID, exp.victim, exp.instruction));
         `endif
       end else if (writePC && !dead) begin // Write the new PC
-        exp.victim = zeroExtend(pack(instCount));
+        exp.victim = zeroExtend(instCount);
       end
       cp0.putException(exp, pc, opA); // Write the appropriate CP0 registers.
-      return (doWritePc ? target:0);
+      return ExpPc{nextPc: (doWritePc ? target:0), exp: exp.exception};
     endactionvalue
   endfunction
 
@@ -297,7 +344,7 @@ module mkWriteback#(
     Bool newDoCycleReport = doCycleReport;
     
     // If the counter has wrapped around
-    if (reportInput.count[9] == 1'b0 && lastReportId[9] == 1'b1)
+    if (msb(reportInput.count) == 1'b0 && msb(lastReportTime) == 1'b1)
       newDoCycleReport = True;
       
     case (c.writeDest)
@@ -324,10 +371,11 @@ module mkWriteback#(
     endcase
     
     `ifdef USECAP
+      ShortCap sc = cap2short(writtenCap);
       if (c.inst matches tagged Coprocessor .ci) begin
         case (ci.op)
           COP2: begin // Capability operation
-            if (writtenCap matches tagged Valid .sc) begin
+            if (c.writeDest != RegFile) begin
               val1 = pack(sc)[63:0];
               val2 = pack(sc)[127:64];
               version = TraceType_CapOp;
@@ -335,25 +383,21 @@ module mkWriteback#(
           end
           LDC2: begin // Load capability
             val1 = c.opA;
-            if (writtenCap matches tagged Valid .sc) begin
-              c.archPc = pack(sc)[63:0];
-              val2 = pack(sc)[127:64];
-              version = TraceType_CapLoad;
-            end
+            c.archPc = pack(sc)[63:0];
+            val2 = pack(sc)[127:64];
+            version = TraceType_CapLoad;
           end
           SDC2: begin // Store capability
             val1 = c.opA;
-            if (writtenCap matches tagged Valid .sc) begin
-              c.archPc = pack(sc)[63:0];
-              val2 = pack(sc)[127:64];
-              version = TraceType_CapStore;
-            end
+            c.archPc = pack(sc)[63:0];
+            val2 = pack(sc)[127:64];
+            version = TraceType_CapStore;
           end
         endcase
       end
     `endif
       
-    if (reportInput.count != lastReportId) begin
+    if (c.id != lastReportId) begin
       TraceEntry nextTraceEntry = TraceEntry {
          entry_type: version,
          pc: c.archPc,
@@ -361,21 +405,22 @@ module mkWriteback#(
          regVal1: val1,
          regVal2: val2,
          ex: pack(getExceptionCode(c.exception)),
-         count: reportInput.count[9:0],
+         count: reportInput.count,
          asid: cp0.getAsid,
          branch: c.branch != Never,
          reserved: ?,
          valid: !c.fromDebug && !c.dead
       };
       debugUnit.putTraceEntry(nextTraceEntry);
-      lastReportId <= reportInput.count;
+      lastReportTime <= reportInput.count;
+      lastReportId <= c.id;
     end else if (newDoCycleReport) begin
       TraceEntry nextTraceEntry = TraceEntry {
          entry_type: TraceType_Timestamp,
          pc: ?,
          inst: ?,
-         regVal1: zeroExtend(pack(cyclCount)),
-         regVal2: zeroExtend(pack(instCount)),
+         regVal1: zeroExtend(cyclCount),
+         regVal2: zeroExtend(instCount),
          ex: 31,
          branch: ?,
          count: ?,
@@ -419,48 +464,32 @@ module mkWriteback#(
           debugInst($display("DEBUG MIPS REG %2d 0x%x", i, debugRegFile[i]));
         end
       end
-      if (er.writeDest == CoPro0 && er.dest == 26 && er.coProSelect == 1) begin
-        debugInst($display("======   ICache Tags   ======"));
-        m.instructionMemory.debugDump();
-      end
     `endif
 
     Word oldWord = ?;
     if (er.storeData matches tagged DoubleWord .d) oldWord = d;
 
-    `ifndef MULTI
-      CacheResponseDataT memResult <- m.dataMemory.getResponse(oldWord, er.signExtendMem, er.opA[7:0], er.memSize, (er.exception!=None) || er.dead, (er.dest == 28 && er.writeDest == CoPro0 && er.cop.cache != ICache)?True:False);
-    `else 
-      CacheResponseDataT memResult <- m.dataMemory.getResponse(oldWord, er.signExtendMem, er.opA[7:0], er.memSize, (er.exception!=None) || er.dead, (er.test == SC && er.opB[0] == 1)?True:False, (er.dest == 28 && er.writeDest == CoPro0 && er.cop.cache != ICache)?True:False); 
+    
+    MemResponseDataT memResult <- m.dataMemory.getResponse(oldWord, er.signExtendMem, er.opA[7:0], er.memSize, (er.exception!=None) || er.dead, (er.dest == 28 && er.writeDest == CoPro0 && er.cop.cache != ICache)?True:False);
+    `ifdef MULTI
       `ifndef MICRO
-        if (er.test == SC && er.opB[0] == 1 && pack(memResult.data)[0] == 1) begin
+        if (er.test == SC && er.opB[0] == 1 && memResult.scResult) begin
           debug($display("Writeback: Store Conditional Success"));
         end  
-        if (er.test == SC && (er.opB[0] != 1 || pack(memResult.data)[0] != 1)) begin
+        if (er.test == SC && (er.opB[0] != 1 || !memResult.scResult)) begin
+          debug($display("Writeback: Store Conditional Fail"));
           er.opA = 0;
-          result = er.opA;
+          result = 0;
           er.mem = None;
         end
       `endif
     `endif
-
-    if (er.dest == 28 && er.writeDest == CoPro0 && er.cop.cache != ICache) begin
-      result = pack(memResult.data)[63:0];
-      debug($display("Writeback: CacheLoadTag (DCache||L2) %x", pack(memResult.data)[31:0]));
-    end 
-    else if (er.dest == 28 && er.writeDest == CoPro0 && er.cop.cache == ICache) begin
-      result = 64'hdeaddeaddeaddead;
-      debug($display("Writeback: CacheLoadTag (ICache) %x", pack(memResult.data)[31:0]));
-    end
     
     // If this one had a valid memory operation, look at the exception.
     if (er.mem != None && er.mem != ICacheOp && 
         memResult.exception != None && er.exception == None) begin
       er.exception = memResult.exception;
     end
-    // The memory response in a word type, which is the common case.
-    if (memResult.data matches tagged DoubleWord .d &&& er.mem == Read) result = d;
-    //else if (er.mem == Write) result = er.opA;
     
     // Prepare to exception report for CP0
     Address entry = (cp0ExpRpt.bev) ? getExceptionEntryROM(er.exception)
@@ -475,15 +504,19 @@ module mkWriteback#(
       dead: er.dead
     };
 
-    Address nextPc <- doPCUpdate(
+    ExpPc expPc <- doPCUpdate(
       er.inst, er.pc, er.archPc, er.pcUpdate, virtualAddress, er.opB, result, er.epoch, er.fromDebug, exp,
       er.branch, er.dead, er.writePC, er.flushPipe,
       er.branchDelay, 
       `ifdef MULTI
         er.coreID,
       `endif
+      `ifdef USECAP
+        er.capOp,
+      `endif
       er.newPcSource
     );
+    er.exception = expPc.exp;
 
     Bit#(3) sel = 0;
     if (er.inst matches tagged Coprocessor .cp) begin
@@ -494,10 +527,18 @@ module mkWriteback#(
       sel = zeroExtend(pack(ri.f)[2:0]);
     end
 
-    doRegisterWriteback(er.dest, er.pc, sel, result, memResult, er.storeData, er.writeDest, 
-                        er.fromDebug, er.exception, er.dead, er.id);
+    doRegisterWriteback(er.dest, er.pc, sel, result, 
+                        memResult, er.storeData, er.writeDest, er.mem,
+                        er.writeRegMask, er.fromDebug, er.exception, er.dead, 
+                        `ifdef MULTI
+                          er.coreID,
+                        `endif
+                        er.id);
+    
+    // The memory response in a word type, which is the common case.  This is also handled in doRegisterWriteback.
+    if (er.mem == Read) result = memResult.data;
 
-    if (!er.dead && exp.exception == None) begin // If we had an exception, flush the pipe with no effect on register file.
+    if (!er.dead && er.exception == None) begin // If we had an exception, flush the pipe with no effect on register file.
       `ifndef MULTI
         trace(displayTrace(er, result, instCount));
       `else
@@ -505,7 +546,7 @@ module mkWriteback#(
       `endif
     end
     instructionReport <= InstructionReport{ct:er, result:result,
-                         nextPc: nextPc, count:pack(cyclCount)[15:0]};
+                         nextPc: expPc.nextPc, count:truncate(cyclCount)};
   endrule
 
   interface getHiLoCommit = hiLoCommit;
@@ -517,6 +558,6 @@ module mkWriteback#(
   endmethod
   
   method Action putCycleCount(Bit#(48) count);
-    cyclCount <= unpack(count);
+    cyclCount <= count;
   endmethod
 endmodule

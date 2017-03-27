@@ -38,15 +38,27 @@ import SpecialFIFOs::*;
 import ConfigReg :: *;
 import Vector :: *;
 import FShow::*;
+import Debug::*;
 `ifdef CAP
   import CapCop::*;
   `define USECAP 1
 `elsif CAP128
   import CapCop128::*;
   `define USECAP 1
+`elsif CAP64
+  import CapCop64::*;
+  `define USECAP 1
 `endif
-import CircularBuffer::*;
+import FF::*;
 import TraceTypes::*;
+
+typedef 1024 BufUnit;
+`ifdef BIG_DEBUG_BUF
+  typedef 16 BufNumUnits;
+`else
+  typedef 1 BufNumUnits;
+`endif
+Integer lastBuf = valueOf(TSub#(BufNumUnits,1));
 
 typedef enum {Polling,
               ExecuteInstruction,
@@ -60,6 +72,7 @@ typedef enum{
 
 TraceEntry defaultTraceEntry = TraceEntry {
          entry_type: TraceType_Invalid,
+         branch: False,
          pc: 0,
          inst: 0,
          regVal1: 0,
@@ -72,26 +85,70 @@ TraceEntry defaultTraceEntry = TraceEntry {
       };
 
 `ifdef USECAP
-  function ShortCap cap2short(Capability long);
-    Bit#(32) otype = zeroExtend(getType(long));
-    return ShortCap{
-      isCapability: long.isCapability,
-      perms: ShortPerms{
-        //permit_seal: long.perms.permit_seal,
-        permit_store_ephemeral_cap: long.perms.permit_store_ephemeral_cap,
-        permit_store_cap: long.perms.permit_store_cap,
-        permit_load_cap: long.perms.permit_load_cap,
-        permit_store: long.perms.permit_store,
-        permit_load: long.perms.permit_load,
-        permit_execute: long.perms.permit_execute,
-        non_ephemeral: long.perms.non_ephemeral
-      },
-      sealed: long.sealed,
-      otype:  truncate(otype),
-      offset: word2short(getOffset(long)),
-      base: word2short(getBase(long)),
-      length: word2short(getLength(long))
-    };
+  function ShortCap cap2short(CapFat long);
+    `ifdef CAP128
+      Bit#(32) otype = zeroExtend(long.otype);
+      TempFields tf = getTempFields(long);
+      return ShortCap{
+        isCapability: long.isCapability,
+        perms: ShortPerms{
+          permit_seal: long.perms.hard.permit_seal,
+          permit_store_ephemeral_cap: long.perms.hard.permit_store_ephemeral_cap,
+          permit_store_cap: long.perms.hard.permit_store_cap,
+          permit_load_cap: long.perms.hard.permit_load_cap,
+          permit_store: long.perms.hard.permit_store,
+          permit_load: long.perms.hard.permit_load,
+          permit_execute: long.perms.hard.permit_execute,
+          non_ephemeral: long.perms.hard.non_ephemeral
+        },
+        sealed: long.sealed,
+        otype:  truncate(otype),
+        offset: word2short(truncate(getOffsetFat(long, tf))),
+        base: word2short(truncate(getBotFat(long, tf))),
+        length: word2short(truncate(getLengthFat(long, tf)))
+      };
+    `elsif CAP64 // Hongyan, needs implementation.
+      Bit#(32) otype = zeroExtend(long.otype);
+      TempFields tf = getTempFields(long);
+      return ShortCap{
+        isCapability: long.isCapability,
+        perms: ShortPerms{
+          permit_seal: long.perms.hard.permit_seal,
+          permit_store_ephemeral_cap: long.perms.hard.permit_store_ephemeral_cap,
+          permit_store_cap: long.perms.hard.permit_store_cap,
+          permit_load_cap: long.perms.hard.permit_load_cap,
+          permit_store: long.perms.hard.permit_store,
+          permit_load: long.perms.hard.permit_load,
+          permit_execute: long.perms.hard.permit_execute,
+          non_ephemeral: long.perms.hard.non_ephemeral
+        },
+        sealed: long.sealed,
+        otype:  truncate(otype),
+        offset: word2short(zeroExtend(getOffsetFat(long, tf))),
+        base: word2short(zeroExtend(getBotFat(long, tf))),
+        length: word2short(zeroExtend(getLengthFat(long, tf)))
+      };
+    `else
+      Bit#(32) otype = zeroExtend(getType(long));
+      return ShortCap{
+        isCapability: long.isCapability,
+        perms: ShortPerms{
+          permit_seal: long.perms.hard.permit_seal,
+          permit_store_ephemeral_cap: long.perms.hard.permit_store_ephemeral_cap,
+          permit_store_cap: long.perms.hard.permit_store_cap,
+          permit_load_cap: long.perms.hard.permit_load_cap,
+          permit_store: long.perms.hard.permit_store,
+          permit_load: long.perms.hard.permit_load,
+          permit_execute: long.perms.hard.permit_execute,
+          non_ephemeral: long.perms.hard.non_ephemeral
+        },
+        sealed: getSealed(long),
+        otype:  truncate(otype),
+        offset: word2short(truncate(getOffset(long))),
+        base: word2short(truncate(getBase(long))),
+        length: word2short(truncate(getLength(long)))
+      };
+    `endif
   endfunction
 `endif
 
@@ -184,8 +241,9 @@ instance FShow#(MessagePacket);
 endinstance
   
 typedef struct {
-  Maybe#(MIPSReg) writeback;      // Register value of writeback
-  ExpCode         expType;        // Exception type, hopefully "None"
+  Bool      valid;
+  MIPSReg   writeback;      // Register value of writeback
+  ExpCode   expType;        // Exception type, hopefully "None"
 } DebugReport deriving(Bits, Eq); // 69 bits
 
 interface DebugConvert;
@@ -246,7 +304,7 @@ module mkDebugConvert(DebugConvert);
         commandCount <= commandCount + 1;
       end
     endcase
-    debug($display("Debug got new byte: %x, newCmd: %x", char, newCmd));
+    debug2("dbgUnit", $display("Debug got new byte: %x, newCmd: %x", char, newCmd));
     command <= newCmd;
   endrule
 
@@ -265,7 +323,7 @@ module mkDebugConvert(DebugConvert);
           responseCount <= 0;
         end else begin
 	        responseState <= Type;
-	        debug($display("DEBUG RESPONSE: ", fshow(myRsp)));
+	        debug2("dbgUnit", $display("DEBUG RESPONSE: ", fshow(myRsp)));
           responses.deq();
         end
       end
@@ -273,7 +331,7 @@ module mkDebugConvert(DebugConvert);
         outChar.enq(myRsp.data[responseCount]);
         if (responseCount >= myRsp.length - 1) begin
           responseState <= Type;
-          debug($display("DEBUG RESPONSE: ", fshow(myRsp)));
+          debug2("dbgUnit", $display("DEBUG RESPONSE: ", fshow(myRsp)));
           responses.deq();
         end
         responseCount <= responseCount + 1;
@@ -336,7 +394,7 @@ module mkDebug(DebugIfc);
   Wire#(Bool)             pauseWire   <- mkWire;
   Reg#(Bool)               resetReg   <- mkReg(False);
   Reg#(Bool)      previousPausePipe   <- mkConfigReg(False);
-  Reg#(UInt#(28))         idleCount   <- mkReg(0);
+  Reg#(UInt#(28))         idleCount   <- mkConfigReg(0);
 
   Reg#(Bool)           pauseForInst   <- mkReg(False);
   Reg#(DebugState)            state   <- mkConfigReg(Polling);
@@ -354,14 +412,32 @@ module mkDebug(DebugIfc);
   Reg#(Bit#(256))      traceCmpMask   <- mkReg(pack(defaultTraceEntry));
   
   FIFO#(MessagePacket)   curCommand   <- mkFIFO1;
-  CircularBuffer#(10, TraceEntry) trace_buf <- mkBRAMCircularBuffer(); // 4095 entry circular buffer
+  FIFO#(TraceEntry)   newTraceEntry   <- mkLFIFO;
+
   Reg#(Bool)  deterministicCycleCount <- mkReg(False);
+  
+  Vector#(BufNumUnits, FF#(TraceEntry,BufUnit)) trace_bufs <- replicateM(mkFFCirc());
+  Integer i;
+  for (i=1; i<=lastBuf; i=i+1) begin
+    rule moveAlong;
+      // If this fifo is not full, or if the first fifo is full.
+      // If the first fifo is full, we just "over-fill", hopefully
+      // acting as a single, large circular buffer, only actually
+      // losing entries off the end.
+      if (trace_bufs[i-1].notEmpty && 
+          (trace_bufs[i].notFull || !trace_bufs[0].notFull)
+         ) begin
+        trace_bufs[i].enq(trace_bufs[i-1].first);
+        trace_bufs[i-1].deq;
+      end
+    endrule
+  end
 
   (* descending_urgency = "reportBreakPoint, doCommands" *)
   rule doCommands(state == Polling && (!unPipeline || pipeCount!=0));
     MessagePacket com <- debugConvert.messages.request.get();
-    debug($display("DEBUG REQ: ", fshow(com)));
-    //debug($display("debug command: %c", com.op));
+    debug2("dbgUnit", $display("DEBUG REQ: ", fshow(com)));
+    //debug2("dbgUnit", $display("debug command: %c", com.op));
     case (com.op)
       LoadInstruction, LoadOpA, LoadOpB, LoadBreakPoint0, LoadBreakPoint1, LoadBreakPoint2, LoadBreakPoint3: begin
         MIPSReg newVal = {com.data[0],com.data[1],com.data[2],com.data[3],com.data[4],com.data[5],com.data[6],com.data[7]};//XXX pack(com.data)
@@ -418,7 +494,7 @@ module mkDebug(DebugIfc);
         debugConvert.messages.response.put(MessagePacket{op: responseCode(com.op), length: 8'b0, data: replicate(0)});
       end
       PauseExecution: begin
-        debug($display("pausing pipeline?"));
+        debug2("dbgUnit", $display("pausing pipeline?"));
         pauseWire <= True;
         unPipeline <= False;
         MessagePacket response = MessagePacket{op: responseCode(com.op), length: 8'b1, data: replicate(0)};
@@ -426,7 +502,7 @@ module mkDebug(DebugIfc);
         debugConvert.messages.response.put(response);
       end
       ResumeExecution: begin
-        debug($display("resuming execution?"));
+        debug2("dbgUnit", $display("resuming execution?"));
         pauseWire <= False;
         unPipeline <= False;
         deterministicCycleCount <= False;
@@ -453,6 +529,7 @@ module mkDebug(DebugIfc);
         unPipeline <= False;
         deterministicCycleCount <= True;
         state <= StreamTrace;
+        debug2("dbgUnit", $display("Streamtrace: Starting a new streamtrace."));
       end
       default: begin
         debugConvert.messages.response.put(MessagePacket{op: InvalidInstruction, length: 8'b0, data: replicate(0)});
@@ -461,15 +538,39 @@ module mkDebug(DebugIfc);
     idleCount <= 0;
   endrule
 
-  rule stopTracePipe(state==StreamTrace && trace_buf.almostFull);
+  rule pushTraceEntry;
+    TraceEntry te = newTraceEntry.first;
+    newTraceEntry.deq;
+    // Only enq the trace record if it matches the pattern and mask.
+    // If the mask is 0, all records will be enqed.
+    if (!breakTraceCmp) begin
+      if ((pack(te) & traceCmpMask) == (pack(traceCmp) & traceCmpMask)) begin
+        trace_bufs[0].enq(te);
+        debug2("dbgUnit", $display("Streamtrace: Pushing PC: %x", te.pc));
+      end
+    end else begin
+      if ((pack(te) & traceCmpMask) == (pack(traceCmp) & traceCmpMask)) begin
+        MessagePacket com = MessagePacket{op: BreakpointFired, length: 8'h8, data: ?};
+        for (Integer i=0; i<8; i=i+1) com.data[7-i] = mipsPC[i*8+7:i*8];
+        if (state!=StreamTrace) bpReport2.enq(com);
+        breakTraceCmp <= False;
+      end
+      trace_bufs[0].enq(te);
+      debug2("dbgUnit", $display("Streamtrace: Pushing in traceing breakpoint mode, PC: %x", te.pc));
+    end
+  endrule
+  
+  rule stopTracePipe(state==StreamTrace && (trace_bufs[0].remaining < 16) && !pausePipe);
     // If the trace buffer is full, pause the pipeline.
+    debug2("dbgUnit", $display("Streamtrace: Pausing the pipeline. Space remaining: %x", trace_bufs[0].remaining));
     pauseWire <= True;
     unPipeline <= False;
   endrule
   
-  rule popTrace(state==StreamTrace && trace_buf.notEmpty);
-    TraceEntry t = trace_buf.first();
-    trace_buf.deq();
+  rule popTrace(state==StreamTrace && trace_bufs[lastBuf].notEmpty);
+    TraceEntry t = trace_bufs[lastBuf].first();
+    debug2("dbgUnit", $display("Streamtrace: Popping a trace entry, PC: %x", t.pc));
+    trace_bufs[lastBuf].deq();
     MessagePacket response = MessagePacket {
       op:     PopTraceResponse, 
       length: fromInteger(valueOf(SizeOf#(TraceEntry))/8),
@@ -479,15 +580,16 @@ module mkDebug(DebugIfc);
     idleCount <= 0;
   endrule
   
-  rule countIdleCyclesStreamTrace(state==StreamTrace && !trace_buf.notEmpty 
-                                  && !trace_buf.almostFull);
+  rule countIdleCyclesStreamTrace(state==StreamTrace && !trace_bufs[lastBuf].notEmpty 
+                                  && !(trace_bufs[0].remaining < 16));
     // Last condition to make this rule mutually exclusive with stopTracePipe...
     idleCount <= idleCount + 1;
-    // Return to Polling if we are idle for 67M cycles (most of a second).
-    if (idleCount == 28'h2000000 || pausePipe == True) begin
+    // Return to Polling if we are paused,
+    // or possibly if we are idle for 67M cycles (most of a second).
+    if (pausePipe == True || idleCount == 28'h2000000) begin
       MessagePacket response = MessagePacket{
         op: responseCode(StreamTrace),
-        length: 8'b0,
+        length: 0,
         data: replicate(0)
       };
       debugConvert.messages.response.put(response);
@@ -538,8 +640,8 @@ module mkDebug(DebugIfc);
   rule finishExecute(state==ExecuteInstruction);
     DebugReport retVal = writebacks.first;
     writebacks.deq();
-    if (retVal.writeback matches tagged Valid .wbValue) begin
-      dest <= wbValue;
+    if (retVal.valid) begin
+      dest <= retVal.writeback;
     end
     state <= Polling;
     pauseWire <= previousPausePipe;
@@ -590,15 +692,14 @@ module mkDebug(DebugIfc);
   method Bool iReady() = instQnotEmpty;
   method Bool getDeterministicCycleCount() = deterministicCycleCount||pausePipe;
 
-  method ActionValue#(Bool) checkPC(MIPSReg pc) if (!bpReport.notEmpty());
+  method ActionValue#(Bool) checkPC(MIPSReg pc);
     function matchMaybePC(mpc) = mpc == Valid(pc);
     Bool newBpFired = any(matchMaybePC, readVReg(bp));
-    if (newBpFired)
-      begin
-        MessagePacket com = MessagePacket{op: BreakpointFired, length: 8'h8, data: ?};
-        for (Integer i=0; i<8; i=i+1) com.data[7-i] = pc[i*8+7:i*8];
+    if (newBpFired && !bpReport.notEmpty()) begin
+      MessagePacket com = MessagePacket{op: BreakpointFired, length: 8'h8, data: ?};
+      for (Integer i=0; i<8; i=i+1) com.data[7-i] = pc[i*8+7:i*8];
         bpReport.enq(com);
-      end
+    end else newBpFired = False;
     return newBpFired;
   endmethod
   
@@ -606,22 +707,8 @@ module mkDebug(DebugIfc);
     mipsPC <= pc;
   endmethod
 
-  method Action putTraceEntry(TraceEntry te);// if (trace_buf.notFull() || state!=StreamTrace);
-    // Only enq the trace record if it matches the pattern and mask.
-    // If the mask is 0, all records will be enqed.
-    if (!breakTraceCmp) begin
-      if ((pack(te) & traceCmpMask) == (pack(traceCmp) & traceCmpMask)) begin
-        trace_buf.enq(te);
-      end
-    end else begin
-      if ((pack(te) & traceCmpMask) == (pack(traceCmp) & traceCmpMask)) begin
-        MessagePacket com = MessagePacket{op: BreakpointFired, length: 8'h8, data: ?};
-        for (Integer i=0; i<8; i=i+1) com.data[7-i] = mipsPC[i*8+7:i*8];
-        if (state!=StreamTrace) bpReport2.enq(com);
-        breakTraceCmp <= False;
-      end
-      trace_buf.enq(te);
-    end
+  method Action putTraceEntry(TraceEntry te);// if (trace_bufs[0].notFull() || state!=StreamTrace);
+    newTraceEntry.enq(te);
   endmethod
   
   interface Client client;

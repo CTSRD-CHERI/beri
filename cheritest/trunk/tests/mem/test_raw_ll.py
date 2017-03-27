@@ -26,24 +26,31 @@
 #
 
 from beritest_tools import BaseBERITestCase
+from nose.plugins.attrib import attr
 
 class test_raw_ll(BaseBERITestCase):
+
+    @attr('cached')
     def test_a0(self):
         '''Test unsigned load linked word from double word'''
         self.assertRegisterEqual(self.MIPS.a0, 0xfffffffffedcba98, "Unsigned load linked word from double word failed")
 
+    @attr('cached')
     def test_a1(self):
         '''Test signed-extended positive load linked word'''
         self.assertRegisterEqual(self.MIPS.a1, 0x7fffffff, "Sign-extended positive word load linked failed")
 
+    @attr('cached')
     def test_a2(self):
         '''Test signed-extended negative load linked word'''
         self.assertRegisterEqual(self.MIPS.a2, 0xffffffffffffffff, "Sign-extended negative word load linked failed")
 
+    @attr('cached')
     def test_pos_offset(self):
         '''Test word load linked at positive offset'''
         self.assertRegisterEqual(self.MIPS.a3, 2, "Word load linked at positive offset failed")
 
+    @attr('cached')
     def test_neg_offset(self):
         '''Test word load linked at negative offset'''
         self.assertRegisterEqual(self.MIPS.a4, 1, "Word load linked at negative offset failed")

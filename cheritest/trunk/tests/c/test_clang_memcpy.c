@@ -31,9 +31,9 @@ typedef __SIZE_TYPE__ size_t;
 // Currently, memcpy is called smemcpy.
 #define memcpy smemcpy
 
-__capability void *cmemcpy(__capability void *dst,
-                           __capability const void *src,
-                           size_t len);
+__capability void *memcpy_c(__capability void *dst,
+                            __capability const void *src,
+                            size_t len);
 void *memcpy(void *dst,
              const void *src,
              size_t len);
@@ -91,25 +91,25 @@ int test(void)
 	t1.y = CAP(&t2);
 	invalidate(&t2);
 	// Simple case: aligned start and end
-	__capability void *cpy = cmemcpy(t1.y, CAP(&t1), sizeof(t1));
+	__capability void *cpy = memcpy_c(t1.y, CAP(&t1), sizeof(t1));
 	assert((void*)cpy == &t2);
 	check(&t2, 0, 32);
 	invalidate(&t2);
 	// Test that it still works with an unaligned start...
-	cpy = cmemcpy(CAP(&t2.pad0[3]), CAP(&t1.pad0[3]), sizeof(t1) - 3);
+	cpy = memcpy_c(CAP(&t2.pad0[3]), CAP(&t1.pad0[3]), sizeof(t1) - 3);
 	assert((void*)cpy == &t2.pad0[3]);
 	check(&t2, 3, 32);
 	// ...or an unaligned end...
-	cpy = cmemcpy(CAP(&t2), CAP(&t1), sizeof(t1) - 3);
+	cpy = memcpy_c(CAP(&t2), CAP(&t1), sizeof(t1) - 3);
 	assert((void*)cpy == &t2);
 	check(&t2, 0, 29);
 	// ...or both...
-	cpy = cmemcpy(CAP(&t2.pad0[3]), CAP(&t1.pad0[3]), sizeof(t1) - 6);
+	cpy = memcpy_c(CAP(&t2.pad0[3]), CAP(&t1.pad0[3]), sizeof(t1) - 6);
 	assert((void*)cpy == &t2.pad0[3]);
 	check(&t2, 3, 29);
 	invalidate(&t2);
 	// ...and finally a case where the alignment is different for both?
-	cpy = cmemcpy(CAP(&t2), CAP(&t1.pad0[1]), sizeof(t1) - 1);
+	cpy = memcpy_c(CAP(&t2), CAP(&t1.pad0[1]), sizeof(t1) - 1);
 	assert((void*)cpy == &t2);
 	// This should have invalidated the capability
 	assert(__builtin_cheri_get_cap_tag(t2.y) == 0);
@@ -157,23 +157,26 @@ int test(void)
 	
 	// .. and finally finally tests that offsets are taken into
 	// account when checking alignment.  These are regression tests
-	// for a bug in cmemcpy.
+	// for a bug in memcpy_c.
 
 	// aligned base, unaligned offset + base
 	invalidate(&t2);
-	cpy = cmemcpy(
-		__builtin_cheri_cap_offset_set(CAP(&t2), 3),
-		__builtin_cheri_cap_offset_set(CAP(&t1), 3),
+	cpy = memcpy_c(
+		__builtin_cheri_cap_offset_increment(CAP(&t2), 3),
+		__builtin_cheri_cap_offset_increment(CAP(&t1), 3),
 		sizeof(t1)-6
 		);
 	assert((void*)cpy == &t2.pad0[3]);
 	check(&t2, 3, 29);
 
 	// unaligned base, aligned offset + base
+	// FIXME: This currently gives an aligned base.  We should make the CAP
+	// macro take a base and length so that it can do CIncBase / CSetLen on
+	// CHERI256, CFromPtr / CSetBounds on CHERI128
 	invalidate(&t2);
-	cpy = cmemcpy(
-		__builtin_cheri_cap_offset_set(CAP(t2.pad0-1), 1),
-		__builtin_cheri_cap_offset_set(CAP(t1.pad0-1), 1),
+	cpy = memcpy_c(
+		__builtin_cheri_cap_offset_increment(CAP(t2.pad0-1), 1),
+		__builtin_cheri_cap_offset_increment(CAP(t1.pad0-1), 1),
 		sizeof(t1)
 		);
 	assert((void*)cpy == &t2.pad0);

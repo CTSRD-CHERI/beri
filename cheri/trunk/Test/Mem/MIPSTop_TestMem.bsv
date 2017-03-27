@@ -1,10 +1,17 @@
-/*-
- * Copyright (c) 2015 Matthew Naylor
+/* Copyright 2015 Matthew Naylor
  * All rights reserved.
  *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-11-C-0249
+ * ("MRC2"), as part of the DARPA MRC research programme.
+ *
  * This software was developed by the University of Cambridge Computer
- * Laboratory as part of the Rigorous Engineering of Mainstream Systems (REMS)
- * project, funded by EPSRC grant EP/K008528/1.
+ * Laboratory as part of the Rigorous Engineering of Mainstream
+ * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
  *
  * @BERI_LICENSE_HEADER_START@
  *
@@ -33,7 +40,7 @@ import Memory::*;
 import CP0::*;
 import DebugUnit::*;
 import GetPut::*;
-import MIPSTop::*;
+import MIPSTopIfc::*;
 
 (* synthesize *)
 module mkMIPSTop_TestMem#(Bit#(16) coreId)(MIPSTopIfc);
@@ -41,7 +48,7 @@ module mkMIPSTop_TestMem#(Bit#(16) coreId)(MIPSTopIfc);
   MIPSMemory theMem <- mkMIPSMemory(coreId,theCP0);
   DebugIfc theDebug <- mkDebug();
 
-  interface putIrqs = theCP0.interrupts;
+  //interface putIrqs = theCP0.interrupts;
   `ifndef MULTI
   interface memory = theMem.memory;
   `else
@@ -55,9 +62,11 @@ module mkMIPSTop_TestMem#(Bit#(16) coreId)(MIPSTopIfc);
   `ifdef MULTI
     interface invalidateICache = theMem.invalidateICache;
     interface invalidateDCache = theMem.invalidateDCache;
+    interface getInvalidateDone = theMem.getInvalidateDone;
   `endif
   method reset_n() = False;
   method getPause() = False;
-  method Action putState(Bit#(48) count, Bool commonPause);
+  method Action putState(Bit#(48) count, Bool commonPause, Bit#(5) x);
   endmethod
+
 endmodule

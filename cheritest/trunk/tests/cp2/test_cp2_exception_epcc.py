@@ -99,11 +99,11 @@ class test_cp2_exception_epcc(BaseBERITestCase):
     #
     @attr('capabilities')
     def test_presandbox_epcc_unsealed(self):
-        self.assertRegisterEqual(self.MIPS.cp2[31].u, 0, "pre-sandbox EPCC unsealed incorrect")
+        self.assertRegisterEqual(self.MIPS.cp2[31].s, 0, "pre-sandbox EPCC unsealed incorrect")
 
     @attr('capabilities')
     def test_presandbox_epcc_perms(self):
-        self.assertRegisterEqual(self.MIPS.cp2[31].perms, 0x7fffffff, "pre-sandbox EPCC perms incorrect")
+        self.assertRegisterAllPermissions(self.MIPS.cp2[31].perms, "pre-sandbox EPCC perms incorrect")
 
     @attr('capabilities')
     def test_presandbox_epcc_ctype(self):
@@ -126,7 +126,7 @@ class test_cp2_exception_epcc(BaseBERITestCase):
     #
     @attr('capabilities')
     def test_sandbox_epcc_unsealed(self):
-        self.assertRegisterEqual(self.MIPS.cp2[3].u, 0, "sandbox EPCC unsealed incorrect")
+        self.assertRegisterEqual(self.MIPS.cp2[3].s, 0, "sandbox EPCC unsealed incorrect")
 
     @attr('capabilities')
     def test_sandbox_epcc_perms(self):

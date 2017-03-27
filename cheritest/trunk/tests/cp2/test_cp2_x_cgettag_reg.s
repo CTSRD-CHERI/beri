@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -74,7 +75,7 @@ test:		.ent test
 		candperm $c2, $c0, $t0
 		dla     $t0, sandbox
 		csetoffset $c2, $c2, $t0
-		cjalr   $c24, $c2
+		cjalr   $c2, $c24
 		nop			# Branch delay slot
 
 		ld	$fp, 16($sp)

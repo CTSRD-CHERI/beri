@@ -1,0 +1,71 @@
+#!/bin/bash
+#-
+# Copyright (c) 2016 A. Theodore Markettos
+# All rights reserved.
+#
+# This software was developed by SRI International and the University of
+# Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+# ("CTSRD"), as part of the DARPA CRASH research programme.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
+
+# a script to wrap berictl, setting necessary environment variables and
+# warning if we try to do unsupported things
+
+# value replaced by Makefile
+JTAGATLANTIC_ENABLED=@JTAGATLANTIC@
+
+if [ "x${JTAGATLANTIC_ENABLED}x" == "x1x" ] ; then
+	if [ "x${QUARTUS_ROOTDIR}x" = "xx" ] ; then
+		echo "*** \$QUARTUS_ROOTDIR not set, cannot continue."
+		echo "*** Make sure you have added the Quartus installation to your PATH"
+		echo "*** and set \$QUARTUS_ROOTDIR to the root directory of the installation"
+		exit 1
+	fi
+	# Quartus is now 64-bit only, so don't need to consider the 32-bit case
+	export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$QUARTUS_ROOTDIR/linux64
+else
+	if hash nios2-terminal-fast 2>/dev/null ; then
+		true
+		# we have a nios2-terminal patched to remove the sleep()
+	else if [[ "$*" == *"loadbin"* ]] ; then
+		echo "*** Warning: nios2-terminal-fast not found"
+		echo "*** Without the patched nios2-terminal, berictl loadbin"
+		echo "*** will be significantly slower.  Consider building with"
+		echo "*** JTAG_ATLANTIC=1 and then using berictl -j loadbin"
+		echo "*** Continuing anyway..."
+		echo ""
+	     fi
+	     # don't warn if we're not running loadbin
+	fi
+fi
+
+# run the real binary, looking for the location of the wrapper script
+# (taking into account symlinks)
+BERICTL_WRAPPER="$0"
+if [ "$(readlink $BERICTL_WRAPPER)" == "" ] ; then
+  BERICTL_PARENT="$(dirname $BERICTL_WRAPPER)"
+else
+  BERICTL_PARENT="$(dirname "$(readlink "$0")")"
+fi
+exec ${BERICTL_PARENT}/berictl-wrapped "$@"

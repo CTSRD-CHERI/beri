@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -58,21 +59,24 @@ test:		.ent test
 
 		dli	$a2, 0	# a2 will be set to 1 if an exception happens
 
-                # Make $c1 a template capability for a user-defined type
-		# whose identifoer is 0xFEF1F0 (chosen arbitrarily).
-		dli      $t0, 0xFEF1F0
-		csetoffset $c1, $c0, $t0
+		# Make $c1 a template capability for a user-defined type
+		# whose identifier is 0x1234 (chosen arbitrarily).
+		cgetdefault $c1
+		dli      $t0, 0x1234
+		csetoffset $c1, $c1, $t0
 
 		# Make c4 a sealed code capability for sandbox
+		cgetdefault $c4
 		dla	 $t0, sandbox
-		csetoffset $c4, $c0, $t0
+		csetoffset $c4, $c4, $t0
 		cseal	 $c4, $c4, $c1
 
-                # Make $c2 a data capability for the array at address data
+		# Make $c2 a data capability for the array at address data
+		cgetdefault $c2
 		dla      $t0, data
-		cincbase $c2, $c0, $t0
-                dli      $t0, 8
-                csetlen  $c2, $c2, $t0
+		csetoffset $c2, $c2, $t0
+		dli      $t0, 0x1000
+		csetbounds  $c2, $c2, $t0
 		# Permissions Non_Ephemeral, Permit_Load, Permit_Store,
 		# Permit_Store.
 		# NB: Permit_Execute must not be included in the set of
@@ -83,7 +87,7 @@ test:		.ent test
 
 		# Seal data capability $c2 with $c1, and store
 		# result in $c3.
-                cseal 	 $c3, $c2, $c1
+		cseal 	 $c3, $c2, $c1
 
 		# Check that c4 and c3 have the same otype
 		# This should not raise an exception, as the otypes are equal
@@ -111,5 +115,5 @@ bev0_handler:
 		.end bev0_handler
 
 		.data
-		.align 3
+		.align 12
 data:		.dword	0xfedcba9876543210

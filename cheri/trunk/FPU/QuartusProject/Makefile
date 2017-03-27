@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2014 A. Theodore Markettos
+# Copyright (c) 2014 Theo Markettos
 # Copyright (c) 2014 Colin Rothwell
 # All rights reserved.
 #

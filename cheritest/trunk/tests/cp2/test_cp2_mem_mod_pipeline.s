@@ -50,16 +50,16 @@ test:		.ent test
 
 		dla	$s0, data
 
-		# Test cincbase
+		# Test cincoffset
 		dli	$t0, 0
 		ld	$t0, 0($s0)
-		cincbase	$c2, $c2, $t0
-		cgetbase	$a0, $c2
+		cincoffset	$c2, $c2, $t0
+		cgetoffset	$a0, $c2
 
-		# Test csetlen
+		# Test csetbounds
 		dli	$t1, 0
 		ld	$t1, 0($s0)
-		csetlen	$c3, $c3, $t1
+		csetbounds	$c3, $c3, $t1
 		cgetlen	$a1, $c3
 
 		# Test candperm

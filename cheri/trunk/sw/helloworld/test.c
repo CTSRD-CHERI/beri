@@ -8,6 +8,7 @@
  * Copyright (c) 2013-2014 A. Theodore Markettos
  * Copyright (c) 2013 Philip Withnall
  * Copyright (c) 2013 Alan Mujumdar
+ * Copyright (c) 2015 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -74,6 +75,43 @@ volatile int globalReset = 0;
 #define SORT_SIZE (128)
 //int makeBss = 1;
 // ADDED <<
+
+inline unsigned int getCycleCount()
+{
+    static unsigned int last = 0;
+    unsigned int counter;
+    unsigned int ret;
+
+    asm volatile (
+        "mfc0    %0, $9     \n"
+        : "=r"(counter) : );
+
+    ret = counter - last;
+    last = counter;
+    return ret;
+}
+
+inline unsigned int getInstCount()
+{
+    static unsigned int last = 0;
+    unsigned int counter;
+    unsigned int ret;
+
+    asm volatile (
+        "mfc0    %0, $9, 4  \n"
+        : "=r"(counter) : );
+
+    ret = counter - last;
+    last = counter;
+    return ret;
+}
+
+inline void printCPI ()
+{
+    __writeString("CPI (*1000): ");
+    __writeDigit((getCycleCount()*1000) / getInstCount());
+    __writeString("\n");
+}
 
 int CoProFPTestEval(long in, long out, int t_num, int err) {
     if (in != out) {
@@ -1061,6 +1099,7 @@ int main(void)
 		}
 		
 		if (in == 'M') {
+            printCPI();
 			__writeString("Memory test:\n");
 			__writeString("Please wait while the DRAM is tested...\n");
 			__writeString("(failures may not directly imply hardware faults)\n");
@@ -1094,6 +1133,7 @@ int main(void)
 					__writeString(" addresses were bad :(\n");
 					numBad = 0;
 				}
+                printCPI();
 				
 				i+=0x4000;
 				if (i > 0x07000000) i = 0;

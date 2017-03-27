@@ -6,7 +6,7 @@
  * Copyright (c) 2013 Bjoern A. Zeeb
  * Copyright (c) 2013 David T. Chisnall
  * Copyright (c) 2013 Colin Rothwell
- * Copyright (c) 2015 A. Theodore Markettos
+ * Copyright (c) 2015 Theo Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -274,6 +274,7 @@ struct cap {
 #define	BERI_DEBUG_CLIENT_OPEN_FLAGS_PCIEXPRESS			0x00000008
 #define	BERI_DEBUG_CLIENT_OPEN_FLAGS_ARM_SOCKIT			0x00000010
 #define	BERI_DEBUG_CLIENT_OPEN_FLAGS_JTAG_ATLANTIC		0x00000020
+#define	BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA_SUME		0x00000040
 
 struct beri_debug;
 const char *	beri_debug_strerror(int);

@@ -128,6 +128,7 @@ module mkInternalPeripheralBridge (InternalPeripheralBridge);
                     uncached: wop.uncached,
                     conditional: wop.conditional,
                     byteEnable: take(wop.byteEnable),
+                    bitEnable: -1,
                     data: Data{
                         `ifdef CAP
                           cap: unpack(0),
@@ -184,7 +185,7 @@ module mkInternalPeripheralBridge (InternalPeripheralBridge);
                      bridge_state == Read);
         
         Vector#(BusWords, Bit#(64)) send_data = unpack(pack(resp_data));
-        Bit#(64) recv_data = rop64.data.data;
+        Bit#(64) recv_data = resp64.data.data;
         Bool error = resp_error || (resp64.error == SlaveError);
             
         Integer top = valueOf(ByteOffsetSize)-1;
@@ -204,13 +205,13 @@ module mkInternalPeripheralBridge (InternalPeripheralBridge);
             respWide.masterID = reqWide.masterID;
             respWide.transactionID = reqWide.transactionID;
             respWide.error = error ? SlaveError : NoError;
-            respWide.operation = tagged Read {
-                data: Data{
+            respWide.data = Data{
                     `ifdef CAP
                       cap: unpack(0),
                     `endif
                     data: pack(send_data)
-                },
+                };
+            respWide.operation = tagged Read {
                 last: True
             };
             slave_resp_fifo.enq(respWide);
@@ -236,6 +237,7 @@ module mkInternalPeripheralBridge (InternalPeripheralBridge);
             uncached: wop.uncached,
             conditional: wop.conditional,
             byteEnable: bees[req_cnt],
+            bitEnable: -1,
             data: Data{
                 `ifdef CAP
                   cap: unpack(0),
@@ -260,7 +262,7 @@ module mkInternalPeripheralBridge (InternalPeripheralBridge);
         resp_error <= error;
 
         if (resp_cnt == stop_cnt-1) begin
-            CheriMemResponse respWide;
+            CheriMemResponse respWide = ?;
             respWide.masterID = reqWide.masterID;
             respWide.transactionID = reqWide.transactionID;
             respWide.error = error ? SlaveError : NoError;

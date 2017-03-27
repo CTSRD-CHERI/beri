@@ -244,7 +244,11 @@ debug_stream_init(uint8_t stream_no)
 		    debug_listen_socket_path[stream_no], getuid());
 		debug_listen_socket_path[stream_no] =
 			debug_listen_socket_path_unique[stream_no];
-		printf("%s", debug_listen_socket_path[stream_no]);
+	}
+	printf("stream%d: %s\n", stream_no, debug_listen_socket_path[stream_no]);
+	if (strlen(debug_listen_socket_path[stream_no]) > sizeof(sun.sun_path)-1) {
+		err(1,"(%u) %s: UNIX domain socket path %s too long (> %lud bytes)", stream_no, __func__,
+			debug_listen_socket_path[stream_no], sizeof(sun.sun_path)-1);
 	}
 	(void)unlink(debug_listen_socket_path[stream_no]);
 	memset(&sun, 0, sizeof(sun));
@@ -254,8 +258,7 @@ debug_stream_init(uint8_t stream_no)
 	    sizeof(sun.sun_path) -1);
 	if (bind(debug_listen_socket[stream_no], (struct sockaddr *)&sun,
 			sizeof(sun)) < 0) {
-		warn("(%u) %s: bind", stream_no, __func__);
-		goto out;
+		err(1,"(%u) %s: bind(%s)", stream_no, __func__, debug_listen_socket_path[stream_no]);
 	}
 	if (listen(debug_listen_socket[stream_no], -1) < 0) {
 		warn("(%u) %s: listen", stream_no, __func__);

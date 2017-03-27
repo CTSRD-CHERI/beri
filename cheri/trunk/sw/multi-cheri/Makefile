@@ -39,10 +39,11 @@ LD = mips-linux-gnu-ld
 OBJCOPY = mips-linux-gnu-objcopy
 OBJDUMP = mips64-objdump
 MEMCONV = python ../../../../../cherilibs/trunk/tools/memConv.py
+OPT = -O2
 
 CHERILIBS_DIR = ../../../../cherilibs/trunk
 
-TESTS = scatter_gather shared_array parallel_sort
+TESTS = scatter_gather shared_array parallel_sort merge_sort
 
 .PHONY : clean mrproper mem64.hex
 
@@ -51,7 +52,7 @@ mem64.hex : $(OBJ_DIR)/init.o $(OBJ_DIR)/main.o $(addprefix $(OBJ_DIR)/,$(addsuf
 	$(LD) -m elf64btsmip -Tprog_link.ld -o $(OUT_DIR)/mem.elf $^
 	cd $(OUT_DIR);\
 	$(OBJCOPY) -S -O binary mem.elf mem.bin;\
-	$(OBJDUMP) -xsSd mem.elf > mem.dump;\
+	$(OBJDUMP) -xsSdD mem.elf > mem.dump;\
 	$(MEMCONV);\
 	cd ..
 	cp $(OUT_DIR)/$@ ../../
@@ -62,7 +63,8 @@ $(OBJ_DIR)/init.o : init.s
 	$(OBJDUMP) -xsSd $@ > $(patsubst %.o,%.dump,$@)
 
 $(OBJ_DIR)/main.s : main.c
-	$(CC) -march=mips64 -mabi=64 -S -I $(LIB_DIR) $(addprefix -I ,$(wildcard tests/*)) -o $@ $<
+	echo "building main with OPT=$(OPT)"
+	$(CC) -march=mips64 -mabi=64 -S -I $(LIB_DIR) $(addprefix -I ,$(wildcard tests/*)) $(OPT) -o $@ $<
 
 $(OBJ_DIR)/scatter_gather.o :
 	$(MAKE) -C tests/scatter_gather
@@ -73,8 +75,11 @@ $(OBJ_DIR)/shared_array.o :
 $(OBJ_DIR)/parallel_sort.o :
 	$(MAKE) -C tests/parallel_sort
 
+$(OBJ_DIR)/merge_sort.o :
+	$(MAKE) -C tests/merge_sort
+
 $(OBJ_DIR)/%.s : $(LIB_DIR)/%.c
-	$(CC) -march=mips64 -mabi=64 -S -I $(CHERILIBS_DIR)/include -I $(LIB_DIR) -o $@ $<
+	$(CC) -march=mips64 -mabi=64 -S -I $(CHERILIBS_DIR)/include -I $(LIB_DIR) $(OPT) -o $@ $<
 
 $(OBJ_DIR)/%.o : $(OBJ_DIR)/%.s
 	$(AS) -EB -march=mips64 -mabi=64 -G0 -ggdb -o $@ $<
@@ -84,6 +89,7 @@ clean :
 	$(MAKE)	-C tests/scatter_gather clean
 	$(MAKE)	-C tests/shared_array clean
 	$(MAKE)	-C tests/parallel_sort clean
+	$(MAKE) -C tests/merge_sort clean
 	rm -rf $(OBJ_DIR)
 
 mrproper : clean

@@ -91,6 +91,7 @@ module mkUSB1761Bridge(USB1761Bridge);
   };
   Reg#(USBOutState)   out <- mkConfigReg(initOut);
   Wire#(Bit#(32)) dinWire <- mkWire;
+  Reg#(Bit#(32))   dinReg <- mkRegU;
   Reg#(USBState)    state <- mkReg(Idle);
   Reg#(Bit#(5))     count <- mkReg(0);
   
@@ -106,15 +107,25 @@ module mkUSB1761Bridge(USB1761Bridge);
     let req <- avalon_slave.client.request.get();
     USBOutState nout = out;
     nout.a = pack(req.addr);
-    nout.dout = pack(req.data);    
-    nout.cs_n = False;
-    if (req.rw == MemRead) nout.rd_n = False;
+    nout.dout = pack(req.data);
+    case(req.rw)
+      MemRead: begin
+        state <= Read0;
+        nout.rd_n = True;
+        nout.cs_n = False;
+      end
+      MemWrite: begin
+        state <= Write0;
+        nout.rd_n = True;
+        nout.cs_n = False;
+      end
+      default: begin
+        state <= Idle;
+        nout.rd_n = True;
+        nout.cs_n = True;
+      end
+    endcase
     out <= nout;
-    state <= (case(req.rw)
-                MemRead:  return Read0;
-                MemWrite: return Write0;
-                default:  return Idle;
-             endcase);
   endrule
   
   // ----------------- Write State Machine ------------------
@@ -124,24 +135,21 @@ module mkUSB1761Bridge(USB1761Bridge);
     state <= Write1;
   endrule
   
-  rule write1(state==Write1);
+  rule write2(state==Write1);
+    out.wr_n <= True;
     state <= Write2;
   endrule
   
-  rule write2(state==Write2);
-    out.wr_n <= True;
+  rule write3(state==Write2);
+    out.cs_n <= True;
     state <= Write3;
   endrule
   
-  rule write3(state==Write3);
-    out.cs_n <= True;
-    state <= Write4;
-  endrule
-  
-  rule write4(state==Write4);
+  rule write4(state==Write3);
     ReturnedDataT rtn = tagged Invalid;
     avalon_slave.client.response.put(rtn);
-    if (out.a == (16'h33C>>2)) count <= 8;
+    /*if (out.a == (16'h33C>>2)) count <= 10;
+    else*/ count <= 20;
     out <= initOut;
     state <= Idle;
   endrule
@@ -149,15 +157,20 @@ module mkUSB1761Bridge(USB1761Bridge);
   // ----------------- Read State Machine ------------------
   
   rule read0(state==Read0);
+    out.rd_n <= False;
+    count <= 10;
     state <= Read1;
   endrule
   
   rule read1(state==Read1);
-    state <= Read2;
+    if (count == 0) begin
+      state <= Read2;
+      dinReg <= dinWire;
+    end else count <= count - 1;
   endrule
   
   rule read2(state==Read2);
-    ReturnedDataT rtn = tagged Valid unpack(dinWire);
+    ReturnedDataT rtn = tagged Valid unpack(dinReg);
     avalon_slave.client.response.put(rtn);
     out.rd_n <= True;
     state <= Read3;
@@ -166,6 +179,7 @@ module mkUSB1761Bridge(USB1761Bridge);
   rule read3(state==Read3);
     out <= initOut;
     state <= Idle;
+    count <= 20;
   endrule
   
   // ----------------- Interfaces ---------------

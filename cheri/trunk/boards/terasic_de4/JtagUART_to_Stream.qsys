@@ -9,8 +9,13 @@
    categories="System" />
  <parameter name="bonusData"><![CDATA[bonusData 
 {
-   element $${FILENAME}
+   element JTAGAtlantic2Stream_0
    {
+      datum _sortIndex
+      {
+         value = "3";
+         type = "int";
+      }
    }
    element UART2Stream
    {
@@ -47,46 +52,53 @@
  <parameter name="generationId" value="0" />
  <parameter name="globalResetBus" value="false" />
  <parameter name="hdlLanguage" value="VERILOG" />
+ <parameter name="hideFromIPCatalog" value="false" />
+ <parameter name="lockedInterfaceDefinition" value="" />
  <parameter name="maxAdditionalLatency" value="1" />
  <parameter name="projectName" value="DE4_BERI.qpf" />
  <parameter name="sopcBorderPoints" value="false" />
- <parameter name="systemHash" value="1" />
- <parameter name="timeStamp" value="1363959635268" />
+ <parameter name="systemHash" value="0" />
+ <parameter name="testBenchDutName" value="" />
+ <parameter name="timeStamp" value="0" />
  <parameter name="useTestBenchNamingPattern" value="false" />
  <instanceScript></instanceScript>
  <interface name="clk" internal="clk.clk_in" type="clock" dir="end" />
+ <interface
+   name="from_debugger"
+   internal="JTAGAtlantic2Stream_0.stream_out"
+   type="avalon_streaming"
+   dir="start" />
+ <interface name="from_debugger_old" internal="UART2Stream.stream_out" />
+ <interface name="jtag_uart_irq" internal="jtag_uart.irq" />
  <interface name="reset" internal="clk.clk_in_reset" type="reset" dir="end" />
  <interface
    name="to_debugger"
-   internal="UART2Stream.stream_in"
+   internal="JTAGAtlantic2Stream_0.stream_in"
    type="avalon_streaming"
    dir="end" />
- <interface
-   name="from_debugger"
-   internal="UART2Stream.stream_out"
-   type="avalon_streaming"
-   dir="start" />
- <interface
-   name="jtag_uart_irq"
-   internal="jtag_uart.irq"
-   type="interrupt"
-   dir="end" />
- <module kind="clock_source" version="12.1" enabled="1" name="clk">
+ <interface name="to_debugger_old" internal="UART2Stream.stream_in" />
+ <module
+   name="JTAGAtlantic2Stream_0"
+   kind="JTAGAtlantic2Stream"
+   version="1.0"
+   enabled="1">
+  <parameter name="jtag_uart_instance_id" value="0" />
+ </module>
+ <module name="UART2Stream" kind="UART2Stream" version="1.0" enabled="0" />
+ <module name="clk" kind="clock_source" version="15.1" enabled="1">
   <parameter name="clockFrequency" value="100000000" />
   <parameter name="clockFrequencyKnown" value="true" />
   <parameter name="inputClockFrequency" value="0" />
   <parameter name="resetSynchronousEdges" value="NONE" />
  </module>
- <module kind="UART2Stream" version="1.0" enabled="1" name="UART2Stream">
-  <parameter name="AUTO_CLOCKRESET_CLOCK_RATE" value="100000000" />
- </module>
  <module
+   name="jtag_uart"
    kind="altera_avalon_jtag_uart"
-   version="12.1"
-   enabled="1"
-   name="jtag_uart">
+   version="15.1"
+   enabled="0">
   <parameter name="allowMultipleConnections" value="false" />
   <parameter name="avalonSpec" value="2.0" />
+  <parameter name="clkFreq" value="0" />
   <parameter name="hubInstanceID" value="0" />
   <parameter name="readBufferDepth" value="64" />
   <parameter name="readIRQThreshold" value="8" />
@@ -100,26 +112,39 @@
  </module>
  <connection
    kind="avalon"
-   version="12.1"
+   version="15.1"
    start="UART2Stream.avalonmm2jtaguart"
    end="jtag_uart.avalon_jtag_slave">
   <parameter name="arbitrationPriority" value="1" />
   <parameter name="baseAddress" value="0x0000" />
+  <parameter name="defaultConnection" value="false" />
  </connection>
+ <connection kind="clock" version="15.1" start="clk.clk" end="jtag_uart.clk" />
  <connection
    kind="clock"
-   version="12.1"
+   version="15.1"
    start="clk.clk"
    end="UART2Stream.clockreset" />
  <connection
+   kind="clock"
+   version="15.1"
+   start="clk.clk"
+   end="JTAGAtlantic2Stream_0.clockreset" />
+ <connection
    kind="reset"
-   version="12.1"
+   version="15.1"
    start="clk.clk_reset"
    end="UART2Stream.clockreset_reset" />
  <connection
    kind="reset"
-   version="12.1"
+   version="15.1"
+   start="clk.clk_reset"
+   end="JTAGAtlantic2Stream_0.clockreset_reset" />
+ <connection
+   kind="reset"
+   version="15.1"
    start="clk.clk_reset"
    end="jtag_uart.reset" />
- <connection kind="clock" version="12.1" start="clk.clk" end="jtag_uart.clk" />
+ <interconnectRequirement for="$system" name="qsys_mm.clockCrossingAdapter" value="HANDSHAKE" />
+ <interconnectRequirement for="$system" name="qsys_mm.maxAdditionalLatency" value="1" />
 </system>

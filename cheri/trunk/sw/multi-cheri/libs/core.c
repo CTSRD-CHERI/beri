@@ -66,8 +66,8 @@ unsigned int core_counter()
 
     asm volatile (
         ".set push          \n"
-        ".set mips32r2      \n"
-        "rdhwr    %0, $2    \n"
+        ".set mips64        \n"
+        "dmfc0    %0, $9    \n"
         ".set pop           \n"
         : "=r"(counter) : );
 
@@ -121,4 +121,9 @@ unsigned int core_instruction_count()
 void core_abort()
 {
     asm volatile ("syscall": : );
+}
+
+void core_sync()
+{
+    asm volatile ("sync": : );
 }

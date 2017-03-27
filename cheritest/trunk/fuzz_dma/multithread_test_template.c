@@ -28,6 +28,10 @@
 #include "DMAAsm.h"
 #include "DMAControl.h"
 #include "mips_assert.h"
+#include "mips_tlb.h"
+
+/* This sets the DMA_ADDR macro to the correct value. */
+$define_dma
 
 #define DMA_THREAD_COUNT 4
 #define THREAD_COUNT $thread_count
@@ -55,9 +59,9 @@ int test(void)
 	$set_sources
 
 	for (i = 0; i < THREAD_COUNT; ++i) {
-		dma_set_pc(DMA_PHYS, i, dma_program[i]);
-		dma_set_source_address(DMA_PHYS, i, (uint64_t)source_addrs[i]);
-		dma_set_dest_address(DMA_PHYS, i, (uint64_t)dest_addrs[i]);
+		dma_set_pc(DMA_ADDR, i, dma_program[i]);
+		dma_set_source_address(DMA_ADDR, i, (uint64_t)source_addrs[i]);
+		dma_set_dest_address(DMA_ADDR, i, (uint64_t)dest_addrs[i]);
 
 		active_threads[i] = i;
 	}
@@ -68,7 +72,7 @@ int test(void)
 	}
 
 	for (i = 0; i < THREAD_COUNT; ++i) {
-		dma_start_transfer(DMA_PHYS, i);
+		dma_start_transfer(DMA_ADDR, i);
 	}
 
 	while (active_thread_count != 0) {
@@ -77,9 +81,9 @@ int test(void)
 		// we also don't want to switch to inactive threads. My
 		// informal solution is to to do three switches in quick
 		// succession, wait, and then test for copmleteness.
-		dma_switch_to(DMA_PHYS, DMA_THREAD_COUNT, thread[0]);
-		dma_switch_to(DMA_PHYS, DMA_THREAD_COUNT, thread[1]);
-		dma_switch_to(DMA_PHYS, DMA_THREAD_COUNT, thread[2]);
+		dma_switch_to(DMA_ADDR, DMA_THREAD_COUNT, thread[0]);
+		dma_switch_to(DMA_ADDR, DMA_THREAD_COUNT, thread[1]);
+		dma_switch_to(DMA_ADDR, DMA_THREAD_COUNT, thread[2]);
 
 		int wait_periods = myrand() % 20;
 		for (i = 0; i < wait_periods; ++i) {
@@ -93,7 +97,7 @@ int test(void)
 		// thread over it, then shrink the area of the array we
 		// access.
 		
-		if (dma_thread_ready(DMA_PHYS, thread[2])) {
+		if (dma_thread_ready(DMA_ADDR, thread[2])) {
 			active_threads[thread_index[2]] =
 				active_threads[active_thread_count - 1];
 			--active_thread_count;

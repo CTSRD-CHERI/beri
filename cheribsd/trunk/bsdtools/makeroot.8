@@ -1,5 +1,5 @@
 .\"-
-.\" Copyright (c) 2013 SRI International
+.\" Copyright (c) 2013, 2016 SRI International
 .\" All rights reserved.
 .\"
 .\" This software was developed by SRI International and the University of
@@ -28,7 +28,7 @@
 .\" SUCH DAMAGE.
 .\"
 .\" $FreeBSD$
-.Dd May 16, 2013
+.Dd January 28, 2016
 .Dt MAKEROOT 8
 .Os
 .Sh NAME
@@ -37,12 +37,14 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl d
+.Op Fl D Ar bitmask
 .Op Fl B Ar byte-order
 .Op Fl e Ar extras-manifest
 .Op Fl f Ar filelist
 .Op Fl k Ar keydir Op Fl K Ar user
 .Op Fl p Ar master.passwd Op Fl g Ar group
 .Op Fl s Ar size
+.Op Fl X Ar exclude-pattern
 .Ar image-file
 .Ar rootdir
 .Sh DESCRIPTION
@@ -68,6 +70,11 @@ This argument is passed directly to
 .Xr makefs 8 .
 .It Fl d
 Enable debugging output.
+.It Fl D Ar bitmask
+Pass a debugging bitmask to
+.Xr makefs 8 .
+Debugging flags are not documented in the makefs man page but are
+listed in usr.sbin/makefs/makefs.h in the FreeBSD source tree.
 .It Fl e Ar manifest
 Extra files listed in the
 .Xr nmtree 8
@@ -108,6 +115,19 @@ The
 .Fl s
 argument is passed directly to
 .Xr makefs 8 .
+.It Fl X Ar exclude-pattern
+Exclude METALOG entries matching the extended regular express
+.Ar exclude-pattern
+from the image.
+The
+.Ar exclude-pattern
+argument is passed to
+.Xr grep
+with the
+.Fl E
+and
+.Fl V
+flags.
 .El
 .Sh SEE ALSO
 .Xr mtree 5 ,

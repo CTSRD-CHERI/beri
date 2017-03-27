@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -48,18 +49,31 @@ test:		.ent test
 		beq	$t0, $zero, no_fpu
 		nop	# Branch delay slot
 
+		#
+		# Enable the floating point unit
+		#
+
+		mfc0 $t0, $12		# Status Register
+		li $t1, 1 << 29		# CP1 Usable
+		or $t0, $t0, $t1
+		mtc0 $t0, $12
+		nop			# Potential pipeline hazard
+		nop
+		nop
+		nop
+
 		# Store a capability into cap1
 
 		dla	$t0, cap1
                 cscr    $c0, $t0($c0)
 
 
-		# Overwrite the 'base' field of cap1 with a float
+		# Overwrite the first field of cap1 with a float
 
 		dla	$t1, v1
 		lw	$a0, 0($t1)
 		mtc1	$a0, $f1
-		swc1	$f1, 20($t0)
+		swc1	$f1, 0($t0)
 
 		# Clear $a0 so we can tell if it gets reloaded by mfc1
 
@@ -67,21 +81,20 @@ test:		.ent test
 
 		# Reload the stored value with a floating point instruction
 
-		lwc1    $f2, 20($t0)
+		lwc1    $f2, 0($t0)
 		mfc1    $a0, $f2
 
 		# Reload the stored value as a 32-bit word
 
-		clw	$a1, $t0, 20($c0)
+		clw	$a1, $t0, 0($c0)
 
-		# Reload the stoted value as a capability
+		# Reload the stored value as a capability
 
 		clcr	$c1, $t0($c0)
-		cgetbase $a2, $c1
 
 		# The tag bit should have been cleared by the FP store
 
-		cgettag  $a3, $c1
+		cgettag  $a2, $c1
 
 no_fpu:
 		ld	$fp, 16($sp)

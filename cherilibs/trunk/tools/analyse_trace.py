@@ -85,7 +85,7 @@ exception_names = (
   "MCheck",        # 24 Disasterous error in control system, eg, duplicate entries in TLB.
   "Thread",        # 25 Thread related exception (check VPEControl(EXCPT))
   "DSP",           # 26 Unable to do DSP ASE Instruction (lack of DSP)
-  "Exp27",         # 27 Place holder
+  "WaitPoll",      # 27 CHERI2 INTERNAL -- poll for interrupt on WAIT
   "TLBLoadInv",    # 28 CHERI2 INTERNAL
   "TLBStoreInv",   # 29 CHERI2 INTERNAL
   "CacheErr",      # 30 Parity/ECC error in cache.
@@ -256,7 +256,7 @@ class Stats(object):
         self.dline_size = dline_size
         self.page_bits = page_bits
 
-    def update(self, cycles=None, exception=None, pc=None, entry_type=None, mem_addr=None, call=False):
+    def update(self, cycles=None, exception=None, pc=None, asid=None, entry_type=None, mem_addr=None, call=False):
         self.insts += 1
         if call:
             self.calls+=1
@@ -268,8 +268,10 @@ class Stats(object):
             self.pcs.add(pc)
             self.icache_lines.add(pc / self.iline_size)
             if is_mapped_addr(pc):
-                self.ipages.add(get_page_no(pc, self.page_bits))
-            self.ipages_all.add(pc >> self.page_bits)
+                self.ipages.add((asid, get_page_no(pc, self.page_bits))) # XXX ignores global pages
+                self.ipages_all.add((asid, pc >> self.page_bits))        # XXX ignores global pages
+            else:
+                self.ipages_all.add((None, pc >> self.page_bits)) # assumes unmapped pages are global
         if entry_type == version_read:
             self.loads += 1
         elif entry_type == version_cap_clc:
@@ -281,8 +283,10 @@ class Stats(object):
         if mem_addr is not None:
             self.dcache_lines.add(mem_addr / self.dline_size)
             if is_mapped_addr(mem_addr):
-                self.dpages.add(get_page_no(mem_addr, self.page_bits))
-            self.dpages_all.add(mem_addr >> self.page_bits)
+                self.dpages.add((asid, get_page_no(mem_addr, self.page_bits)))
+                self.dpages_all.add((asid, mem_addr >> self.page_bits))
+            else:
+                self.dpages_all.add((None, mem_addr >> self.page_bits))
 
     def as_tuple(self):
         return (self.calls, self.insts, self.cycles, float(self.cycles)/self.insts, len(self.pcs), len(self.ipages), len(self.ipages_all), len(self.dpages), len(self.dpages_all), len(self.icache_lines), len(self.dcache_lines), self.loads, self.load_caps, self.stores, self.store_caps) + tuple(self.exceptions[e] for e in xrange(len(exception_names)))
@@ -356,6 +360,47 @@ def decodeCap(val1, val2):
             " T%06x B%s o%s L%s" % (otype, decodeShortWord(base), decodeShortWord(offset), decodeShortWord(length))
     return cap
 
+def get_sym_plus_off(addresses, syms, addr):
+    i = bisect.bisect_right(addresses, addr)-1
+    sym = syms[i]
+    sym_addr = addresses[i]
+    sym_off  = addr - sym_addr
+    return "%s+0x%x" % (sym, sym_off)
+
+def print_conflicts(addresses, syms, line_accesses, line_size, num_lines):
+    """
+    line_accesses is list of cache lines accessed as address/line_size (no duplicates)
+    """
+    # sort first by (truncated) address
+    line_accesses.sort()
+    # then by line number so that conflicting addresses will be next to each other
+    line_accesses.sort(lambda x,y: cmp(x % num_lines, y % num_lines))
+    last_line = None
+    last_access = None
+    conflicts  = 0
+    line_conflicts = 0
+    max_line_conflicts = 0
+    for access in line_accesses:
+        # which line does this access map to?
+        line = access % num_lines
+        if line == last_line:
+            # if it's the same as last one there was a conflict
+            if line_conflicts == 0:
+                # for the first conflict for a line print a separator and the address
+                print "---"
+                addr = last_access * line_size
+                print "%x: 0x%x (%s)" % (line, addr, get_sym_plus_off(addresses, syms, addr))
+            # print conflicting address
+            addr = access * line_size
+            print "%x: 0x%x (%s)" % (line, addr, get_sym_plus_off(addresses, syms, addr))
+            conflicts += 1
+            line_conflicts += 1
+            max_line_conflicts = max(line_conflicts, max_line_conflicts)
+        else:
+            line_conflicts = 0
+            last_line = line
+            last_access = access
+    print "Lines Accessed: %d Max Conflicts: %d Total Conflicts: %d" % (len(line_accesses), max_line_conflicts, conflicts)
 
 def annotate_trace(file_name, options):
     names = get_names(options)
@@ -414,14 +459,19 @@ def annotate_trace(file_name, options):
 
     cycle_count = 0
     inst_count  = 0
-    next_pc     = None
+    next_pc     = 0
     last_pc     = None
     last_cycles = None
     entry_no=0
     # maintain a set of unique instruction encodings encountered
     # this is mainly useful for sizing the disassembly cache 
     unique_opcodes = set()
-    tracing = opts.start_pc == None and opts.start_inst == None
+    if opts.cut_func is not None:
+        cut_func_idx   = syms.index(opts.cut_func)
+        opts.start_pc = addresses[cut_func_idx]
+        opts.stop_pc  = addresses[cut_func_idx+1] - 4
+
+    tracing = opts.start_pc == None and opts.start_inst == None and not opts.trace_markers
     start_inst = float('inf') if opts.start_inst is None else opts.start_inst
     stop_inst  = float('inf') if opts.stop_inst is None else opts.stop_inst
     branch_target = None
@@ -442,8 +492,7 @@ def annotate_trace(file_name, options):
     if opts.ordered_func_stats:
         current_sym_name   = None
         ordered_func_stats = []
-    all_stats  = newStats()            if opts.stats or opts.inst_stats or opts.func_stats or opts.ordered_func_stats else None
-
+    all_stats  = newStats()            if opts.stats or opts.inst_stats or opts.func_stats or opts.ordered_func_stats or opts.tlb_conflicts or opts.cache_conflicts else None
     while entry_no < nentries:
         if (bar is not None and entry_no & 0xfff == 0):
             bar.goto(entry_no)
@@ -512,7 +561,7 @@ def annotate_trace(file_name, options):
         
         #print "%d, %x %x %s" % (entry_type, pc, next_pc, hex(f[field_result1]))
 
-        if not tracing and (pc == opts.start_pc or inst_count >= start_inst):
+        if not tracing and ((opts.trace_markers and f[field_opcode] == 0xefbe0034) or (opts.start_pc is not None and pc >= opts.start_pc and pc < (opts.start_pc + 4*opts.pc_window)) or inst_count >= start_inst):
             if not opts.quiet:
                 sys.stderr.write("\nStart: iteration=%d pc=%x inst=%x\n" % (iteration, pc, inst_count))
             tracing = True
@@ -520,7 +569,7 @@ def annotate_trace(file_name, options):
                 cut_file = open(opts.cut % iteration, 'w')
                 if opts.version == 2:
                     cut_file.write(v2_header)
-        elif tracing and (pc == opts.stop_pc or inst_count > stop_inst):
+        elif tracing and ((opts.trace_markers and f[field_opcode] == 0xadde0034) or (opts.stop_pc is not None and pc >= opts.stop_pc and pc < (opts.stop_pc + 4*opts.pc_window)) or inst_count > stop_inst):
             if not opts.quiet:
                 sys.stderr.write("\nStop: iteration=%d pc=%x inst=%x\n" % (iteration, pc, inst_count))
             tracing = False
@@ -562,32 +611,32 @@ def annotate_trace(file_name, options):
         inst = struct.unpack('>I', struct.pack('=I', f[field_opcode]))[0]
         if opts.count_encs:
             unique_opcodes.add(inst)
-
+        asid      = f[field_asid] if opts.version == 2 else 0
         exception = f[field_exception]
         mem_addr =  f[field_result1] if entry_type in (version_read, version_write, version_cap_clc, version_cap_csc) else None
-        if func_stats is not None: func_stats[sym].update(cycles=inst_cycles, exception=exception, pc=pc, entry_type=entry_type, mem_addr=mem_addr, call=(sym_off == 0))
-        if inst_stats is not None: inst_stats[pc].update( cycles=inst_cycles, exception=exception, pc=pc, entry_type=entry_type, mem_addr=mem_addr)
-        if all_stats is not None:  all_stats.update(      cycles=inst_cycles, exception=exception, pc=pc, entry_type=entry_type, mem_addr=mem_addr)
+        if func_stats is not None: func_stats[sym].update(cycles=inst_cycles, exception=exception, pc=pc, asid=asid, entry_type=entry_type, mem_addr=mem_addr, call=(sym_off == 0))
+        if inst_stats is not None: inst_stats[pc].update( cycles=inst_cycles, exception=exception, pc=pc, asid=asid, entry_type=entry_type, mem_addr=mem_addr)
+        if all_stats is not None:  all_stats.update(      cycles=inst_cycles, exception=exception, pc=pc, asid=asid, entry_type=entry_type, mem_addr=mem_addr)
         if opts.ordered_func_stats:
             if current_sym_name != sym:
                 current_sym_stats = newStats()
                 current_sym_name = sym
                 ordered_func_stats.append((current_sym_name, current_sym_stats))
-            current_sym_stats.update(cycles=inst_cycles, exception=exception, pc=pc, entry_type=entry_type, mem_addr=mem_addr)
+            current_sym_stats.update(cycles=inst_cycles, exception=exception, pc=pc, asid=asid, entry_type=entry_type, mem_addr=mem_addr)
         if opts.show:
             data = None
             op, args = disassembler.disassemble(inst)
             inst_no = '%0.16x ' % inst_count if opts.show_inst else ''
-            asid = '%0.2x ' % f[field_asid] if opts.version == 2 else ''
+            asid_str = '%0.2x ' % f[field_asid] if opts.version == 2 else ''
             threadID = '%0.2x ' % f[field_threadID] if opts.version == 2 else ''
             data = '=%0.16x' % f[field_result2]  if entry_type in (version_alu, version_write, version_read) else ' ' * 17
             addr = '@%0.16x' % mem_addr if mem_addr is not None else ' ' * 17
             e = '' if exception == 31 else 'EXCEPTION %s ' % exception_names[exception] if exception < len(exception_names) else 'UNNKOWN EXCEPTION %d:' % exception
-            if entry_type in (version_cap_clc, version_cap_csc):
+            if entry_type in (version_cap_clc, version_cap_csc) and not opts.no_caps:
                 data = decodeCap(f[field_result2], f[field_pc])
-            if entry_type == version_cap_cap:
+            if entry_type == version_cap_cap and not opts.no_caps:
                 data = decodeCap(f[field_result2], f[field_result1])
-            out_file.write("%s%s%s%16x %-12ls %-20s %s %s %3d %s%s +0x%x\n" % (inst_no, threadID, asid, pc, op, args, data, addr, inst_cycles, e, sym, sym_off))
+            out_file.write("%s%s%s%16x %-12ls %-20s %s %s %3d %s%s +0x%x\n" % (inst_no, threadID, asid_str, pc, op, args, data, addr, inst_cycles, e, sym, sym_off))
         if not tracing:
             # we've just stopped tracing
             last_cycles = None
@@ -601,6 +650,27 @@ def annotate_trace(file_name, options):
             out_file.write(','.join([file_name] + map(str,all_stats.as_tuple())) + '\n')
         else:
             print file_name, ':',  all_stats
+    if opts.tlb_conflicts:
+        all_pages = list(all_stats.dpages.union(all_stats.ipages))
+        all_pages.sort()
+        all_pages.sort(lambda x,y: cmp(x[1] % opts.tlb_hashed_entries, y[1] % opts.tlb_hashed_entries))
+        last_entry = None
+        conflicts  = 0
+        for asid, page in all_pages:
+            entry = page % opts.tlb_hashed_entries
+            if entry == last_entry:
+                conflicts += 1
+            else:
+                print "---"
+            last_entry = entry
+        print "Pages: %d Conflicts: %d" % (len(all_pages) , conflicts)
+    if opts.cache_conflicts:
+        print "\nL1 data conflicts (%dx%d-byte lines):" % (opts.dcache_line, opts.dcache_lines)
+        print_conflicts(addresses, syms, list(all_stats.dcache_lines), opts.dcache_line, opts.dcache_lines)
+        print "\nL1 inst conflicts (%dx%d-byte lines):" % (opts.icache_line, opts.icache_lines)
+        print_conflicts(addresses, syms, list(all_stats.icache_lines), opts.icache_line, opts.icache_lines)
+        print "\nL2 conflicts:"
+        print_conflicts(addresses, syms, list(all_stats.icache_lines)+list(all_stats.dcache_lines), 128, 128)
     if opts.count_encs:
         sys.stderr.write("Unique encodings: %d\n" % len(unique_opcodes))
 
@@ -624,6 +694,7 @@ G - Global (i.e. not local/ephemeral)
     parser.add_option('--nm',         default=[], action='append', help="File(s) containing output by nm (alternative to elf file)")
     parser.add_option('--start-pc',   default=None, type = long, help="PC to start tracing")
     parser.add_option('--stop-pc',    default=None, type = long, help="PC to stop tracing")
+    parser.add_option('--pc-window',  default=1,    type = int,  help="Number of instructions after start-pc and stop-pc to extend the start/stop windows. This is useful when dealing with traces with occasional missing instructions such as those returned by CHERI1. Default is 1 (i.e. exact PC match). ")
     parser.add_option('--start-inst', default=None, type = long, help="Instruction number to start tracing (approx)")
     parser.add_option('--stop-inst',  default=None, type = long, help="Instruction number to stop tracing (approx)")
     parser.add_option('--user',       default=None, action='store_true', help="Only trace user instructions")
@@ -631,18 +702,26 @@ G - Global (i.e. not local/ephemeral)
     parser.add_option('--asid',       default=None, type = int, help="Only trace instructions with given asid")
     parser.add_option('--thread',     default=None, type = int, help="Only trace instructions from given thread")
     parser.add_option('--count-encs', default=False, action='store_true', help="Count unique instruction encodings.")
+    parser.add_option('--no-caps',    default=False, action='store_true', help="Don't show capability values in trace.")
     parser.add_option('--limit',      default=None, type = long, help="Maximum number of entries to trace")
     parser.add_option('--skip',       default=0, type = long, help="Number of entries to skip in trace (from end if negative)")
     parser.add_option('--show',       default=False, action='store_true', help="Print trace to stdout.")
     parser.add_option('--show-inst',  default=False, action='store_true', help="Show instruction number in trace.")
     parser.add_option('--cut',        default=False, action='store',      help="File pattern to dump iterations to -- must contain %%d.")
+    parser.add_option('--cut-func',   default=None,  action='store',      help="Set start-pc and stop-pc to extent of function.")
+    parser.add_option('--trace-markers',   default=False,  action='store_true',      help="Use special marker instructions to start and stop tracing.")
     parser.add_option('--func-stats', default=False, action='store_true', help="Print statistics for each function")
     parser.add_option('--ordered-func-stats', default=False, action='store_true', help="Print statistics for each function in execution order")
     parser.add_option('--inst-stats', default=False, action='store_true', help="Print statistics for each executed pc")
     parser.add_option('--stats',      default=False, action='store_true', help="Print overall statistics")
-    parser.add_option('--icache-line', default=32, type=int, help="Size of icache line in bytes")
-    parser.add_option('--dcache-line', default=32, type=int, help="Size of dcache line in bytes")
+    parser.add_option('--icache-line', default=128, type=int, help="Size of icache line in bytes")
+    parser.add_option('--dcache-line', default=128, type=int, help="Size of dcache line in bytes")
     parser.add_option('--page-bits',   default=12, type=int, help="Number of bits of offset in TLB page (e.g. 12=4k pages)")
+    parser.add_option('--tlb-conflicts',   default=False, action='store_true', help="Analyse all accessed pages for conflicts when using the CHERI direct-mapped TLB. NB use page-bits=13 to combine even/odd page pairs.")
+    parser.add_option('--tlb-hashed-entries',   default=128, type=int, help="Number of entries in the direct mapped part of the TLB")
+    parser.add_option('--cache-conflicts', default=False, action='store_true', help="Analyse cache conflicts.")
+    parser.add_option('--dcache-lines', default=128, type=int, help="Number of dcache lines.")
+    parser.add_option('--icache-lines', default=128, type=int, help="Number of icache lines.")
     parser.add_option('--csv',        default=False, action='store_true', help="Print stats in csv")
     parser.add_option('--verbose',    default=True, dest='quiet', action='store_false', help="Be verbose.")
     parser.add_option('--llvm-mc',    default=None, help="Path to llvm-mc binary for disassembly.")

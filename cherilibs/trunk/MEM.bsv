@@ -117,6 +117,72 @@ module mkMEM(MEM#(addr, data))
   return ifc;
 endmodule
 
+// Unguarded memory module
+// This one keeps the address in a register with no
+// flow control.
+module mkMEMNoFlow(MEM#(addr, data))
+  provisos(Bits#(addr, addr_sz),
+        Bounded#(addr),
+        Eq#(addr),
+        Bits#(data, data_sz));
+  
+  MEM#(addr, data) bram <- mkMEMCore();
+  Reg#(addr)  writeAddr <- mkConfigRegU;
+  Reg#(data)  writeData <- mkConfigRegU;
+  Reg#(addr)   readAddr <- mkConfigRegU;
+
+	interface ReadIfc read;
+    method Action put(addr a);
+      readAddr <= a;
+      bram.read.put(a);
+    endmethod
+    method data peek();
+      return (readAddr == writeAddr) ? writeData:bram.read.peek();
+    endmethod
+    method ActionValue#(data) get();
+      return (readAddr == writeAddr) ? writeData:bram.read.peek();
+    endmethod
+  endinterface
+  method Action write(addr a, data x);
+    writeAddr <= a;
+    writeData <= x;
+    bram.write(a,x);
+  endmethod
+endmodule
+
+module mkMEMNoFlowSlow(MEM#(addr, data))
+  provisos(Bits#(addr, addr_sz),
+        Bounded#(addr),
+        Eq#(addr),
+        Bits#(data, data_sz));
+
+	RegFile#(addr,data)  regFile <- mkRegFileWCF(minBound, maxBound); // BRAM
+	Reg#(data)          readData <- mkRegU;
+	Reg#(addr)       readAddr[2] <- mkCReg(2,?);
+	Reg#(addr)         writeAddr <- mkWire;
+	Reg#(Bool)     readDataValid <- mkDReg(True);
+
+	rule updateRead;
+	  readData <= regFile.sub(readAddr[1]);
+	endrule
+	
+	rule updateGuard;
+	  if (writeAddr == readAddr[1]) readDataValid <= False;
+	endrule
+	
+	interface ReadIfc read;
+   method Action put(addr a) = readAddr[0]._write(a);
+   method data peek() if (readDataValid) = readData;
+   method ActionValue#(data) get() if (readDataValid);
+     return readData;
+   endmethod
+  endinterface
+  method Action write(addr a, data x);
+    writeAddr <= a;
+    regFile.upd(a,x);
+  endmethod
+endmodule
+
 
 typedef Bit#(8) Byte;
 
@@ -172,4 +238,141 @@ provisos(
    endmethod
    method data peek = readResult;
   endinterface
+endmodule
+
+// 2 read interface version of memory (should use 2x BRAMs in synthesis)
+
+interface MEM2#(type addr, type data);
+  interface ReadIfc#(addr, data) read;
+  interface ReadIfc#(addr, data) readB;
+  method Action write(addr a, data x);
+endinterface
+
+// Unguarded memory module
+// This one keeps the address in a register with no
+// flow control.
+module mkMEMNoFlow2(MEM2#(addr, data))
+  provisos(Bits#(addr, addr_sz),
+        Bounded#(addr),
+        Eq#(addr),
+        Bits#(data, data_sz));
+  
+  MEM#(addr, data) bramA  <- mkMEMCore();
+  MEM#(addr, data) bramB  <- mkMEMCore();
+  Reg#(addr)  writeAddr  <- mkConfigRegU;
+  Reg#(data)  writeData  <- mkConfigRegU;
+  Reg#(addr)   readAddr  <- mkConfigRegU;
+  Reg#(addr)   readAddrB <- mkConfigRegU;
+
+  interface ReadIfc read;
+    method Action put(addr a);
+      readAddr <= a;
+      bramA.read.put(a);
+    endmethod
+    method data peek();
+      return (readAddr == writeAddr) ? writeData:bramA.read.peek();
+    endmethod
+    method ActionValue#(data) get();
+      return (readAddr == writeAddr) ? writeData:bramA.read.peek();
+    endmethod
+  endinterface
+  interface ReadIfc readB;
+    method Action put(addr a);
+      readAddrB <= a;
+      bramB.read.put(a);
+    endmethod
+    method data peek();
+      return (readAddrB == writeAddr) ? writeData:bramB.read.peek();
+    endmethod
+    method ActionValue#(data) get();
+      return (readAddrB == writeAddr) ? writeData:bramB.read.peek();
+    endmethod
+  endinterface
+  method Action write(addr a, data x);
+    writeAddr <= a;
+    writeData <= x;
+    bramA.write(a,x);
+    bramB.write(a,x);
+  endmethod
+endmodule
+
+// Version of BRAM using explicit Altera Block RAM verilog.
+// This greatly accelerates synthesis for big memories.
+
+import "BVI" AltMEM =
+module vAltMEMCore(MEM#(addr, data))
+  provisos(
+     Bits#(addr, addr_sz),
+     Bits#(data, data_sz)
+     );
+
+  parameter ADDR_WIDTH = valueof(addr_sz);
+  parameter DATA_WIDTH = valueof(data_sz);
+  parameter MEMSIZE    = Bit#(TAdd#(1,addr_sz)) ' (fromInteger(valueOf(TExp#(addr_sz))));
+
+  interface ReadIfc read;
+    method put((* reg *)ADDRR) enable(REN);
+    method DO peek();
+    method DO get() enable(EN_UNUSED2);
+  endinterface: read
+  
+  method write((* reg *)ADDRW, (* reg *)DI) enable(WEN);
+
+  schedule (read_put) CF (read_peek, read_get);
+  schedule read_peek CF read_peek;
+  schedule (write) CF (read_put, read_peek, read_get);
+  schedule read_peek CF read_get;
+  schedule read_get CF read_get;
+  schedule write C write;
+  schedule read_put C read_put;
+endmodule: vAltMEMCore
+
+module mkMEMCoreBSC(MEM#(addr, data))
+  provisos(Bits#(addr, addr_sz),
+        Bounded#(addr),
+        Bits#(data, data_sz));
+  
+  RegFile#(addr,data)  regFile <- mkRegFileWCF(minBound, maxBound); // BRAM
+  Reg#(addr)          readAddr <- mkRegU;
+  Reg#(addr)         writeAddr <- mkRegU;
+  Reg#(data)         writeData <- mkRegU;
+  
+  rule doDataWrite;
+    regFile.upd(writeAddr, writeData);
+  endrule
+  
+  interface ReadIfc read;
+   method Action put(addr a) = readAddr._write(a);
+   method data peek() = regFile.sub(readAddr);
+   method ActionValue#(data) get();
+     return regFile.sub(readAddr);
+   endmethod
+  endinterface
+  method Action write(addr a, data x);
+    writeAddr <= a;
+    writeData <= x;
+  endmethod
+endmodule: mkMEMCoreBSC
+
+
+//////////////////////////////////////////////
+// Wrapper for the verilog and bluespec implementations.
+/////////////////////////////////////////////
+
+module mkMEMCore(MEM#(addr, data))
+   provisos(
+      Bits#(addr, addr_sz),
+      Bits#(data, data_sz),
+      Bounded#(addr)
+      );
+
+   Clock clk <- exposeCurrentClock;
+   Reset rst <- exposeCurrentReset;
+   (*hide*)
+  `ifndef BLUESIM
+    let _ifc <- vAltMEMCore();
+  `else
+    let _ifc <- mkMEMCoreBSC;
+  `endif
+   return _ifc ;
 endmodule

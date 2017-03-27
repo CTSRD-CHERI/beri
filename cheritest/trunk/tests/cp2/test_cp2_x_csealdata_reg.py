@@ -49,5 +49,5 @@ class test_cp2_x_csealdata_reg(BaseBERITestCase):
 
     def test_cp2_x_csealdata_reg_3(self):
         '''Test csealdata set capability cause correctly when register was reserved'''
-        self.assertRegisterEqual(self.MIPS.a3, 0x1c1d,
+        self.assertRegisterEqual(self.MIPS.a3, 0x181d,
             "csealdata did not set capability cause correctly when ct was reserved")

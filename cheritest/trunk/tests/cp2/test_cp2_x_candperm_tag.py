@@ -34,21 +34,39 @@ from nose.plugins.attrib import attr
 #
 
 class test_cp2_x_candperm_tag(BaseBERITestCase):
+
     @attr('capabilities')
     def test_cp2_x_candperm_tag_1(self):
-        '''Test candperm did not change the permissions of an untagged capability'''
-        self.assertRegisterEqual(self.MIPS.a0, 7,
-            "candperm changed the permissions of a capability with tag bit unset")
+        '''Test CAndPerm raised a C2E exception when capability tag was unset'''
+        self.assertRegisterEqual(self.MIPS.a2, 1,
+            "CAndPerm did not raise an exception when capability tag was unset")
 
     @attr('capabilities')
     def test_cp2_x_candperm_tag_2(self):
-        '''Test candperm raised a C2E exception when capability tag was unset'''
-        self.assertRegisterEqual(self.MIPS.a2, 1,
-            "candperm did not raise an exception when capability tag was unset")
+        '''Test CAndPerm set capability cause correctly when capability tag was unset'''
+        self.assertRegisterEqual(self.MIPS.a3, 0x0201,
+            "Capability cause was not set correcly when capability tag was unset")
+    @attr('capabilities')
+    def test_cp2_x_candperm_tag_3(self):
+        '''Test CAndPerm did not change dword 0 of an untagged capability'''
+        self.assertRegisterEqual(self.MIPS.s0, 0,
+            "CAndPerm changed dword 0 of an untagged capability")
+
+    @attr('capabilities')
+    def test_cp2_x_candperm_tag_4(self):
+        '''Test CAndPerm did not change dword 1 of an untagged capability'''
+        self.assertRegisterEqual(self.MIPS.s1, 0,
+            "CAndPerm changed dword 1 of an untagged capability")
+    @attr('capabilities')
+
+    def test_cp2_x_candperm_tag_5(self):
+        '''Test CAndPerm did not change dword 2 of an untagged capability'''
+        self.assertRegisterEqual(self.MIPS.s2, 0,
+            "CAndPerm changed dword 0 of an untagged capability")
 
     @attr('capabilities')
     def test_cp2_x_candperm_tag_3(self):
-        '''Test capability cause is set correctly when capability tag was unset'''
-        self.assertRegisterEqual(self.MIPS.a3, 0x0201,
-            "Capability cause was not set correcly when capability tag was unset")
+        '''Test CAndPerm did not change dword 0 of an untagged capability'''
+        self.assertRegisterEqual(self.MIPS.s3, 0,
+            "CAndPerm changed dword 0 of an untagged capability")
 

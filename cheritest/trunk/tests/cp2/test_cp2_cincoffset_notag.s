@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -68,10 +69,11 @@ test:		.ent test
 		# Now try cincoffset
 		#
 
-		dli	$a0, 0
+		cgetoffset $a0, $c2
 		dli	$t0, 5
 		cincoffset $c2, $c2, $t0
-		cgetoffset $a0, $c2
+		cgetoffset $t0, $c2
+		dsubu	$a1, $t0, $a0
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

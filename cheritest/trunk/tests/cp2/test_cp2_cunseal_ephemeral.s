@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -52,10 +53,11 @@ test:		.ent test
 		# Make c2 a sealed data capability
 		#
 
+		cgetdefault $c2
 		dla      $t0, data
-		cincbase $c2, $c0, $t0
-		dli	 $t0, 8
-		csetlen  $c2, $c2, $t0
+		csetoffset $c2, $c2, $t0
+		dli	 $t0, 0x1000
+		csetbounds $c2, $c2, $t0
 		dli	 $t0, 0x0d # Permit_Store, Permit_Load and Global
 		candperm $c2, $c2, $t0
 		cseal	 $c2, $c2, $c1
@@ -83,7 +85,7 @@ test:		.ent test
 		.end	test
 
                 .data
-                .align  3
+                .align  12
 data:           .dword  0x0123456789abcdef
                 .dword  0x0123456789abcdef
 

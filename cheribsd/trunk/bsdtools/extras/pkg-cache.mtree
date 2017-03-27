@@ -1,0 +1,4 @@
+./etc/pkg-cache type=dir uname=root gname=wheel mode=755
+./etc/pkg-cache/pkg-cache.conf type=file uname=root gname=wheel mode=644
+./usr/local/etc type=dir uname=root gname=wheel mode=755
+./usr/local/etc/pkg.conf type=file uname=root gname=wheel mode=644

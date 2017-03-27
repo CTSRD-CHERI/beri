@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -46,11 +47,11 @@ test:		.ent test
 
 		# Put a non-zero value in c1.base, so we can tell when
 		# c2 has been changed.
-		dli		$t0, 0x100
-		cincbase	$c1, $c0, $t0
+		dli		$t0, 0x1000
+		cincoffset	$c1, $c0, $t0
 
-		dli		$t0, 8
-		csetlen		$c1, $c1, $t0
+		dli		$t0, 0x1000
+		csetbounds		$c1, $c1, $t0
 
 		# Need to remove execute permission before we seal it
 		dli		$t0, 0x5
@@ -61,12 +62,12 @@ test:		.ent test
 
 		cseal		$c1, $c1, $c3
 
-		# Move should copy c1 (base=0x100) into c2.
+		# Move should copy c1 (base=0x1000) into c2.
 		cmove		$c2, $c1
 
 		cgetsealed 	$a0, $c2 	# Should be 1
-		cgetbase 	$a1, $c2     	# Should be 0x100
-		cgetlen		$a2, $c2	# Should be 8
+		cgetbase 	$a1, $c2     	# Should be 0x1000
+		cgetlen		$a2, $c2	# Should be 0x1000
 		cgettype	$a3, $c2	# Should be 0x1234
 
 		ld	$fp, 16($sp)

@@ -1,5 +1,6 @@
-#-
-# Copyright (c) 2014 Matthew Naylor
+#!/bin/bash
+#
+# Copyright (c) 2015 Matthew Naylor
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -9,6 +10,10 @@
 # This software was developed by SRI International and the University of
 # Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-11-C-0249
 # ("MRC2"), as part of the DARPA MRC research programme.
+#
+# This software was developed by the University of Cambridge Computer
+# Laboratory as part of the Rigorous Engineering of Mainstream
+# Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
 #
 # @BERI_LICENSE_HEADER_START@
 #
@@ -33,7 +38,11 @@ rm -f *.cxx *.o *.h *.ba *.bo *.so
 rm -f State.txt
 rm -f testStack
 rm -f testStackID
+rm -f testStackIDCustom
 rm -f testStackAlg
 rm -f testStackAlgID
 rm -f testStackIDClassify
+rm -f mkArithChecker
+rm -f mkFirstHotChecker
+rm -f mkCustomGenExample
 rm -f test*.v

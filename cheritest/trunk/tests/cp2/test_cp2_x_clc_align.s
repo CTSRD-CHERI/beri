@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -58,12 +59,15 @@ test:		.ent test
 		# Make $c1 a data capability for the array 'data'
 		#
 
+		cgetdefault $c1
 		dla     $t0, data
-		cincbase $c1, $c0, $t0
+		csetoffset $c1, $c1, $t0
 		dli     $t0, 8
-                csetlen $c1, $c1, $t0
+                csetbounds $c1, $c1, $t0
 		dli     $t0, 0x7f
 		candperm $c1, $c1, $t0
+		dli	$t0, 1
+		csetoffset $c1, $c1, $t0
 
 		#
 		# Store $c1 to padding (aligned)
@@ -89,7 +93,8 @@ test:		.ent test
 		# Check that the load didn't happen.
 		#
 
-		cgetlen $a0, $c1
+		cgettag $a0, $c1
+		cgetoffset $a1, $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
@@ -119,7 +124,6 @@ data:		.dword	0x0123456789abcdef
 
 		.align 5
 padding:	.dword 0x0 # Padding to make cap1 unaligned
-		.dword 0x0
 
 cap1:		.dword 0x0123456789abcdef # This is not 32-byte aligned, so a
 		.dword 0x0123456789abcdef # capability load from here will 

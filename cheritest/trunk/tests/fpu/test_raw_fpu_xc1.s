@@ -35,9 +35,10 @@
 		.ent start
 
 start:
-		# Enable CP1
 		mfc0 $t0, $12
-		dli $t1, 1 << 29
+		dli $t1, 1 << 29	# Enable CP1
+		or $t0, $t0, $t1
+		dli $t1, 1 << 26        # Put FPU into 64 bit mode
 		or $t0, $t0, $t1
 		mtc0 $t0, $12
 		nop

@@ -60,6 +60,18 @@ test:		.ent test
 		nop
 
 		#
+		# Set CP0.Status.BEV, so the ROM handler will be called
+		#
+		mfc0	$t0, $12
+		dli	$t1, 1 << 22
+		or	$t0, $t0, $t1
+		mtc0	$t0, $12
+		nop
+		nop
+		nop
+		nop
+
+		#
 		# Clear registers we'll use when testing results later.
 		#
 		dli	$a0, 0

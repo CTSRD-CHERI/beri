@@ -212,20 +212,20 @@ endfunction
 
 function CheriMemResponse tlmToMemoryResponse(CheriTLMResp resp);
     CheriMemResponse memResp = defaultValue();
-
-    case (resp.command)
-        READ: begin
-            let d = MemTypes::Data {
+    memResp.data = MemTypes::Data {
                 `ifdef CAP
                 cap: unpack(0), // cap bit not used at this level of the cache hierarchy
                 `endif
-                data:   (case (resp.status)
+                data:   unpack(pack(resp.data))
+                        /*(case (resp.status) // Unnecessary mux
                             ERROR: return ?;
                             default: return unpack(pack(resp.data));
-                        endcase)
+                        endcase)*/
             };
+
+    case (resp.command)
+        READ: begin
             memResp.operation = tagged Read {
-                data: d,
                 last: True
             };
         end

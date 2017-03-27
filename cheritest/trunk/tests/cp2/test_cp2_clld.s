@@ -1,6 +1,7 @@
 #-
 # Copyright (c) 2011 Robert N. M. Watson
 # Copyright (c) 2013 Michael Roe
+# Copyright (c) 2015 SRI International
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -26,6 +27,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -58,29 +60,30 @@ test:		.ent test
 		#
 
 		dla	$t1, dword
-		clldr	$a0, $t1($c0)
-		cscdr	$a0, $t1($c0)
-		cldr	$a1, $t1($c0)
+		csetoffset	$c1, $c0, $t1
+		clld	$a0, $c1
+		cscd	$a0, $a0, $c1
+		cldr	$a1, $zero($c1)
 
 		#
 		# Check to make sure we are allowed to increment the loaded
 		# number, so we can do atomic arithmetic.
 		#
 
-		clldr	$a2, $t1($c0)
+		clld	$a2, $c1
 		daddiu	$a2, $a2, 1
-		cscdr	$a2, $t1($c0)
+		cscd	$a2, $a2, $c1
 		ld	$a3, 0($t1)
 
 		#
-		# Trap between clldr and cscdr; check to make sure that the
+		# Trap between clld and cscd; check to make sure that the
 		# cscdr not only returns failure, but doesn't store.
 		# XXX : Where does it check that?
 		#
 
-		clldr	$a4, $t1($c0)
+		clld	$a4, $c1
 		tnei	$zero, 1
-		cscdr	$a4, $t1($c0)
+		cscd	$a4, $a4, $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

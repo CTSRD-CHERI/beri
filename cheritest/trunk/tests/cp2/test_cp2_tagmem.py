@@ -29,7 +29,7 @@ from beritest_tools import BaseBERITestCase
 from nose.plugins.attrib import attr
 
 #
-# Check basic behaviour of cgetleng and csetlen.
+# Check basic behaviour of cgetlen and csetlen.
 #
 
 class test_cp2_tagmem(BaseBERITestCase):
@@ -47,3 +47,8 @@ class test_cp2_tagmem(BaseBERITestCase):
     def test_cp2_tagmem1(self):
         '''Test that cgettag returns correct value after eviction and load'''
         self.assertRegisterEqual(self.MIPS.a2, 1, "cgettag returns incorrect value after eviction and load")
+        
+    @attr('capabilities')
+    def test_cp2_tagmem2(self):
+        '''Test that cgettag returns correct value after writing data on either side'''
+        self.assertRegisterEqual(self.MIPS.a2, 1, "cgettag returns incorrect value after writing data on either side")

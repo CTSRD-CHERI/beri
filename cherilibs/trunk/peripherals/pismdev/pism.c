@@ -87,6 +87,18 @@ static uint64_t pism_cycle_count[PISM_BUS_COUNT];
 
 static bool pism_initialized[PISM_BUS_COUNT] = {false, false, false};
 
+void *
+pism_dev_get_private(uint8_t busno, const char *name)
+{
+	pism_device_t *dev;
+
+	SLIST_FOREACH(dev, g_pism_devices[busno], pd_next) {
+		if (strcmp(dev->pd_name, name) == 0)
+			return (dev->pd_private);
+	}
+	return (NULL);
+}
+
 struct pism_module *
 pism_module_lookup(const char *name)
 {

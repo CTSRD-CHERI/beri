@@ -1,6 +1,7 @@
 #-
 # Copyright (c) 2014 Alexandre Joannou
 # Copyright (c) 2014 Colin Rothwell
+# Copyright (c) 2016 A. Theodore Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -42,6 +43,7 @@ TESTS += TestTLMRoutableInstances
 TESTS += TestDMA
 TESTS += TestDMAICache
 TESTS += TestOrderedBus
+TESTS += TestDebugModule
 
 ASYMMETRIC_BRAM_DIR = ../AsymmetricBRAM
 CHERI_DIR = ../../../cheri/trunk
@@ -49,7 +51,7 @@ CHERILIBS_DIR = ..
 DMA_DIR=$(CHERILIBS_DIR)/peripherals/DMA
 
 BSC = bsc
-BSV_PATH = +:%/Libraries/TLM3:%/Libraries/Axi:$(CHERILIBS_DIR):$(ASYMMETRIC_BRAM_DIR)
+BSV_PATH = +:%/Libraries/TLM3:%/Libraries/Axi:$(CHERILIBS_DIR):$(ASYMMETRIC_BRAM_DIR):../debugging
 BSV_PATH:=$(BSV_PATH):$(DMA_DIR):$(CHERI_DIR)
 BSC_FLAGS=-keep-fires -p $(BSV_PATH)
 BSC_FLAGS+=-u

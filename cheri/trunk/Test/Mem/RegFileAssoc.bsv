@@ -1,10 +1,17 @@
-/*-
- * Copyright (c) 2015 Matthew Naylor
+/* Copyright 2015 Matthew Naylor
  * All rights reserved.
  *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-11-C-0249
+ * ("MRC2"), as part of the DARPA MRC research programme.
+ *
  * This software was developed by the University of Cambridge Computer
- * Laboratory as part of the Rigorous Engineering of Mainstream Systems (REMS)
- * project, funded by EPSRC grant EP/K008528/1.
+ * Laboratory as part of the Rigorous Engineering of Mainstream
+ * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
  *
  * @BERI_LICENSE_HEADER_START@
  *
@@ -34,13 +41,14 @@ import ConfigReg :: *;
 // hardware here, just something that works in simulation.
 
 // Parameters
-typedef 32 RegFileSize;
+typedef 128 RegFileSize;
 Integer regFileDefault = 0;
 
 module mkRegFileAssoc (RegFile#(addrT, dataT))
        provisos ( Bits#(addrT, aw)
                 , Bits#(dataT, dw)
                 , Eq#(addrT)
+                , Eq#(dataT)
                 , Literal#(dataT)
                 );
 
@@ -73,10 +81,11 @@ module mkRegFileAssoc (RegFile#(addrT, dataT))
     case (found) matches
       tagged Invalid: $display("WARNING: mkRegFileAssoc is full");
       tagged Valid .i:
-        begin
-          keys[i] <= tagged Valid addr;
-          vals[i] <= data;
-        end
+          begin
+            keys[i] <= data == fromInteger(regFileDefault)
+                     ? tagged Invalid : tagged Valid addr;
+            vals[i] <= data;
+          end
     endcase
   endmethod
 

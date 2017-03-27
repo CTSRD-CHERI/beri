@@ -1,6 +1,6 @@
 #-
 # Copyright (c) 2012, 2014 Robert M. Norton
-# Cipyright (c) 2014 Michael Roe
+# Copyright (c) 2014 Michael Roe
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -31,6 +31,7 @@
 # bit is set in the TLB entry for the page but the tag bit on data is unset.
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -140,8 +141,8 @@ testcode:
 		# This should NOT raise an exception.
 		#
 		dli	$t0, 64
-		cincbase $c1, $c0, $t0
-		csetlen	$c1, $c1, $t0
+		cincoffset $c1, $c0, $t0
+		csetbounds	$c1, $c1, $t0
 		ccleartag $c1, $c1
 		cscr	$c1, $a2($c0)
 
@@ -163,7 +164,7 @@ testcode:
 		nop
 
 exception_handler:
-                dmfc0   $a7, $13                # Read cause.
+                mfc0    $a7, $13                # Read cause.
 
 		dla	$t0, the_end
 		jr	$t0

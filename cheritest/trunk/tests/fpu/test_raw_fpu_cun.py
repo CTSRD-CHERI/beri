@@ -29,6 +29,7 @@ from beritest_tools import BaseBERITestCase
 from nose.plugins.attrib import attr
 
 class test_raw_fpu_cun(BaseBERITestCase):
+
     def test_cun_single(self):
         '''Test we can compare unordered in single precision'''
         self.assertRegisterEqual(self.MIPS.s0, 0x1, "Failed to compare unordered QNaN, QNaN in single precision")
@@ -39,9 +40,3 @@ class test_raw_fpu_cun(BaseBERITestCase):
         '''Test we can compare unordered in double precision'''
         self.assertRegisterEqual(self.MIPS.s1, 0x1, "Failed to compare unordered QNaN, QNaN in double precision")
         self.assertRegisterEqual(self.MIPS.s4, 0x0, "Failed to compare unordered 1.0, 1.0 in double precision")
-
-    @attr('floatpaired')
-    def test_cun_paired(self):
-        '''Test we can compare unordered paired singles'''
-        self.assertRegisterEqual(self.MIPS.s2, 0x1, "Failed to compare unordered 0, QNaN and 0, QNaN in paired single precision")
-        self.assertRegisterEqual(self.MIPS.s5, 0x0, "Failed to compare unordered 2.0, 1.0 and 1.0, 2.0 in paired single precision")

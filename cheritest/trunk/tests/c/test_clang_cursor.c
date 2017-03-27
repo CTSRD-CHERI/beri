@@ -1,10 +1,15 @@
 /*-
  * Copyright (c) 2014 David T. Chisnall
+ * Copyright (c) 2015 Michael Roe
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
  * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
  * ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * This software was developed by the University of Cambridge Computer
+ * Laboratory as part of the Rigorous Engineering of Mainstream Systems (REMS)
+ * project, funded by EPSRC grant EP/K008528/1.
  *
  * @BERI_LICENSE_HEADER_START@
  *
@@ -50,31 +55,43 @@ void get(__capability int* x)
 int test(void)
 {
 	// Explicitly set the size of the capability
-	__capability int *b = __builtin_cheri_set_cap_length((__capability void*)buffer, 42*sizeof(int));
+	__capability int *b =
+		__builtin_memcap_bounds_set((__capability void*)buffer,
+		42*sizeof(int));
+
 	// Check that the base is correctly set to the start of the array
-	assert((long long)buffer == __builtin_cheri_get_cap_base(b));
+	assert((long long)buffer == __builtin_memcap_base_get(b));
+
 	// Check that the offset is correctly set to the start of the array
-	assert(0 == __builtin_cheri_cap_offset_get(b));
+	assert(0 == __builtin_memcap_offset_get(b));
+
+	// Check that the length has been set
+	assert(42*sizeof(int) == __builtin_memcap_length_get(b));
+
 	// Fill in the array such that every element contains its index
 	set(b);
+
 	// Check that pointer arithmetic moves the cursor
 	b += 41;
-	assert(41*sizeof(int) == __builtin_cheri_cap_offset_get(b));
+	assert(41*sizeof(int) == __builtin_memcap_offset_get(b));
+
 	// Check that the pointer version of the capability is what we'd expect
 	DEBUG_DUMP_REG(18, (int*)b);
 	DEBUG_DUMP_REG(19, &buffer);
 	assert(((int*)b) == &buffer[41]);
-	// Check that we can read all of the array back by reverse itteration
+
+	// Check that we can read all of the array back by reverse iteration
 	get(b);
+
 	// Now check some explicit cursor manipulation
 	__capability int *v = b;
-	// Incrementing the offset shouldn't be visible after setting the offset
-	v = __builtin_cheri_cap_offset_increment(v, 42);
-	v = __builtin_cheri_cap_offset_set(v, 0);
-	assert(__builtin_cheri_cap_offset_get(v) == 0);
-	// Incrementing the base only should give a negative offset
-	v = __builtin_cheri_cap_base_inc_only(v, 10);
-	assert(__builtin_cheri_cap_offset_get(v) == -10);
+
+	// Incrementing the offset shouldn't be visible after setting the
+	// offset
+	v = __builtin_memcap_offset_increment(v, 42);
+	v = __builtin_memcap_offset_set(v, 0);
+	assert(__builtin_memcap_offset_get(v) == 0);
+
 	// Nothing in this test should have triggered any exceptions
 	assert(exception_count == 0);
 	return 0;

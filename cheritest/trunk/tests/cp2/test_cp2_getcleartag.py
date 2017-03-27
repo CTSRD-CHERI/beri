@@ -29,7 +29,7 @@ from beritest_tools import BaseBERITestCase
 from nose.plugins.attrib import attr
 
 #
-# Check basic behaviour of cgetleng and csetlen.
+# Check basic behaviour of cgetlen and csetlen.
 #
 
 class test_cp2_getcleartag(BaseBERITestCase):

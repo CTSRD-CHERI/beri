@@ -38,6 +38,6 @@ class test_cp0_config6(BaseBERITestCase):
     @attr('extendedtlb')
     def test_cp0_config6_1(self):
         '''Test CP0.Config6'''
-        self.assertRegisterEqual(self.MIPS.a0, 0x8f0000,
+        self.assertRegisterEqual(self.MIPS.a0, 0x10f0000,
             "CP0.Config6 did not have expected value")
 

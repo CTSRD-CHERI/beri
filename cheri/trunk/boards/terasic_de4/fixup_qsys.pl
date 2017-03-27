@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 #-
-# Copyright (c) 2015 A. Theodore Markettos
+# Copyright (c) 2015 Theo Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -52,6 +52,14 @@ open(IN, $infile) or die $!;
 my @input = <IN>;
 close(IN);
 
+if ($dimm == 4)
+{
+ print "Amending for 4GB DIMM\n";
+} else {
+ print "Not changing memory size\n";
+}
+
+
 my $done = 0;
 for (@input)
 {
@@ -68,10 +76,12 @@ for (@input)
   s/parameter name="TIMING_BOARD_ISI_METHOD" value="AUTO"/parameter name="TIMING_BOARD_ISI_METHOD" value="MANUAL"/g  and $done |= 64;
   s/parameter name="TIMING_BOARD_MAX_CK_DELAY" value="0.6"/parameter name="TIMING_BOARD_MAX_CK_DELAY" value="0.5"/g  and $done |= 128;
   s/parameter name="TIMING_BOARD_MAX_DQS_DELAY" value="0.6"/parameter name="TIMING_BOARD_MAX_DQS_DELAY" value="0.5"/g  and $done |= 256;
+  # the following is on probation: need to test it across all bitfiles to verify properly
+  s/parameter name="MEM_TRFC_NS" value="127.5"/parameter name="MEM_TRFC_NS" value="195.0"/g and $done |= 512;
  }
 }
 
-if ($dimm == 4 && $done != 0x1ff)
+if ($dimm == 4 && $done != 0x3ff)
 {
  die "fixup_qsys.pl: Couldn't change memory parameters in Qsys file (flags=$done)";
 }

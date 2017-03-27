@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2013 Bjoern A. Zeeb
- * Copyright (c) 2015 A. Theodore Markettos
+ * Copyright (c) 2015 Theo Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of

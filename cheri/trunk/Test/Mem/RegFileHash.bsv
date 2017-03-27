@@ -1,10 +1,17 @@
-/*-
- * Copyright (c) 2015 Matthew Naylor
+/* Copyright 2015 Matthew Naylor
  * All rights reserved.
  *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-11-C-0249
+ * ("MRC2"), as part of the DARPA MRC research programme.
+ *
  * This software was developed by the University of Cambridge Computer
- * Laboratory as part of the Rigorous Engineering of Mainstream Systems (REMS)
- * project, funded by EPSRC grant EP/K008528/1.
+ * Laboratory as part of the Rigorous Engineering of Mainstream
+ * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
  *
  * @BERI_LICENSE_HEADER_START@
  *
@@ -26,6 +33,7 @@
  */
 
 import RegFile :: *;
+import MemTypes     :: *;
 
 // ======================================
 // Connect to hash table implemented in C
@@ -37,30 +45,30 @@ import "BDPI" function Action hashInit(
   Bit#(32) numEntries, Bit#(32) keySize, Bit#(32) valSize);
 
 // Insert into hash table
-import "BDPI" function Action hashInsert(Bit#(35) addr, Bit#(256) data);
+import "BDPI" function Action hashInsert(CheriPhyLineNumber addr, Bit#(CheriDataWidth) data);
 
 // Lookup in hash table
-import "BDPI" function Bit#(256) hashLookup(Bit#(35) addr);
+import "BDPI" function Bit#(CheriDataWidth) hashLookup(Bit#(CheriLineAddrWidth) addr);
 
 // =====================
 // Module implementation
 // =====================
 
-module mkRegFileHash#(Bit#(32) numEntries) (RegFile#(Bit#(35), Bit#(256)));
+module mkRegFileHash#(Bit#(32) numEntries) (RegFile#(CheriPhyLineNumber, Bit#(CheriDataWidth)));
 
   Reg#(Bool) init <- mkReg(True);
 
   rule initialise (init);
-    hashInit(numEntries, 2, 8);
+    hashInit(numEntries, 2, 8); // Upper bound, 2*32bits address, 8*32bits data
     init <= False;
   endrule
 
-  method Action upd(Bit#(35) addr, Bit#(256) data) if (!init);
-    hashInsert(addr, data);
+  method Action upd(CheriPhyLineNumber addr, Bit#(CheriDataWidth) data) if (!init);
+    hashInsert(addr, zeroExtend(data));
   endmethod
 
-  method Bit#(256) sub(Bit#(35) addr) if (!init);
-    return hashLookup(addr);
+  method Bit#(CheriDataWidth) sub(CheriPhyLineNumber addr) if (!init);
+    return truncate(hashLookup(addr));
   endmethod
 
 endmodule

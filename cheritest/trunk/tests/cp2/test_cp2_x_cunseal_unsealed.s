@@ -57,11 +57,11 @@ test:		.ent test
 		# $a2 will be set to 1 if the exception handler is called
 		dli	$a2, 0
 
-		# Put a recognizable value into $c1.base so later we can
+		# Put a recognizable value into $c1.offset so later we can
 		# tell if $c1 has been (incorrectly) overwritten by a
 		# failed cunseal operation.
 		dli      $t0, 1
-		cincbase $c1, $c0, $t0
+		cincoffset $c1, $c0, $t0
 
 		# $c2 isn't sealed, but we set $c3's effective address
 		# to 0 so cunseal won't raise an exception due to the
@@ -76,8 +76,8 @@ test:		.ent test
 
 		# The exception handler should return to here, and
 		# $c1 should have been unchanged by the failed attempt to
-		# unseal, so $c1.base should be 0.
-		cgetbase $a0, $c1
+		# unseal, so $c1.offset should be 0.
+		cgetoffset $a0, $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

@@ -25,14 +25,15 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
 .set noat
 
 #
-# Test that cscr raises an exception if it does not that Permit_Store_Ephemeral
-# permission.
+# Test that CSCR raises an exception if it does not have
+# Permit_Store_Capability permission.
 #
 
 		.global test
@@ -59,10 +60,11 @@ test:		.ent test
 		# Make $c1 a data capability for the array 'data'
 		#
 
+		cgetdefault $c1
 		dla     $t0, data
-		cincbase $c1, $c0, $t0
+		csetoffset $c1, $c1, $t0
 		dli     $t0, 8
-                csetlen $c1, $c1, $t0
+                csetbounds $c1, $c1, $t0
 		dli     $t0, 0x7f
 		candperm $c1, $c1, $t0
 

@@ -29,6 +29,8 @@
  * @BERI_LICENSE_HEADER_END@
  */
 
+`ifndef CHERIOS
+
 import MIPS::*;
 import Debug::*;
 import Library::*;
@@ -36,6 +38,7 @@ import Library::*;
 import List  :: *;
 import FIFO  :: *;
 import FIFOF :: *;
+import FF    :: *;
 import SpecialFIFOs::*;
 import ConfigReg::*;
 
@@ -49,15 +52,23 @@ import Clocks   :: *;
 
 import BeriUGBypassFIFOF :: *;
 
+`ifdef CAP
+  `define USECAP 1
+`elsif CAP128
+  `define USECAP 1
+`elsif CAP64
+  `define USECAP 1
+`endif
+
 /* =================================================================
 mkTLB
  =================================================================*/
  
-typedef enum {Init, Idle, Read, DoRead, DoWrite, WriteVictim, FinishRead} TLBState deriving (Bits, Eq);
+typedef enum {Init, Serving, Read, DoRead, DoWrite, WriteVictim, FinishRead} TLBState deriving (Bits, Eq);
 typedef Bit#(3) InterfaceNum;
 typedef struct {
   Bool        valid;
-  Bit#(4)     whichLoBit; // Bit to check for which EntryLo to use, the MSB of the page mask.
+  Bit#(5)     whichLoBit; // Bit to check for which EntryLo to use, the MSB of the page mask.
   Bit#(1)     oddPage;    // Which page is cached.
   Bool        global;
   Bit#(12)    pageMask;
@@ -83,35 +94,36 @@ typedef enum { Smt, Rsp } TlbResponseSource deriving (Bits, Eq);
  
 interface TLBIfc;
   interface Server#(TLBEntryT, TLBEntryT) readWrite;
-  interface Vector#(NumTLBLookups, Server#(TlbRequest, TlbResponse)) lookup;
+  interface Vector#(NumTLBLookups, TranslationIfc) lookup;
   method Action debugDump;
   method Action putConfig(Bit#(LogAssosTLBSize) tlbRandom, Bool largeTlb, Bit#(8) entryHiAsid);
 endinterface
+
 `ifdef NOT_FLAT
   (*synthesize*)
 `endif
-module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
-  FIFOF#(TLBEntryT)                      readWrite_fifo <- mkUGFIFOF;
-  FIFOF#(Bit#(LogTLBSizePlusOne))        readOut_fifo   <- mkFIFOF;
 
-  Vector#(NumTLBLookups,  FIFOF#(TlbRequest)) req_fifos   <- replicateM(mkUGFIFOF);
-  Vector#(NumTLBLookups, FIFOF#(TlbResponse)) smt_fifos   <- replicateM(mkBeriUGBypassFIFOF);	// SIMPLE TRANSLATIONS.
-  Vector#(NumTLBLookups, FIFOF#(TlbResponse)) rsp_fifos   <- replicateM(mkUGFIFOF);
-  Vector#(NumTLBLookups, FIFOF#(TlbResponseSource)) response_sources <-
-      replicateM(mkBeriUGBypassFIFOF);
+module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
+  FIFOF#(TLBEntryT)                      readWrite_fifo <- mkUGFIFOF1;
+  FIFOF#(Bit#(LogTLBSizePlusOne))        readOut_fifo   <- mkFIFOF1;
+
+  // These are not protected, but must never fill up or we will drop stuff.  Both req and rsp.
+  // This works here because there only one outstanding TLB lookup is supported per cache.
+  Vector#(NumTLBLookups,  FIFOF#(TlbRequest)) req_fifos   <- replicateM(mkUGFIFOF1);
+  Vector#(NumTLBLookups, FIFOF#(TlbResponse)) rsp_fifos   <- replicateM(mkUGFIFOF1);
+  Vector#(NumTLBLookups, Reg#(InstId))           instId   <- replicateM(mkConfigReg(7));
 
   CachedTLBEntry defaultCachedTLBEntry = ?;
   defaultCachedTLBEntry.valid = False;
-  Vector#(NumTLBLookups, Vector#(4, Reg#(CachedTLBEntry))) last_hit <- replicateM(replicateM(mkReg(defaultCachedTLBEntry)));
-  Reg#(TlbMiss) last_miss <- mkReg(TlbMiss{valid: False, badvaddr: ?, exp: ?, asid: ?}); 
+  Vector#(NumTLBLookups, Vector#(AssosTLBSize, Reg#(CachedTLBEntry))) last_hit <- replicateM(replicateM(mkReg(defaultCachedTLBEntry)));
   
-  FIFOF#(TlbReadToken) read_fifo <- mkFIFOF;
+  FIFOF#(TlbReadToken) read_fifo <- mkLFIFOF;
   TlbAssosEntry invalidEntry = ?;
   invalidEntry.valid = False;
   Vector#(AssosTLBSize, Reg#(TlbAssosEntry))  entrySrch     <- replicateM(mkReg(invalidEntry));
-  MEM#(Bit#(LogTLBSize), TlbAssosEntry)       entryHiHash   <- mkMEM();
-  MEM#(Bit#(LogTLBSizePlusOne), TlbEntryLo)   entryLo0      <- mkMEM();
-  MEM#(Bit#(LogTLBSizePlusOne), TlbEntryLo)   entryLo1      <- mkMEM();
+  MEM#(Bit#(LogTLBSize), TlbAssosEntry)       entryHiHash   <- mkMEMNoFlow();
+  MEM#(Bit#(LogTLBSizePlusOne), TlbEntryLo)   entryLo0      <- mkMEMNoFlow();
+  MEM#(Bit#(LogTLBSizePlusOne), TlbEntryLo)   entryLo1      <- mkMEMNoFlow();
 
   Reg#(TLBState)               tlbState      <- mkReg(Init);
   Reg#(Bit#(LogTLBSize))       count         <- mkReg(0);
@@ -128,7 +140,7 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
   rule initialize(tlbState == Init);
     entryHiHash.write(count, invalidEntry);
     Integer top = tlbSize-1;
-    if (count == fromInteger(top)) tlbState <= Idle;
+    if (count == fromInteger(top)) tlbState <= Serving;
     count <= count + 1;
   endrule
   
@@ -151,7 +163,7 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
       readOut_fifo.enq(tlbAddr);
       tlbState <= FinishRead;
     end else tlbState <= DoWrite;
-    debug($display("TLB Read"));
+    debug2("tlb", $display("TLB Read"));
   endrule
   
   rule doWrite(tlbState == DoWrite);
@@ -181,17 +193,16 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
       entryLo1.write(zeroExtend(hashKey)+zeroExtend(assosTLBSizeBits),reqIn.entryLo1);
     end
     // Clear the page caches for each interface.
-    last_miss.valid <= False;
     for(Integer i = 0; i < valueOf(NumTLBLookups); i=i+1) begin
-      for (Integer j = 0; j < 4; j=j+1)
+      for (Integer j = 0; j < valueOf(AssosTLBSize); j=j+1)
         last_hit[i][j].valid <= False;
     end
     
     if (writeVictim)
       tlbState <= WriteVictim;
     else
-      tlbState <= Idle;
-    debug($display("TLB Write Done"));
+      tlbState <= Serving;
+    debug2("tlb", $display("TLB Write Done"));
   endrule
   
   rule writeVictimOut(tlbState == WriteVictim);
@@ -200,7 +211,7 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
     entrySrch[randomIndex] <= oldEnt.assosEntry;
     entryLo0.write(zeroExtend(randomIndex),oldEnt.entryLo0);
     entryLo1.write(zeroExtend(randomIndex),oldEnt.entryLo1);
-    tlbState <= Idle;
+    tlbState <= Serving;
   endrule
   
   function Bool fifofNotEmpty(FIFOF#(a) f) = f.notEmpty();
@@ -216,7 +227,7 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
     default: return "Coprocessor";
   endcase);
 
-  rule startTLB(tlbState == Idle);
+  rule startTLB(tlbState == Serving);
     if (aRequestIsIn) begin
       Integer i;
       Bit#(LogAssosTLBSize) key = ?;
@@ -252,7 +263,7 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
           found = True;
         end
         if (entrySrch[i].valid)
-          debug($display("               Found=%x Table index=%2.0x VPN=%x ASID=%x",
+          debug2("tlb", $display("               Found=%x Table index=%2.0x VPN=%x ASID=%x",
                      found, i, {entrySrch[i].entryHi.r,entrySrch[i].entryHi.vpn2},
                      entrySrch[i].entryHi.asid));
       end
@@ -267,7 +278,7 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
         entryLo0.read.put(zeroExtend(hashKey) + zeroExtend(assosTLBSizeBits));
       end
       
-      tlbState <= Read;
+      //tlbState <= Read;
       read_fifo.enq(TlbReadToken{
               found: found,
               index: zeroExtend(key),
@@ -279,7 +290,7 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
       tlbState <= DoRead;
   endrule
   
-  rule readTLB(tlbState == Read);
+  rule readTLB(tlbState == Serving);
     PhyAddress response = 0;
     Bool cached = ?;
     
@@ -296,14 +307,14 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
     TlbEntryLo lo0 <- entryLo0.read.get();
     TlbEntryLo lo1 <- entryLo1.read.get();
     TlbAssosEntry matchedEntryHi = entrySrch[foundIndex];
-    Bit#(4) whichLoBit = (found) ? matchedEntryHi.whichLoBit:0;
-    TlbEntryLo matchedEntry;
-    if (request[12+whichLoBit] == 1'b1)   matchedEntry = lo1;
-    else                                  matchedEntry = lo0;
+    Bit#(5) whichLoBit = (found) ? matchedEntryHi.whichLoBit:0;
+    TlbEntryLo matchedEntry = (request[12+whichLoBit] == 1'b1) ? lo1:lo0;
     Bit#(12) pageMask = (found) ? entrySrch[foundIndex].pageMask:0;
     response = {matchedEntry.pfn[27:12],
                 matchedEntry.pfn[11:0]&~pageMask | request[23:12]&pageMask, 
                 request[11:0]};
+    debug2("tlb", $display("response: %x, matchedPFN: %x, pageMask: %x, request: %x, whichLoBit: %d, lo0/1: %x", 
+              response, matchedEntry.pfn, pageMask, request, whichLoBit, (request[12+whichLoBit] == 1'b1)));
     cached = (matchedEntry.c != Uncached);
     
     if (!found && assosTlb) begin
@@ -316,11 +327,11 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
         matchedEntryHi = hashEntry;
       end
       if (hashEntry.valid)
-        debug($display("               Found=%x Mapped index=%2.0x VPN=%x ASID=%x",
+        debug2("tlb", $display("               Found=%x Mapped index=%2.0x VPN=%x ASID=%x",
                    found, hashKey, {hashEntry.entryHi.r,hashEntry.entryHi.vpn2},
                    hashEntry.entryHi.asid));
       else
-        debug($display("               Mapped index %2.0x is invalid", hashKey));
+        debug2("tlb", $display("               Mapped index %2.0x is invalid", hashKey));
     end
     
     // If no entry is matched, TLB miss; XTLB vector should be used.
@@ -353,10 +364,10 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
     if (exception == None && write && !writeAllowed) exception = Mod;
 
     //if (found)
-      //trace($display("%s TLB Lookup Delivered: Found=%x index=%2.0x, pfn:%x cache:%d dirty:%d valid:%d global:%d", 
+      //debug2("tlb", $display("%s TLB Lookup Delivered: Found=%x index=%2.0x, pfn:%x cache:%d dirty:%d valid:%d global:%d", 
       //  sourceString, found, foundIndex, matchedEntry.pfn, matchedEntry.c, matchedEntry.d, matchedEntry.v, matchedEntry.g));
     //else
-      //trace($display("%s TLB Lookup Missed", sourceString));
+      //debug2("tlb", $display("%s TLB Lookup Missed", sourceString));
     
     Privilege priv = User;
     if (request[63:60] >= 4'h4) priv = Supervisor;
@@ -364,6 +375,7 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
     
     //if (exception!=None) response = 36'b0;
     TlbResponse returnVal = TlbResponse{
+            valid: True,
             addr: response, 
             exception: exception, 
             write: write, 
@@ -372,19 +384,20 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
             fromDebug:fromDebug,
             priv:priv, 
             instId: read_fifo.first.request.instId
-            `ifdef CAP
+            `ifdef USECAP
               , noCapLoad: matchedEntry.noCapLoad,
               noCapStore: matchedEntry.noCapStore
             `endif
           };
 
-    tlbState <= Idle;
+    //tlbState <= Serving;
     read_fifo.deq;
 
+    // Only use response for probe interface.
     rsp_fifos[requestSource].enq(returnVal);
-    /*$display("%t: TLB put response into rsp_fifos", $time, fshow(returnVal), " to ", sourceString);*/
+    debug2("tlb", $display("%t: TLB put response into rsp_fifos", $time, fshow(returnVal), " to ", sourceString));
     if (exception==None) begin
-      Bit#(2) ti = request[13:12]; // TLB cache index.
+      Bit#(LogAssosTLBSize) ti = truncate(request[20:12]); // TLB cache index.
       last_hit[requestSource][ti] <= CachedTLBEntry{
               valid: True,
               whichLoBit: whichLoBit,
@@ -401,13 +414,7 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
       `endif
     end else begin
       // Remember if we had a miss so we can fail quickly next time.
-      if (!found && (exception==ITLB||exception==DTLBL||exception==DTLBS)) last_miss <= TlbMiss{
-              valid: True, 
-              asid: asid,
-              badvaddr: request, 
-              exp: exception
-            };
-      debug($display("TLB %d Missed TLB.", requestSource));
+      debug2("tlb", $display("TLB %d Missed TLB.", requestSource));
       `ifndef MULTI
         tlbtrace($display("(lookup %s on %x was a miss, ExpCode:%d)", sourceString, request, exception));
       `else
@@ -416,169 +423,125 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
     end
   endrule 
   
-  Vector#(NumTLBLookups, Server#(TlbRequest, TlbResponse)) lookups;
-  lookups [0] = interface Server; // This is the TLB probe interface
-    interface Put request;
-      method Action put(reqIn) if (tlbState == Idle && !req_fifos[0].notEmpty);
-        req_fifos[0].enq(reqIn);
-        debug($display("TLB %d Put in search. Physical Page Base = %x, time: %t", 0, reqIn.addr, $time));
-      endmethod
-    endinterface
-    interface Get response;
-      method get() if (rsp_fifos[0].notEmpty);
-        actionvalue
-          TlbResponse returnVal = rsp_fifos[0].first;
-          rsp_fifos[0].deq();
-          debug($display("TLB %d Lookup Gotten from lookup. Physical Page Base = %x, time: %t", 0, returnVal.addr, $time));
-          return returnVal;
-        endactionvalue
-      endmethod
-    endinterface
+  Vector#(NumTLBLookups, TranslationIfc) lookups;
+  lookups [0] = interface TranslationIfc; // This is the TLB probe interface
+    method ActionValue#(TlbResponse) request(TlbRequest reqIn) if (tlbState == Serving && !req_fifos[0].notEmpty);
+      req_fifos[0].enq(reqIn);
+      TlbResponse resp = ?;
+      resp.valid = False;
+      debug2("tlb", $display("TLB %d Put in search. Physical Page Base = %x, time: %t", 0, reqIn.addr, $time));
+      return resp;
+    endmethod
+    method ActionValue#(TlbResponse) response if (rsp_fifos[0].notEmpty);
+      TlbResponse returnVal = rsp_fifos[0].first;
+      rsp_fifos[0].deq();
+      debug2("tlb", $display("TLB %d Lookup Gotten from lookup. Physical Page Base = %x, time: %t", 0, returnVal.addr, $time));
+      return returnVal;
+    endmethod
   endinterface;
   for (Integer i=1; i<valueOf(NumTLBLookups); i=i+1) begin
-    lookups [i] = interface Server;
+    lookups [i] = interface TranslationIfc;
 
-      let canPut = (tlbState == Idle && !req_fifos[i].notEmpty &&
-        smt_fifos[i].notFull && response_sources[i].notFull);
+      let canPut = (req_fifos[i].notFull);
 
-      interface Put request;
-        method Action put(reqIn) if (canPut);
-          TlbResponse simpleResponse = TlbResponse{addr: ?, 
-                                                   exception: reqIn.exception, 
-                                                   write:reqIn.write, 
-                                                   ll:reqIn.ll, 
-                                                   cached:True, 
-                                                   fromDebug:reqIn.fromDebug, 
-                                                   priv:Kernel,
-                                                   `ifdef CAP
-                                                     noCapLoad: False,
-                                                     noCapStore: False,
-                                                   `endif
-                                                   instId:reqIn.instId
-                                       };
-          if (reqIn.addr[63:56] == 8'h90 || (reqIn.addr[63:32] == 32'hFFFFFFFF && reqIn.addr[31:29] == 3'b101)) simpleResponse.cached = False;
-          Bit#(2) ti = reqIn.addr[13:12]; // TLB cache index.
-          if (case(reqIn.addr[63:56])
-                8'h98: return True;
-                8'h90: return True;
-                8'hA0: return True;
-                8'hA8: return True;
-                8'hB0: return True;
-                default: return False;
-              endcase || reqIn.exception!=None) begin // Simple translation for the xkphys regions which map into physical memory.
-            simpleResponse.addr = reqIn.addr[39:0];
-            smt_fifos[i].enq(simpleResponse); // Just shave off the top bits... 
-            response_sources[i].enq(Smt);
-          end else if (reqIn.addr[63:32] == 32'hFFFFFFFF && (reqIn.addr[31:29] == 3'b100 || reqIn.addr[31:29] == 3'b101)) begin // Simple translation for the kseg1 & kseg0 regions which map into 512MB of physical memory.
-            simpleResponse.addr = {11'b0,reqIn.addr[28:0]};
-            smt_fifos[i].enq(simpleResponse); // Shave off the top 35 bits... 
-            response_sources[i].enq(Smt);
-          end else if ((last_miss.valid && 
-                       last_miss.asid==asid &&
-                       last_miss.badvaddr[63:12]==reqIn.addr[63:12]) ||
-                       reqIn.exception!=None) begin // If we missed on this already, fail quickly!
-            Exception exp = reqIn.exception;
-            if (exp==None) begin
-              if (i == 1) // Instruction miss
-                exp = ITLB;
-              else
-                if (reqIn.write) exp = DTLBS;
-                else exp = DTLBL;
-            end
-            Privilege priv = User;
-            if (reqIn.addr[63:60] >= 4'h4) priv = Supervisor;
-            if (reqIn.addr[63:60] >= 4'h8) priv = Kernel;
-            simpleResponse.priv = priv;
-            simpleResponse.exception = exp;
-            smt_fifos[i].enq(simpleResponse);
-            response_sources[i].enq(Smt);
-          end else if (last_hit[i][ti].valid 
-                        && last_hit[i][ti].entryHi.r==reqIn.addr[63:62] 
-                        // If the virtual page number matches, takeing into account the page size as defined by the page mask.
-                        && ((last_hit[i][ti].entryHi.vpn2 ^ reqIn.addr[39:13]) & (~zeroExtend(last_hit[i][ti].pageMask))) == 0
-    	                  && last_hit[i][ti].oddPage==reqIn.addr[23:12][last_hit[i][ti].whichLoBit] 
-                        && (last_hit[i][ti].entryHi.asid==asid || last_hit[i][ti].global)) begin
-            PhyAddress addr = {last_hit[i][ti].entryLo.pfn[27:12],
+      method ActionValue#(TlbResponse) request(TlbRequest reqIn) if (canPut);
+        Bit#(LogAssosTLBSize) ti = truncate(reqIn.addr[20:12]); // TLB cache index.
+        // micro TLB hit address. Select it as default for speed.
+        PhyAddress addr = {last_hit[i][ti].entryLo.pfn[27:12],
                                 last_hit[i][ti].entryLo.pfn[11:0]&~last_hit[i][ti].pageMask 
                                 | reqIn.addr[23:12]&last_hit[i][ti].pageMask,
                                 reqIn.addr[11:0]};
-            Privilege priv = User;
-            if (reqIn.addr[63:60] >= 4'h4) priv = Supervisor;
-            if (reqIn.addr[63:60] >= 4'h8) priv = Kernel;
-            // If an entry is matched but is invalid, also a TLB miss; common vector
-            // should be used.
-            Exception exception = reqIn.exception;
-            if (exception == None && !last_hit[i][ti].entryLo.v) begin
-              if (i == 1) // Instruction miss
-                exception = ITLBI;
-              else        // Data miss
-                if (reqIn.write) exception = DTLBSI;
-                else exception = DTLBLI;
-            end
-            // If an entry is valid and not writable, and this is a store operation,
-            // this is a TLB modification exception.
-            Bool writeAllowed = last_hit[i][ti].entryLo.d;
-            if (exception == None && reqIn.write && !writeAllowed) exception = Mod;
-            let resp = TlbResponse{
-                    addr: addr,
-                    exception: exception,
-                    write: reqIn.write,
-                    ll: reqIn.ll,
-                    cached: (last_hit[i][ti].entryLo.c != Uncached),
-                    fromDebug: reqIn.fromDebug,
-                    priv: priv,
-                    instId: reqIn.instId
-                    `ifdef CAP
-                      , noCapLoad: last_hit[i][ti].entryLo.noCapLoad,
-                      noCapStore: last_hit[i][ti].entryLo.noCapStore
-                    `endif
-                  }; // Use cached last translation.
-            smt_fifos[i].enq(resp);
-            response_sources[i].enq(Smt);
-            String sourceString = getSourceString(i);
-            /*$display("%t: TLB put response into smt_fifos ", $time, fshow(resp), " to ", sourceString);*/
-            `ifndef MULTI
-              tlbtrace($display("(lookup %s %x->%x)", sourceString, reqIn.addr, addr));
-            `else
-              tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: (lookup %s %x->%x)", $time, coreid, sourceString, reqIn.addr, addr));
-            `endif
-          end else begin
-            req_fifos[i].enq(reqIn);
-            response_sources[i].enq(Rsp);
-            debug($display("TLB %d Put in search. Physical Page Base = %x, time: %t", i, reqIn.addr, $time));
+        TlbResponse returnVal = TlbResponse{ valid: False,
+                                              addr: addr, 
+                                              exception: reqIn.exception, 
+                                              write:reqIn.write, 
+                                              ll:reqIn.ll, 
+                                              cached:True, 
+                                              fromDebug:reqIn.fromDebug, 
+                                              priv:Kernel,
+                                              `ifdef USECAP
+                                                noCapLoad: False,
+                                                noCapStore: False,
+                                              `endif
+                                              instId:reqIn.instId
+                                  };
+        debug2("tlb", $display("Attempted TLB %d lookup: reqId:%d, lastId:%x", i, reqIn.instId, instId[i]));
+        if (reqIn.addr[63:56] == 8'h90 || (reqIn.addr[63:32] == 32'hFFFFFFFF && reqIn.addr[31:29] == 3'b101)) returnVal.cached = False;
+        if (case(reqIn.addr[63:56])
+              8'h98: return True;
+              8'h90: return True;
+              8'hA0: return True;
+              8'hA8: return True;
+              8'hB0: return True;
+              default: return False;
+            endcase || reqIn.exception!=None) begin // Simple translation for the xkphys regions which map into physical memory.
+          returnVal.addr = reqIn.addr[39:0];
+          returnVal.valid = True;
+        end else if (reqIn.addr[63:32] == 32'hFFFFFFFF && (reqIn.addr[31:29] == 3'b100 || reqIn.addr[31:29] == 3'b101)) begin // Simple translation for the kseg1 & kseg0 regions which map into 512MB of physical memory.
+          returnVal.addr = zeroExtend(reqIn.addr[28:0]);
+          returnVal.addr[39:29] = 11'b0;
+          returnVal.valid = True;
+        end else if (last_hit[i][ti].valid 
+                      && last_hit[i][ti].entryHi.r==reqIn.addr[63:62] 
+                      // If the virtual page number matches, takeing into account the page size as defined by the page mask.
+                      && ((last_hit[i][ti].entryHi.vpn2 ^ reqIn.addr[39:13]) & (~zeroExtend(last_hit[i][ti].pageMask))) == 0
+                      && last_hit[i][ti].oddPage==reqIn.addr[23:12][last_hit[i][ti].whichLoBit] 
+                      && (last_hit[i][ti].entryHi.asid==asid || last_hit[i][ti].global)) begin
+          Privilege priv = User;
+          if (reqIn.addr[63:60] >= 4'h4) priv = Supervisor;
+          if (reqIn.addr[63:60] >= 4'h8) priv = Kernel;
+          // If an entry is matched but is invalid, also a TLB miss; common vector
+          // should be used.
+          Exception exception = reqIn.exception;
+          if (exception == None && !last_hit[i][ti].entryLo.v) begin
+            if (i == 1) // Instruction miss
+              exception = ITLBI;
+            else        // Data miss
+              if (reqIn.write) exception = DTLBSI;
+              else exception = DTLBLI;
           end
-        endmethod
-      endinterface
-      interface Get response;
-        method get() if (smt_fifos[i].notEmpty || rsp_fifos[i].notEmpty);
-          actionvalue
-            TlbResponse returnVal = ?;
-            let response_source <- popFIFOF(response_sources[i]);
-            if (response_source == Smt) begin
-              returnVal = smt_fifos[i].first;
-              smt_fifos[i].deq;
-              debug2("tlbVerbose", $display("TLB %d Lookup Gotten from "
-                + "simple. Physical Page Base = %x, time: %t",
-                i, returnVal.addr, $time));
-            end else begin // response_source == Rsp
-              returnVal = rsp_fifos[i].first;
-              rsp_fifos[i].deq();
-              debug2("tlbVerbose", $display("TLB %d Lookup Gotten from "
-                + "lookup. Physical Page Base = %x, time: %t",
-                i, returnVal.addr, $time));
-            end
-            return returnVal;
-          endactionvalue
-        endmethod
-      endinterface
+          // If an entry is valid and not writable, and this is a store operation,
+          // this is a TLB modification exception.
+          Bool writeAllowed = last_hit[i][ti].entryLo.d;
+          if (exception == None && reqIn.write && !writeAllowed) exception = Mod;
+          returnVal.valid = True;
+          returnVal.exception = exception;
+          returnVal.cached = (last_hit[i][ti].entryLo.c != Uncached);
+          returnVal.priv = priv;
+          `ifdef USECAP
+            returnVal.noCapLoad = last_hit[i][ti].entryLo.noCapLoad;
+            returnVal.noCapStore = last_hit[i][ti].entryLo.noCapStore;
+          `endif
+          String sourceString = getSourceString(i);
+          `ifndef MULTI
+            tlbtrace($display("(lookup %s %x->%x)", sourceString, reqIn.addr, addr));
+          `else
+            tlbtrace($display("Time:%0d, Core:%0d, Thread:0 :: (lookup %s %x->%x)", $time, coreid, sourceString, reqIn.addr, addr));
+          `endif
+        // Only enq a new attempt if there is not one outstanding.
+        end else begin
+          req_fifos[i].enq(reqIn);
+          debug2("tlb", $display("TLB %d Put in search. Virtual address = %x, instid: %x, time: %t", i, reqIn.addr, reqIn.instId, $time));
+        end
+        
+        if (returnVal.valid) debug2("tlb", $display("TLB %d valid response", i, fshow(returnVal)));
+        instId[i] <= reqIn.instId;
+        return returnVal;
+      endmethod
+      method ActionValue#(TlbResponse) response() if (rsp_fifos[i].notEmpty);
+        TlbResponse returnVal = rsp_fifos[i].first;
+        debug2("tlb", $display("TLB %d took response from FIFO", i, fshow(rsp_fifos[i].first)));
+        rsp_fifos[i].deq;
+        return returnVal;
+      endmethod
     endinterface;
   end
 
   interface Server readWrite;
     interface Put request;
-      method Action put(reqIn) if (tlbState == Idle && !readWrite_fifo.notEmpty);
+      method Action put(reqIn) if (tlbState == Serving && !readWrite_fifo.notEmpty);
         readWrite_fifo.enq(reqIn);
-        debug($display("Initiating TLB Read or Write: Write=%x Addr=%x EntHi=%x EntLo0=%x EntLo1=%x", reqIn.write, reqIn.tlbAddr, reqIn.assosEntry.entryHi, reqIn.entryLo0, reqIn.entryLo1));
+        debug2("tlb", $display("Initiating TLB Read or Write: Write=%x Addr=%x EntHi=%x EntLo0=%x EntLo1=%x", reqIn.write, reqIn.tlbAddr, reqIn.assosEntry.entryHi, reqIn.entryLo0, reqIn.entryLo1));
       endmethod
     endinterface
     interface Get response;
@@ -592,9 +555,9 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
             reqOut.assosEntry = entrySrch[readOut_fifo.first];
           reqOut.entryLo0 <- entryLo0.read.get();
           reqOut.entryLo1 <- entryLo1.read.get();
-          debug($display("Delivering TLB Read: Addr=%x EntHi=%x EntLo0=%x EntLo1=%x", 
+          debug2("tlb", $display("Delivering TLB Read: Addr=%x EntHi=%x EntLo0=%x EntLo1=%x", 
             reqOut.tlbAddr, reqOut.assosEntry.entryHi, reqOut.entryLo0, reqOut.entryLo1));
-          tlbState <= Idle;
+          tlbState <= Serving;
           return reqOut;
         endactionvalue
       endmethod
@@ -615,3 +578,4 @@ module mkTLB#(Bit#(16) coreId)(TLBIfc ifc);
      asid <= entryHiAsid;
   endmethod
 endmodule
+`endif // CHERIOS

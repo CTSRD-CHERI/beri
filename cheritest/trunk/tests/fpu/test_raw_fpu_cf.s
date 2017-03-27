@@ -30,15 +30,19 @@
 .set nobopt
 .set noat
 
+#
 # Tests to exercise the comparison (false) ALU instructions.
+#
 
 		.text
 		.global start
 		.ent start
 start:     
-		# First enable CP1 
-		dli $t1, 1 << 29
-		or $at, $at, $t1    # Enable CP1    
+		mfc0 $at, $12
+		dli $t1, 1 << 29	# Enable CP1
+		or $at, $at, $t1
+		dli $t1, 1 << 26	# Put FPU into 64 bit mode
+		or $at, $at, $t1
 		mtc0 $at, $12 
 		nop
 		nop
@@ -46,9 +50,12 @@ start:
 		nop
 		nop    
 
+		# Clear FCSR
+
+		mtc1 $0, $f31
+
 		# Setup parameters
 		    
-		mtc1 $0, $f31
 		lui $t0, 0x4000     # 2.0
 		mtc1 $t0, $f3
 		lui $t0, 0x3F80     # 1.0
@@ -71,16 +78,12 @@ start:
 		# Individual tests
 		
 		# C.F.S (False)
-		c.f.S $f3, $f3
+		c.f.s $f3, $f3
 		cfc1 $s0, $f25
 		
 		# C.F.D (False)
-		c.f.D $f13, $f14
+		c.f.d $f13, $f14
 		cfc1 $s1, $f25
-		
-		# C.F.PS (False)
-		c.f.PS $f23, $f24
-		cfc1 $s2, $f25
 		
 		# Dump registers on the simulator (gxemul dumps regs on exit)
 		mtc0 $at, $26

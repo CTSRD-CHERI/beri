@@ -1,7 +1,7 @@
-BERI Processor 'arcina' release 1  
+BERI Processor 'bigarreau' release 1  
 =================================
 
-11 May 2015
+24 March 2017
 
 Welcome to the BERI Processor release!
 
@@ -58,7 +58,6 @@ Path in tree           | Function
 cheri/trunk/           | The CHERI1 CPU design
 cheri/trunk/sw/        | Software to run bare-metal, when not using the
                        | miniboot primary bootloader
-cheri2/trunk/          | The CHERI2 CPU design
 cherilibs/trunk/       | Common libraries across CHERI1/CHERI2; peripherals
 cheribsd/trunk/        | Miniboot, simulation boot loader
 cheritest/trunk/       | The CHERI instruction set testsuite
@@ -92,20 +91,6 @@ CHERI User's Guide                      | CHERI-specific software reference
 
 These can be downloaded via links from  
   http://www.beri-cpu.org/
-
-
-Outstanding security bugs
-=========================
-
-We are aware of the following bug in this release, which has been 
-fixed in SVN r18576 but the change has not yet passed through our 
-release testing process:
-
-CUnseal did not bounds-check the second capability argument which
-authorizes an unseal of a specified type.  That is, a user possessing any
-capability to a type space (i.e. permit_seal is set) could construct an
-arbitrary out-of-bounds offset to describe any desired type and
-successfully unseal a capability of that type
 
 
 License

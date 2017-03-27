@@ -38,8 +38,10 @@ typedef struct {
 
 interface Bag#(numeric type numElems, type keyType, type datType);
   method Maybe#(datType) isMember(keyType x);
+  method Bool            dataMatch(datType x);
   method Action          insert(keyType x, datType d);
   method Bool            full;
+  method Bool            empty;
   method Action          remove(keyType x);
 endinterface
 
@@ -47,6 +49,7 @@ module mkSmallBag (Bag#(numElems, keyType, datType))
   provisos ( Bits#(keyType, keyTypeSize)
            , Bits#(datType, datTypeSize)
            , Eq#(keyType) 
+           , Eq#(datType)
            , FShow#(Maybe#(Bag::Entry#(keyType, datType))));
 
   // A small bag of elements, stored in registers
@@ -68,6 +71,9 @@ module mkSmallBag (Bag#(numElems, keyType, datType))
       if (bag[i] matches tagged Valid .ent) begin
         if (removeItem matches tagged Valid .itm &&& ent.key == itm)
           newBag[i] = tagged Invalid;
+      end
+      // Make sure this check reflects a potential immediately previous invalidate.
+      if (newBag[i] matches tagged Valid .ent) begin
         if (insertItem matches tagged Valid .itm &&& ent.key == itm.key && !inserted) begin
           newBag[i] = insertItem;
           inserted = True;
@@ -75,7 +81,7 @@ module mkSmallBag (Bag#(numElems, keyType, datType))
       end
     end
     for (Integer i = 0; i < valueOf(numElems); i=i+1) begin
-      if (!inserted && !isValid(bag[i])) begin
+      if (!inserted && !isValid(newBag[i])) begin
         newBag[i] = insertItem;
         inserted = True;
       end
@@ -91,6 +97,15 @@ module mkSmallBag (Bag#(numElems, keyType, datType))
     end
     return ret;
   endmethod
+  
+  method Bool dataMatch(datType x);
+    Bool ret = False;
+    for (Integer i = 0; i < valueOf(numElems); i=i+1) begin
+      if (bag[i] matches tagged Valid .ent &&& ent.dat == x)
+        ret = True;
+    end
+    return ret;
+  endmethod
 
   method Action insert(keyType x, datType d);
     insertItem <= tagged Valid Entry{key: x, dat: d};
@@ -98,6 +113,11 @@ module mkSmallBag (Bag#(numElems, keyType, datType))
   
   method Bool full;
     return all(isValid, bag);
+  endmethod
+  
+  method Bool empty;
+    function Bool notValid(Maybe#(data_t) val) = !isValid(val);
+    return all(notValid, bag);
   endmethod
 
   method Action remove(keyType x);

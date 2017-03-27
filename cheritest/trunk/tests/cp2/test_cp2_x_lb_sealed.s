@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -48,6 +49,7 @@ test:		.ent test
 		#
 		# Set BEV state to BEV0
 		#
+
 		jal	bev_clear
 		nop
 
@@ -61,17 +63,6 @@ test:		.ent test
 		dsll	$a2, 2	# convert to byte count
 		jal	memcpy
 		nop		# branch delay slot	
-
-		#
-		# Install a bev1 handler as well
-		#
-
-		dli	$a0, 0xffffffffbfc00380
-		dla	$a1, bev0_common_handler_stub
-                dli     $a2, 12 # instruction count
-                dsll    $a2, 2  # convert to byte count
-                jal     memcpy
-                nop             # branch delay slot  
 
 		# $a2 will be set to 1 if the exception handler is called
 		dli	$a2, 0

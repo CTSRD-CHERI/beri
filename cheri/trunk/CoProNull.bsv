@@ -34,7 +34,7 @@ module mkCoProNull(CoProIfc);
   endmethod
 
   method ActionValue#(CoProResponse) getCoProResponse(CoProVals coProVals);
-    return CoProResponse{ valid: False, data: ?, exception: None };
+    return CoProResponse{ valid: False, data: ?, storeData: ?, exception: None };
   endmethod
 
   interface Client coProMem;

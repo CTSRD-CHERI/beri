@@ -1,6 +1,6 @@
 #!/bin/sh -e
 #-
-# Copyright (c) 2012-2013 SRI International
+# Copyright (c) 2012-2014, 2016 SRI International
 # Copyright (c) 2012 Robert N. M. Watson
 # All rights reserved.
 #
@@ -34,9 +34,10 @@
 usage()
 {
 	cat <<EOF 1>&2
-usage: makeroot.sh [-B byte-order] [-d] [-e <extras manifest>] [-f <filelist>]
+usage: makeroot.sh [-B byte-order] [-d] [-D] [-e <extras manifest>] [-f <filelist>]
                    [-k <keydir> [-K <user>]] [-F <free inodes>]
                    [-p <master.passwd> [-g <groupfile>]] [-s <size>]
+		   [-X <exclude pattern>]
 		   <image> <bsdroot>
 EOF
 	exit 1
@@ -65,6 +66,7 @@ atexit()
 }
 
 DEBUG=
+DEBUGFLAG_MAKEFS=
 # Allow duplice manifest entries when not file list is given because the
 # FreeBSD METALOG still includes it.
 DUPFLAG=-D
@@ -76,10 +78,11 @@ KEYUSERS=
 PASSWD=
 FREEINODESFLAG="-f 256"
 
-while getopts "B:de:f:g:K:k:p:s:F:" opt; do
+while getopts "B:dD:e:f:g:K:k:p:s:F:X:" opt; do
 	case "$opt" in
 	B)	BFLAG="-B ${OPTARG}" ;;
 	d)	DEBUG=1 ;;
+	D)	DEBUGFLAG_MAKEFS="-d ${OPTARG}" ;;
 	e)	EXTRAS="${EXTRAS} ${OPTARG}" ;;
 	f)	FILELIST="${FILELIST} ${OPTARG}"; DUPFLAG= ;;
 	g)	GROUP="${OPTARG}" ;;
@@ -88,6 +91,13 @@ while getopts "B:de:f:g:K:k:p:s:F:" opt; do
 	p)	PASSWD="${OPTARG}" ;;
 	s)	SIZE="${OPTARG}" ;;
 	F)	FREEINODES="${OPTARG}" ;;
+	X)
+		if [ -n "$EXCLUDE_FILTER" ]; then
+			warn "The -X option can be applied only once"
+			usage
+		fi
+		EXCLUDE_FILTER="grep -v -E ${OPTARG}"
+		;;
 	*)	usage ;;
 	esac
 done
@@ -95,6 +105,10 @@ shift $(($OPTIND - 1))
 
 if [ $# -ne 2 ]; then
 	usage;
+fi
+
+if [ -z "$EXCLUDE_FILTER" ]; then
+	EXCLUDE_FILTER=cat
 fi
 
 IMGFILE=$(realpath $(dirname $1))/$(basename $1)
@@ -151,6 +165,7 @@ EOF
 fi
 
 if [ -n "${FILELIST}" ]; then
+	sed -E -e 's|//+|/|g' -e 's/time=[^ ]*//' ${BSDROOT}/METALOG > ${tmpdir}/METALOG
 	# build manifest from root manifest and FILELIST
 	(echo .; grep -h -v ^# ${FILELIST} | while read path; do
 		# Print each included path and all its sub-paths with a ./
@@ -163,7 +178,8 @@ if [ -n "${FILELIST}" ]; then
 			echo ".${path}"
 			path="${path%/*}"
 		done 
-	done) | sort -u ${BSDROOT}/METALOG - | \
+	done) | sort -u ${tmpdir}/METALOG - | ${EXCLUDE_FILTER} | \
+	    sed -e 's/tags=[^ ]*//' | \
 	    awk '
 		!/ type=/ { file = $1 }
 		/ type=/ { if ($1 == file) {print} }' >> ${manifest}
@@ -171,7 +187,9 @@ else
 	# Start with all the files in BSDROOT/METALOG except those in
 	# one of the EXTRAS manifests.
 	grep -h type=file ${EXTRAS} | cut -d' ' -f1 | \
-	    sort -u ${BSDROOT}/METALOG - | awk '
+	    sort -u ${BSDROOT}/METALOG - | ${EXCLUDE_FILTER} | \
+	    sed -e 's/tags=[^ ]*//' -e 's/time=[^ ]*//' | \
+	    awk '
 		!/ type=/ { file = $1 }
 		/ type=/ { if ($1 != file) {print} }' >> ${manifest}
 fi
@@ -238,5 +256,9 @@ if [ -n "${FREEINODES}" ]; then
 FREEINODESFLAG="-f ${FREEINODES}"
 fi
 
+if [ -n "${DEBUG}" ]; then
+	echo "cd ${BSDROOT}; makefs -o version=2 ${DUPFLAG} -N ${DBDIR} ${SIZEFLAG} ${BFLAG} \
+    	 	${DEBUGFLAG_MAKEFS} -t ffs ${FREEINODESFLAG} ${IMGFILE} ${manifest}"
+fi
 cd ${BSDROOT}; makefs -o version=2 ${DUPFLAG} -N ${DBDIR} ${SIZEFLAG} ${BFLAG} \
-     -t ffs ${FREEINODESFLAG} ${IMGFILE} ${manifest}
+     ${DEBUGFLAG_MAKEFS} -t ffs ${FREEINODESFLAG} ${IMGFILE} ${manifest}

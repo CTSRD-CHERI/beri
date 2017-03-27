@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2014 Michael Roe
+# Copyright (c) 2014, 2016 Michael Roe
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -34,15 +34,37 @@ from nose.plugins.attrib import attr
 
 class test_raw_fpu_abs_qnan(BaseBERITestCase):
 
-#
-# This test for a 'not a number' value really should test that the fraction
-# part is non-zero, as this denotes +/- infinity rather than NaN/
-#
     def test_raw_fpu_abs_qnan_1(self):
-        '''Test single precision abs of QNaN'''
-	self.assertRegisterMaskEqual(self.MIPS.a0, 0x7f800000, 0x7f800000, "abs.s did not return QNaN")
+        '''Test ABS.S of QNaN'''
+	self.assertRegisterIsSingleNaN(self.MIPS.a0, "ABS.S did not return NaN")
 
     @attr('floatlegacyabs')
     def test_raw_fpu_abs_qnan_2(self):
-        '''Test that abs has legacy MIPS behaviour, not IEEE 754-2008'''
+        '''Test that ABS.S has IEEE 754-1985 behaviour'''
+        self.assertRegisterMaskEqual(self.MIPS.a0, 0xff800000, 0xff800000, "ABS.S did not copy QNaN (IEEE 754-1985 behaviour")
+
+    @attr('floatlegacyabs')
+    @attr('floatechonan')
+    def test_raw_fpu_abs_qnan_3(self):
+        '''Test that ABS.S echos QNaN'''
+        self.assertRegisterEqual(self.MIPS.a0, 0xffffffffff900000, "ABS.S did not echo QNaN")
+
+    def test_raw_fpu_abs_qnan_4(self):
+        '''Test ABS.D of QNaN'''
+        self.assertRegisterMaskEqual(self.MIPS.a2, 0x7ff0000000000000, 0x7ff0000000000000, "ABS.D did not return QNaN")
+
+    @attr('floatlegacyabs')
+    def test_raw_fpu_abs_qnan_5(self):
+        '''Test that ABS.D has IEEE 754-1985 behavior'''
+        self.assertRegisterMaskEqual(self.MIPS.a2, 0xfff0000000000000, 0xfff0000000000000, "ABS.D did not copy QNaN (IEEE 754-1985 behaviour")
+
+    @attr('floatlegacyabs')
+    @attr('floatechonan')
+    def test_raw_fpu_abs_qnan_6(self):
+        '''Test that ABS.D echos QNaN'''
+        self.assertRegisterEqual(self.MIPS.a2, 0xfff1000000000000, "ABS.D did not echo QNaN")
+
+    @attr('floatlegacyabs')
+    def test_raw_fpu_abs_qnan_7(self):
+        '''Test that FCSR.ABS2008 is not set'''
         self.assertRegisterEqual(self.MIPS.a1, 0, "FCSR.ABS2008 was set")

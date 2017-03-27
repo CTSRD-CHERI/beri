@@ -1,8 +1,7 @@
 //
 // Copyright (c) 2012-2013 Jonathan Woodruff
-// Copyright (c) 2013-2014 Bjoern A. Zeeb
-// Copyright (c) 2014 A. Theodore Markettos
-// Copyright (c) 2014 Alex Horsman
+// Copyright (c) 2013 Bjoern A. Zeeb
+// Copyright (c) 2014 Theo Markettos
 // All rights reserved.
 //
 // This software was developed by SRI International and the University of
@@ -36,8 +35,8 @@
 `define	ENABLE_LED
 `define	ENABLE_BUTTONS
 `define	ENABLE_ETHERNET
-//`define	ENABLE_SDCARD
-//`define	ENABLE_UART
+`define	ENABLE_SDCARD
+`define	ENABLE_UART
 `define	ENABLE_DDR2_1
 `define	ENABLE_DIP
 `define ENABLE_SLIDE
@@ -45,10 +44,10 @@
 `define	ENABLE_TEMP
 `define	ENABLE_CSENSE
 `define ENABLE_FLASH
-//`define	ENABLE_SSRAM
+`define	ENABLE_SSRAM
 `define	ENABLE_USB
 `define	ENABLE_HDMI
-//`define	ENABLE_MTL
+`define	ENABLE_MTL
 
 `ifndef ENABLE_DDR2_1
 `ifndef ENABLE_DDR2_2
@@ -266,7 +265,7 @@ module DE4_BERI (
 	input			OTG_HC_IRQ,
 	output			OTG_OE_n,
 	output			OTG_RESET_n,
-	output			OTG_WE_n
+	output			OTG_WE_n,
 `endif
 	
 `ifdef	ENABLE_MTL
@@ -435,7 +434,7 @@ module DE4_BERI (
 	end
 
 	reg [7:0] SW_P;
-	always @(posedge qsys_50_clk) SW_P <= ~SW;  // positive version of DIP switches
+	always @(posedge qsys_sysclk) SW_P <= ~SW;  // positive version of DIP switches
 
 	assign SEG1_DP = ~1'b0;
 	assign SEG0_DP = ~1'b0;
@@ -502,19 +501,19 @@ module DE4_BERI (
 	wire [1:0] touch_count_2;
 	wire [7:0] touch_gesture_2;
   
-//	i2c_touch_config touch(
-//		 .iCLK(qsys_50_clk),
-//		 .iRSTN(rstn),
-//		 .iTRIG(!mtl_touch_int), // note that this signal is inverted
-//		 .oREADY(touch_ready_2),
-//		 .oREG_X1(touch_x1_2),
-//		 .oREG_Y1(touch_y1_2),
-//		 .oREG_X2(touch_x2_2),
-//		 .oREG_Y2(touch_y2_2),
-//		 .oREG_TOUCH_COUNT(touch_count_2),
-//		 .oREG_GESTURE(touch_gesture_2),
-//		 .I2C_SCLK(mtl_touch_i2cscl),
-//		 .I2C_SDAT(mtl_touch_i2csda));
+	i2c_touch_config touch(
+		 .iCLK(qsys_50_clk),
+		 .iRSTN(rstn),
+		 .iTRIG(!mtl_touch_int), // note that this signal is inverted
+		 .oREADY(touch_ready_2),
+		 .oREG_X1(touch_x1_2),
+		 .oREG_Y1(touch_y1_2),
+		 .oREG_X2(touch_x2_2),
+		 .oREG_Y2(touch_y2_2),
+		 .oREG_TOUCH_COUNT(touch_count_2),
+		 .oREG_GESTURE(touch_gesture_2),
+		 .I2C_SCLK(mtl_touch_i2cscl),
+		 .I2C_SDAT(mtl_touch_i2csda));
 
 	// synchronize signals to qsys system clock
 	always @(posedge qsys_sysclk)
@@ -626,10 +625,10 @@ module DE4_BERI (
 
 		// ---------------------------------------------------------------------
 		// MAC (TSE) 1
-		.mac1_mac_mdio_mdc			(enet1_mdc),		//                       mac1_mac_mdio.mdc
-		.mac1_mac_mdio_mdio_in			(enet1_mdio_in),	//                                    .mdio_in
-		.mac1_mac_mdio_mdio_out			(enet1_mdio_out),	//                                    .mdio_out
-		.mac1_mac_mdio_mdio_oen			(enet1_mdio_oen),	//                                    .mdio_oen
+		//.mac1_mac_mdio_mdc			(enet1_mdc),		//                       mac1_mac_mdio.mdc
+		//.mac1_mac_mdio_mdio_in			(enet1_mdio_in),	//                                    .mdio_in
+		//.mac1_mac_mdio_mdio_out			(enet1_mdio_out),	//                                    .mdio_out
+		//.mac1_mac_mdio_mdio_oen			(enet1_mdio_oen),	//                                    .mdio_oen
 		//.mac1_mac_misc_xon_gen,		( input )		//                       mac1_mac_misc.xon_gen
 		//.mac1_mac_misc_xoff_gen,		( input )		//                                    .xoff_gen
 		//.mac1_mac_misc_magic_wakeup,		( output )		//                                    .magic_wakeup
@@ -651,17 +650,16 @@ module DE4_BERI (
 		//.mac1_status_led_char_err,		( output )		//                                    .char_err
 		//.mac1_status_led_disp_err,		( output )		//                                    .disp_err
 		//.mac1_serdes_control_export,		( output )		//                 mac1_serdes_control.export
-		.mac1_serial_txp			(lvds_txp1),		//                         mac1_serial.txp
-		.mac1_serial_rxp			(lvds_rxp1),		//                                    .rxp
+		//.mac1_serial_txp			(lvds_txp1),		//                         mac1_serial.txp
+		//.mac1_serial_rxp			(lvds_rxp1),		//                                    .rxp
 
 		// ---------------------------------------------------------------------/
-`ifdef ENABLE_SDCARD	
+	
 		.sd_b_SD_cmd                         (SD_CMD),                         //                       sd.b_SD_cmd
 		.sd_b_SD_dat                         (SD_DAT[0]),                         //                         .b_SD_dat
 		.sd_b_SD_dat3                        (SD_DAT[3]),                        //                         .b_SD_dat3
 		.sd_o_SD_clock                       (SD_CLK),                        //                         .o_SD_clock
-`endif
-`ifdef ENABLE_SSRAM
+
 		.mem_ssram_adv                 (SSRAM_ADV),                 //                fbssram_1.ssram_adv
 		.mem_ssram_bwa_n               (SSRAM_BWA_n),               //                         .ssram_bwa_n
 		.mem_ssram_bwb_n               (SSRAM_BWB_n),               //                         .ssram_bwb_n
@@ -708,7 +706,6 @@ module DE4_BERI (
 	//	.i2s_tx_conduit_end_sck        (gen_sck),                     //                  i2s_tx_conduit_end.sck
 	//	.i2s_tx_conduit_end_ws         (gen_ws),                      //                                    .ws
 	//	.i2s_tx_conduit_end_sd         (gen_i2s),
-`endif
 		.usb_coe_cs_n                               (OTG_CS_n),                               //                                 usb.coe_cs_n
 		.usb_coe_rd_n                               (OTG_OE_n),                               //                                    .coe_rd_n
       .usb_coe_din                                (OTG_D),                                //                                    .coe_din
@@ -725,7 +722,6 @@ module DE4_BERI (
 		.fan_temp_lower_seg_n                       (SEG0_D),                       //                                    .temp_lower_seg_n
 		.fan_temp_upper_seg_n                       (SEG1_D),                        //                                    .temp_upper_seg_n.
 		.switches_export               ({SLIDE_SW[3:0], BUTTON[3:0], SW_P[7:0]}),
-`ifdef ENABLE_UART
 		.rs232_stx_pad_o                            (UART_TXD),                            //                               rs232.stx_pad_o
 		.rs232_srx_pad_i                            (UART_RXD),                            //                                    .srx_pad_i
 		.rs232_rts_pad_o                            (UART_RTS),                            //                                    .rts_pad_o
@@ -734,9 +730,7 @@ module DE4_BERI (
 		// I have no idea what these should be by default.  Should see Simon's example project.
 		.rs232_dsr_pad_i                            (1'b1),                            //                          .dsr_pad_i
 		.rs232_ri_pad_i                             (1'b1),                             //                                    .ri_pad_i
-		.rs232_dcd_pad_i                            (1'b1),                            //                                    .dcd_pad_i
-`endif
-`ifdef ENABLE_HDMI
+		.rs232_dcd_pad_i                            (1'b1)/*,                            //                                    .dcd_pad_i
         .hdmi_vid_clock_clk                         (HDMI_TX_PCLK),                         //                      hdmi_vid_clock.clk
         .hdmi_ref_clock_clk                         (OSC_50_Bank5),                         //                      hdmi_ref_clock.clk
         .hdmi_r                                     (HDMI_TX_RD),                                     //                                hdmi.r
@@ -744,8 +738,7 @@ module DE4_BERI (
         .hdmi_b                                     (HDMI_TX_BD),                                     //                                    .b
         .hdmi_hsd                                   (HDMI_TX_HS),                                   //                                    .hsd
         .hdmi_vsd                                   (HDMI_TX_VS),                                   //                                    .vsd
-        .hdmi_de                                    (HDMI_TX_DE)
-`endif
+        .hdmi_de                                    (HDMI_TX_DE)*/
 `ifdef	ENABLE_PCIE
 		,
 		.pciexpressstream_0_refclk_export           (PCIE_REFCLK_p),

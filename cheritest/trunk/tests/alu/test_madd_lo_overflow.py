@@ -26,14 +26,18 @@
 #
 
 from beritest_tools import BaseBERITestCase
+from nose.plugins.attrib import attr
 
 class test_madd_lo_overflow(BaseBERITestCase):
-	def test_initial(self):
-		'''Test that lo is full'''
-		self.assertRegisterEqual(self.MIPS.a0, 0, "Hi is incorrect")
-		self.assertRegisterEqual(self.MIPS.a1, 0xffffffffffffffff, "Lo is not full")
 
-	def test_madd_zeroed(self):
-		'''Test that the bits correctly overflow from lo into hi'''
-		self.assertRegisterEqual(self.MIPS.a2, 1, "Hi was incorrect")
-		self.assertRegisterEqual(self.MIPS.a3, 0, "Lo was incorrect")
+    @attr('madd')
+    def test_initial(self):
+        '''Test that lo is full'''
+        self.assertRegisterEqual(self.MIPS.a0, 0, "Hi is incorrect")
+        self.assertRegisterEqual(self.MIPS.a1, 0xffffffffffffffff, "Lo is not full")
+
+    @attr('madd')
+    def test_madd_zeroed(self):
+        '''Test that the bits correctly overflow from lo into hi'''
+        self.assertRegisterEqual(self.MIPS.a2, 1, "Hi was incorrect")
+        self.assertRegisterEqual(self.MIPS.a3, 0, "Lo was incorrect")

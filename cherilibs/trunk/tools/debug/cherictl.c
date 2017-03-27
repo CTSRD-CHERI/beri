@@ -6,7 +6,7 @@
  * Copyright (c) 2012-2014 Bjoern A. Zeeb
  * Copyright (c) 2013 David T. Chisnall
  * Copyright (c) 2013 Colin Rothwell
- * Copyright (c) 2015 A. Theodore Markettos
+ * Copyright (c) 2015 Theo Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of

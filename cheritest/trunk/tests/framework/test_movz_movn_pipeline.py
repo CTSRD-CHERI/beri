@@ -26,20 +26,31 @@
 #
 
 from beritest_tools import BaseBERITestCase
+from nose.plugins.attrib import attr
 
 class test_movz_movn_pipeline(BaseBERITestCase):
+
+    @attr('movz')
     def test_movz_pipeline_true(self):
         '''Test that result of MOVZ test is correct.'''
         self.assertRegisterEqual(self.MIPS.s0, 0xFFFFFFFFFFFFFFFF, "MOVZ moved when it shouldn't have.")
-    def test_movz_pipeline_false(self):
+
+    @attr('movz')
+    def test_mov_pipeline_false(self):
         '''Test that result of MOVZ test is correct.'''
         self.assertRegisterEqual(self.MIPS.s1, 0x0000000000000001, "MOVZ did not move when it should have.")
+
+    @attr('movz')
     def test_movn_pipeline_true(self):
         '''Test that result of MOVN test is correct.'''
         self.assertRegisterEqual(self.MIPS.s2, 0xFFFFFFFFFFFFFFFF, "MOVN moved when it shouldn't have.")
+
+    @attr('movz')
     def test_movn_pipeline_false(self):
         '''Test that result of MOVN test is correct.'''
         self.assertRegisterEqual(self.MIPS.s3, 0x0000000000000001, "MOVN did not move when it should have.")
-    def test_movn_pipeline_false(self):
+
+    @attr('movz')
+    def test_movn_pipeline_freebsd(self):
         '''Test that result of MOVN test is correct.'''
         self.assertRegisterEqual(self.MIPS.s5, 0xfffffffffffffffc, "MOVZ did not forward correctly in case found in freeBSD.")

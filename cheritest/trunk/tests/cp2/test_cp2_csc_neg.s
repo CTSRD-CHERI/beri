@@ -25,13 +25,14 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
 .set noat
 
 #
-# Test csci with a negative immediate offset
+# Test CSCI with a negative immediate offset
 #
 
 		.global test
@@ -45,6 +46,8 @@ test:		.ent test
 		# Tweak capability type field so that we can tell if base and
 		# offset are in the right order.
 		#
+
+		cgetdefault $c2
 		dli	$t0, 0x1
 		csetoffset $c2, $c2, $t0
 
@@ -55,33 +58,47 @@ test:		.ent test
 		# Permit_Store_Capability, Permit_Load_Capability,
 		# Permit_Store_Ephemeral.
 		#
+
 		dli $t0, 0x7f
 		candperm $c2, $c2, $t0
 
 		#
 		# Make $c1 a data capability for cap1
 		#
-		dla $t0, cap1
-		cincbase $c1, $c0, $t0
+
+		cgetdefault $c1
+		dla	$t0, cap1
+		csetoffset $c1, $c1, $t0
+		dli	$t0, 32
+		csetbounds $c1, $c1, $t0
 
 		#
 		# Store at cap1 in memory.
 		#
-		dli     $t0, 8
-		csc	$c2, $t0, -8($c1)
+
+		dli     $t0, 32
+		csc	$c2, $t0, -32($c1)
 
 		#
 		# Load back in as general-purpose registers to check values
 		#
+
 		dla	$t0, cap1
+
+		#
 		# $a0 will be the perms field (0x7f) shifted left one bit,
 		# plus the u bit (0x0) giving 0xfe.
+		#
+
 		ld	$a0, 0($t0)
 		ld	$a1, 8($t0)
 		ld	$a2, 16($t0)
 		ld	$a3, 24($t0)
 
+		#
 		# Check that underflow or overflow didn't occur
+		#
+
 		dla	$t1, underflow
 		ld	$a4, 0($t1)
 		dla	$t1, overflow

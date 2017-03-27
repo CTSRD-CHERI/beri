@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -53,7 +54,7 @@ test:		.ent test
 
 		dli	$a2, 0	# a2 will be set to 1 if an exception happens
 
-		cmove	$c1, $c0
+		cgetdefault $c1
 		dli	$t0, 0x7fff
 		ccheckperm $c1, $t0
 

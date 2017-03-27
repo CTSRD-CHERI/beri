@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2013 Alan A. Mujumdar
- * Copyright (c) 2014 Alexandre Joannou
+ * Copyright (c) 2014-2016 Alexandre Joannou
  * Copyright (C) 2014 Colin Rothwell
  * Copyright (C) 2015 Paul J. Fox
  * All rights reserved.
@@ -41,6 +41,7 @@
  ************************************************************************/
 
 import MIPS::*;
+import MIPSTopIfc::*;
 import MemTypes::*;
 import Memory::*;
 import FIFO::*;
@@ -51,7 +52,6 @@ import ClientServer::*;
 import MasterSlave::*;
 import Connectable::*;
 import Interconnect::*;
-import MIPSTop::*;
 `ifndef MICRO
   import L2Cache::*;
 `endif
@@ -61,14 +61,16 @@ import PIC::*;
 import Peripheral::*;
 `ifdef CAP
   import CapCop :: *;
-  import TagCache::*;
-  import Connectable::*;
   `define USECAP
 `elsif CAP128
   import CapCop128 :: *;
-  import TagCache::*;
-  import Connectable::*;
   `define USECAP
+`elsif CAP64
+  import CapCop64 :: *;
+  `define USECAP
+`endif
+`ifdef USECAP
+  import TagController::*;
 `endif
 `ifdef RMA
   import RemoteMemoryAccessorCheri::*;
@@ -77,6 +79,8 @@ import Peripheral::*;
 // For testing the memory sub-system
 `ifdef TEST_MEM
   import MIPSTop_TestMem::*;
+`else
+  import MIPSTop::*;
 `endif
 
 interface MulticoreIfc;
@@ -95,7 +99,7 @@ interface MulticoreIfc;
   interface Vector#(CORE_COUNT, MIPSMemory) mipsMemories;
 endinterface
 
-  (*synthesize*)
+  //(*synthesize*)
   module mkMulticore(MulticoreIfc);
 
     // For testing the memory sub-system
@@ -119,7 +123,7 @@ endinterface
             beriMasters = getBeriMasters(beri);
     
     Vector#(1, Slave#(CheriMemRequest,CheriMemResponse)) topSlave;
-   `ifndef MICRO
+    `ifndef MICRO
       // L2Cache instantiation has been moved from Memory.bsv to this location
       L2CacheIfc l2cache <- mkL2Cache;
       topSlave[0] = l2cache.cache;
@@ -127,21 +131,36 @@ endinterface
       // A single port L2Cache can not communicate directly with the L1's due to the nature
       // of the merge module. A different merge module is used with the multiport L2, it 
       // Allows direct L1Cache invalidation
-
-      rule invalidateL1Caches;
-        Maybe#(InvalidateCache) inv <- l2cache.getInvalidate;
-        if (inv matches tagged Valid .invalidate) begin
-          for (Integer i=0; i<valueof(CORE_COUNT); i=i+1) begin
-            if (invalidate.sharers[2*i]) begin 
-              beri[i].invalidateICache(unpack(pack(invalidate.addr)));
+      `ifndef TIMEBASED
+        rule invalidateL1Caches;
+          Maybe#(InvalidateCache) inv <- l2cache.getInvalidate;
+          if (inv matches tagged Valid .invalidate) begin
+            for (Integer i=0; i<valueof(CORE_COUNT); i=i+1) begin 
+              // No Instruction Cache Invalidation
+        /*
+              if (invalidate.sharers[2*i]) begin 
+                beri[i].invalidateICache(unpack(pack(invalidate.addr)));
+              end
+        */
+              if (invalidate.sharers[2*i+1]) begin
+                beri[i].invalidateDCache(unpack(pack(invalidate.addr)));
+              end
+              debug2("multicore", $display("<time %0t Multicore> Invalidate L1 Shared Block Core:%d, BitMap:%b, Addr:%x", $time, fromInteger(i), invalidate.sharers, invalidate.addr));
             end
-            if (invalidate.sharers[2*i+1]) begin
-              beri[i].invalidateDCache(unpack(pack(invalidate.addr)));
-            end
-            debug2("multicore", $display("<time %0t Multicore> Invalidate L1 Shared Block Core:%d, BitMap:%b, Addr:%x", $time, fromInteger(i), invalidate.sharers, invalidate.addr));
           end
+        endrule
+        
+        Vector#(CORE_COUNT, Wire#(Bool)) fireList <- replicateM(mkDWire(False));
+        for (Integer i=0; i<valueof(CORE_COUNT); i=i+1) begin
+          Bool noneFired = True;
+          for (Integer j=0; j<i; j=j+1) if (fireList[j]) noneFired = False;
+          rule deliverInvalidateResponse(noneFired);
+            Bool neededWriteback <- beri[i].getInvalidateDone();
+            l2cache.putInvalidateDone(neededWriteback);
+            fireList[i] <= True;
+          endrule
         end
-      endrule
+      `endif
 
       Master#(CheriMemRequest,CheriMemResponse) lastMaster = l2cache.memory;
     `else
@@ -166,22 +185,27 @@ endinterface
       lastMaster = rma.master;
     `endif
 
-    // Connecting the L2Cache to the TagCache. TagCache is then connected to DRAM
+    // Connecting the L2Cache to the TagController. TagController is then connected to DRAM
     `ifdef USECAP
-      TagCacheIfc tagCache <- mkTagCache(); 
-      mkConnection(lastMaster, tagCache.cache);
-      lastMaster = tagCache.memory;
+      TagControllerIfc tagController <- mkTagController(); 
+      mkConnection(lastMaster, tagController.cache);
+      lastMaster = tagController.memory;
     `endif
     
     // Synchronised count and pause registers for all cores.
     Reg#(Bit#(48))                      count           <- mkReg(48'b0);
     Reg#(Bool)                          pause           <- mkReg(False);
     
+    // Creating one PIC per core
+    Vector#(CORE_COUNT,PIC#(32,Bit#(0))) pics <- replicateM(mkPIC);
+
     (* fire_when_enabled, no_implicit_conditions *)
     rule putStates;
       if (!pause) count <= count + 1;
-      for (Integer i=0; i<valueof(CORE_COUNT); i=i+1)
-        beri[i].putState(count, pause);
+      for (Integer i=0; i<valueof(CORE_COUNT); i=i+1) begin
+        Bit#(0) tid = unpack(0);
+        beri[i].putState(count, pause,truncate(pics[i].irqMapper.getMIPSIrqs(tid)));
+      end
     endrule
     
     for (Integer i=0; i<valueof(CORE_COUNT); i=i+1) begin
@@ -191,18 +215,6 @@ endinterface
       endrule
     end
     
-    // Creating one PIC per core
-    Vector#(CORE_COUNT,PIC#(32,Bit#(0))) pics <- replicateM(mkPIC);
-
-    // PIC interfacing
-    (* fire_when_enabled, no_implicit_conditions *)  
-    rule irqForward;
-      for (Integer i=0; i<valueof(CORE_COUNT); i=i+1) begin   
-        Bit#(0) tid = unpack(0); 
-        beri[i].putIrqs(truncate(pics[i].irqMapper.getMIPSIrqs(tid)));
-      end  
-    endrule 
-
     // For testing the memory sub-system
     function MIPSMemory getMipsMemory(MIPSTopIfc core) = core.mipsMemory;
 

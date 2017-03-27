@@ -5,7 +5,7 @@
 # Copyright (c) 2012 Robert M. Norton
 # Copyright (c) 2012-2013 Bjoern A. Zeeb
 # Copyright (c) 2013 Jonathan Anderson
-# Copyright (c) 2015 A. Theodore Markettos
+# Copyright (c) 2015 Theo Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -31,8 +31,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
-all: cherictl 
-#cherictl_test tests
+all: cherictl cherictl_test tests
 
 ifdef PCIEXPRESS
 DEFINES+= -D ENABLE_PCIEXPRESS
@@ -62,8 +61,8 @@ CFLAGS+=	-I..
 endif
 
 PROGS:=	berictl		\
-	cherictl	
-#	cherictl_test
+	cherictl	\
+	cherictl_test
 
 ifeq ($(UNAME), FreeBSD)
 PROGS+= beri_terminal
@@ -130,8 +129,17 @@ POBJS:=		$(addsuffix .o,$(PROGS))
 ifeq ($(UNAME), FreeBSD)
 all: berictl cherictl beri_terminal blk_ioctl
 else
-all: berictl cherictl
+all: berictl_wrapped cherictl
 endif
+
+berictl_wrapped: berictl
+	mv berictl berictl-wrapped
+ifdef JTAG_ATLANTIC
+	sed "s/@JTAGATLANTIC@/1/g" < berictl-wrapper > berictl
+else
+	sed "s/@JTAGATLANTIC@/0/g" < berictl-wrapper > berictl
+endif
+	chmod +x berictl
 
 berictl: berictl.o $(OBJS)
 	$(CC) $(CFLAGS) -o berictl $^ $(LIBS)
@@ -152,7 +160,7 @@ blk_ioctl: blk_ioctl.o $(OBJS)
 	$(CC) $(CFLAGS) -o blk_ioctl $^ $(LIBS)
 
 clean:
-	rm -f berictl cherictl cherictl_test \
+	rm -f berictl cherictl cherictl_test berictl-wrapped \
 		beri_terminal blk_ioctl \
 		$(OBJS) $(POBJS) \
 		tests/*.o tests/alltests

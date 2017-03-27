@@ -36,8 +36,8 @@ from nose.plugins.attrib import attr
 
 class test_cp2_cmove_j(BaseBERITestCase):
     @attr('capabilities')
-    def test_cp2_cmove_uperms(self):
-        '''Test that cmove retained u, perms fields correctly'''
+    def test_cp2_cmove_perms(self):
+        '''Test that cmove retained perms fields correctly'''
         self.assertRegisterEqual(self.MIPS.a0, 0xff, "cmove failed to retain correct u, perms fields")
 
     @attr('capabilities')
@@ -48,12 +48,12 @@ class test_cp2_cmove_j(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_cmove_base(self):
         '''Test that cmove retained the base field correctly'''
-        self.assertRegisterEqual(self.MIPS.a2, 0x100, "cmove failed to retain correct base address")
+        self.assertRegisterEqual(self.MIPS.a2, 0, "cmove failed to retain correct base address")
 
     @attr('capabilities')
     def test_cp2_cmove_length(self):
         '''Test that cmove retained the length field correctly'''
-        self.assertRegisterEqual(self.MIPS.a3, 0x200, "cmove failed to retain correct length")
+        self.assertRegisterEqual(self.MIPS.a3, 8, "cmove failed to retain correct length")
 
     @attr('capabilities')
     def test_branch_delay(self):

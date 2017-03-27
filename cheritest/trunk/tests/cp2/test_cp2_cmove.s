@@ -1,10 +1,15 @@
 #-
 # Copyright (c) 2011 Robert N. M. Watson
+# Copyright (c) 2015 Michael Roe
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
 # Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
 # ("CTSRD"), as part of the DARPA CRASH research programme.
+#
+# This software was developed by the University of Cambridge Computer
+# Laboratory as part of the Rigorous Engineering of Mainstream Systems (REMS)
+# project, funded by EPSRC grant EP/K008528/1.
 #
 # @BERI_LICENSE_HEADER_START@
 #
@@ -25,6 +30,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -42,24 +48,42 @@ test:		.ent test
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
+		#
 		# Load values into c2
-		dli		$t0, 0x5
-		csetoffset	$c2, $c2, $t0
-		dli		$t0, 0x100
-		cincbase	$c2, $c2, $t0
-		dli		$t0, 0x200
-		csetlen	$c2, $c2, $t0
-		dli		$t0, 0xff
-		candperm	$c2, $c2, $t0
+		#
 
+		cgetdefault $c2
+		dla	$t0, data
+		csetoffset $c2, $c2, $t0
+		dli	$t0, 8
+		csetbounds $c2, $c2, $t0
+		dli	$t0, 0xff
+		candperm $c2, $c2, $t0
+		dli	$t0, 5
+		csetoffset $c2, $c2, $t0
+
+		#
 		# Move to c3
+		#
+
 		cmove	$c3, $c2
 
+		#
 		# Extract values
+		#
+
 		cgetperm	$a0, $c3
 		cgetoffset	$a1, $c3
 		cgetbase	$a2, $c3
 		cgetlen 	$a3, $c3
+
+		#
+		# Compute the difference between $c2.base and $c3.base
+		# Should be zero.
+		#
+
+		cgetbase	$t0, $c2
+		dsubu		$a2, $a2, $t0
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
@@ -67,3 +91,7 @@ test:		.ent test
 		jr	$ra
 		nop			# branch-delay slot
 		.end	test
+
+		.data
+		.align 5
+data:		.dword 0

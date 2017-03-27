@@ -48,6 +48,6 @@ class test_cp2_x_cgetbase_reg(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_x_cgetbase_reg_3(self):
         '''Test capability cause register is set correctly when register is reseerved'''
-        self.assertRegisterEqual(self.MIPS.a3, 0x1d1b,
+        self.assertRegisterEqual(self.MIPS.a3, 0x181b,
             "Capability cause was not set correctly when register was reserved")
 

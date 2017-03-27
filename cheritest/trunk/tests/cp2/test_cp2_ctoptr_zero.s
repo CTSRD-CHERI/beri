@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -43,11 +44,13 @@ test:		.ent test
 		daddu	$fp, $sp, 32
 
 
+		cgetdefault $c1
 		dli	$t0, 4
-		csetlen $c1, $c0, $t0
+		csetbounds $c1, $c1, $t0
 
+		cgetdefault $c2
 		dli	$t0, 8
-		csetlen $c2, $c0, $t0
+		csetbounds $c2, $c2, $t0
 
 		dli	$a0, -1
 		ctoptr	$a0, $c1, $c2

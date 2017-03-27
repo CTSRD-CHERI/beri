@@ -42,6 +42,7 @@ class test_cp0_reg_init(BaseBERITestCase):
     ## Hard to know what the count register should be, but we might reasonably
     ## guess that it's in the below range.  This might require tuning, but
     ## will hopefully detect problems such as "very large number".
+    @attr('countrate')
     def test_count_reg(self):
         '''Test count register on reset'''
         self.assertRegisterInRange(self.MIPS.a2, 100, 80000, "Unexpected CP0 count cycle register value on reset")
@@ -71,15 +72,15 @@ class test_cp0_reg_init(BaseBERITestCase):
 
     @attr('float')
     @attr('float64')
+    @attr('float64initial')
     def test_status_fr_float64(self):
         '''Test that CP0.Status.FR says there are 32 floating point registers'''
         self.assertRegisterMaskEqual(self.MIPS.a4, 0x1 << 26, 1 << 26, "CP0.Status.FR was not set")
 
-    ## We should be using boot-time exceptions (BEV)
-    @attr('beri')
+    ## We should not be using boot-time exceptions (BEV)
     def test_status_bev(self):
-        '''Test that CP0.Status.BEV is set after reset'''
-        self.assertRegisterMaskEqual(self.MIPS.a4, 0x1 << 22, 1 << 22, "Unexpected CP0 boot-time exceptions value on reset")
+        '''Test that CP0.Status.BEV is not set'''
+        self.assertRegisterMaskEqual(self.MIPS.a4, 0x1 << 22, 0 << 22, "Unexpected CP0 boot-time exceptions value")
 
 
     ## We should have interrupts enabled for all sources.
@@ -196,67 +197,87 @@ class test_cp0_reg_init(BaseBERITestCase):
     @attr('capabilities')
     def test_config1_capabilities(self):
         '''Test the initial value of CP0.Config1.C2'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x1 << 6, 0x1 << 6, "CP0.Config1.CA was not set")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x1 << 6, 0x1 << 6, "CP0.Config1.C2 was not set")
 
     @attr('beri1cache')
     def test_config1_da_beri1(self):
         '''Test the initial value of CP0.Config1.DA'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 7, 0 , "CP0.Config1.DA did not have the expected value")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 7, 3 << 7 , "CP0.Config1.DA did not have the expected value")
 
     @attr('beri2cache')
     def test_config1_da_beri2(self):
         '''Test the initial value of CP0.Config1.DA'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 7, 1 << 7 , "CP0.Config1.DA did not have the expected value")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 7, 3 << 7 , "CP0.Config1.DA did not have the expected value")
 
-    @attr('beri1cache')
+    @attr('beri1oldcache')
     def test_config1_dl_beri1(self):
         '''Test the initial value of CP0.Config1.DL'''
         self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 10, 4 << 10, "CP0.Config1.DL did not have the expected value")
 
+    @attr('beri1cache')
+    def test_config1_dl_beri1(self):
+        '''Test the initial value of CP0.Config1.DL'''
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 10, 6 << 10, "CP0.Config1.DL did not have the expected value")
+
     @attr('beri2cache')
     def test_config1_dl_beri2(self):
         '''Test the initial value of CP0.Config1.DL'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 10, 3 << 10, "CP0.Config1.DL did not have the expected value")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 10, 4 << 10, "CP0.Config1.DL did not have the expected value")
 
-    @attr('beri1cache')
+    @attr('beri1oldcache')
     def test_config1_ds_beri1(self):
         '''Test the initial value of CP0.Config1.DS'''
         self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 13, 3 << 13, "CP0.Config1.DS did not have the expected value")
 
+    @attr('beri1cache')
+    def test_config1_ds_beri1(self):
+        '''Test the initial value of CP0.Config1.DS'''
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 13, 0 << 13, "CP0.Config1.DS did not have the expected value")
+
     @attr('beri2cache')
     def test_config1_ds_beri2(self):
         '''Test the initial value of CP0.Config1.DS'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 13, 3 << 13, "CP0.Config1.DS did not have the expected value")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 13, 1 << 13, "CP0.Config1.DS did not have the expected value")
 
     @attr('beri1cache')
     def test_config1_ia_beri1(self):
         '''Test the initial value of CP0.Config1.IA'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 16, 0 << 16, "CP0.Config1.IA did not have the expected value")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 16, 1 << 16, "CP0.Config1.IA did not have the expected value")
 
     @attr('beri2cache')
     def test_config1_ia_beri2(self):
         '''Test the initial value of CP0.Config1.IA'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 16, 1 << 16, "CP0.Config1.IA did not have the expected value")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 16, 3 << 16, "CP0.Config1.IA did not have the expected value")
 
-    @attr('beri1cache')
+    @attr('beri1oldcache')
     def test_config1_il_beri1(self):
         '''Test the initial value of CP0.Config1.IL'''
         self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 19, 4 << 19, "CP0.Config1.IL did not have the expected value")
 
+    @attr('beri1cache')
+    def test_config1_il_beri1(self):
+        '''Test the initial value of CP0.Config1.IL'''
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 19, 6 << 19, "CP0.Config1.IL did not have the expected value")
+
     @attr('beri2cache')
     def test_config1_il_beri2(self):
         '''Test the initial value of CP0.Config1.IL'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 19, 3 << 19, "CP0.Config1.IL did not have the expected value")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 19, 4 << 19, "CP0.Config1.IL did not have the expected value")
+
+    @attr('beri1oldcache')
+    def test_config1_is_beri1(self):
+        '''Test the initial value of CP0.Config1.IS'''
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 22, 1 << 22, "CP0.Config1.IS did not have the expected value")
 
     @attr('beri1cache')
     def test_config1_is_beri1(self):
         '''Test the initial value of CP0.Config1.IS'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 22, 3 << 22, "CP0.Config1.IS did not have the expected value")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 22, 1 << 22, "CP0.Config1.IS did not have the expected value")
 
     @attr('beri2cache')
     def test_config1_is_beri2(self):
         '''Test the initial value of CP0.Config1.IS'''
-        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 22, 3 << 22, "CP0.Config1.IS did not have the expected value")
+        self.assertRegisterMaskEqual(self.MIPS.a7, 0x7 << 22, 1 << 22, "CP0.Config1.IS did not have the expected value")
 
     @attr('beri2tlb')
     def test_config1_mmu_size_beri2(self):
@@ -283,18 +304,30 @@ class test_cp0_reg_init(BaseBERITestCase):
     @attr('beri1cache')
     def test_config1_reg_nofloat(self):
         '''Test initial value of CP0.config1'''
-        self.assertRegisterEqual(self.MIPS.a7, self.mkConfig1(1,16-1,3,4,0,3,4,0,1,0,0,1,0,0,0), "Unexpected CP0 config1 register value on reset")
+        self.assertRegisterEqual(self.MIPS.a7, self.mkConfig1(1,16-1,1,6,1,0,6,3,1,0,0,1,0,0,0), "Unexpected CP0 config1 register value on reset")
+
+    ## CHERI1 configuration with FPU, capabilities and a large TLB
+    # (old cache size)
+    @attr('float')
+    @attr('watch')
+    @attr('tlb')
+    @attr('beri1tlb')
+    @attr('beri1oldcache')
+    @attr('capabilities')
+    def test_config1_reg_float(self):
+        '''Test initial value of CP0.config1'''
+        self.assertRegisterEqual(self.MIPS.a7, self.mkConfig1(1,16-1,3,4,0,3,4,0,1,0,0,1,0,0,1), "Unexpected CP0 config1 register value on reset")
 
     ## CHERI1 configuration with FPU, capabilities and a large TLB
     @attr('float')
     @attr('watch')
     @attr('tlb')
-    @attr('beri1tlb')
+    @attr('beri1oldtlb')
     @attr('beri1cache')
     @attr('capabilities')
     def test_config1_reg_float(self):
         '''Test initial value of CP0.config1'''
-        self.assertRegisterEqual(self.MIPS.a7, self.mkConfig1(1,16-1,3,4,0,3,4,0,1,0,0,1,0,0,1), "Unexpected CP0 config1 register value on reset")
+        self.assertRegisterEqual(self.MIPS.a7, self.mkConfig1(1,16-1,1,6,1,0,6,3,1,0,0,1,0,0,1), "Unexpected CP0 config1 register value on reset")
 
     ## CHERI2 configuration with no FPU, watch register, capabilities, and a small TLB
     @attr('nofloat')
@@ -305,7 +338,7 @@ class test_cp0_reg_init(BaseBERITestCase):
     @attr('capabilities')
     def test_config1_reg_smalltlb(self):
         '''Test initial value of CP0.config1'''
-        self.assertRegisterEqual(self.MIPS.a7, self.mkConfig1(1,64-1,3,3,1,3,3,1,1,0,0,1,0,0,0), "Unexpected CP0 config1 register value on reset")
+        self.assertRegisterEqual(self.MIPS.a7, self.mkConfig1(1,64-1,1,4,3,1,4,3,1,0,0,1,0,0,0), "Unexpected CP0 config1 register value on reset")
 
     # GXEMUL configuration
     @attr('tlb')
@@ -317,8 +350,3 @@ class test_cp0_reg_init(BaseBERITestCase):
     ## XXX:
     def test_xcontext_reg(self):
         self.assertRegisterEqual(self.MIPS.s0, 0, "Unexpected CP0 xcontext register value on reset")
-
-    # Hardware enable register to go with rdhwr instruction
-    @attr('rdhwr') # required?
-    def test_hwrena_reg(self):
-        self.assertRegisterEqual(self.MIPS.s1, 0, "Unexpected CP0 HWRena register value on reset")

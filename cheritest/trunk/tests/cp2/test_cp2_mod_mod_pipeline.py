@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2012 Michael Roe
+# Copyright (c) 2012, 2015 Michael Roe
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -34,7 +34,8 @@ from nose.plugins.attrib import attr
 #
 
 class test_cp2_mod_mod_pipeline(BaseBERITestCase):
+
     @attr('capabilities')
     def test_cp2_mod_mod_pipeline_1(self):
-        '''Test that csetlen sets length immediately after cmove'''
-        self.assertRegisterEqual(self.MIPS.a0, 0, "csetlen didn't set length immediately after cmove")
+        '''Test that candperm sets permissions immediately after cmove'''
+        self.assertRegisterEqual(self.MIPS.a0, 0, "csetperm didn't set permissions immediately after cmove")

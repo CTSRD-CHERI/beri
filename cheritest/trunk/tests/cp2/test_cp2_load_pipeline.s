@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -46,15 +47,13 @@ test:		.ent test
 
 		#
 		# Set up $c1 to point at data
-		#
-		dla	$t0, data
-		cincbase	$c1, $c1, $t0
-
-		#
 		# We want $c1.length to be 4.
 		#
+		cgetdefault $c1
+		dla	$t0, data
+		csetoffset $c1, $c1, $t0
 		dli	$t0, 4
-		csetlen	$c1, $c1, $t0
+		csetbounds $c1, $c1, $t0
 
 		dli	$a0, 0
 		dli     $a1, 0

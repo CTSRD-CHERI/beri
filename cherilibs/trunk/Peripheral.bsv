@@ -95,9 +95,8 @@ module mkCountPerif(Peripheral#(0));
     resp.transactionID = req.transactionID;
     if (req.operation matches tagged Read .unused) begin
       count <= count + 1;
-      Data#(64) data = unpack(0);
-      data.data = zeroExtend(count);
-      resp.operation = tagged Read{data: data, last: True};
+      resp.data.data = zeroExtend(count);
+      resp.operation = tagged Read{last: True};
     end else
       resp.operation = tagged Write;
     resp_fifo.enq(resp);
@@ -125,8 +124,9 @@ module mkNullPerif(Peripheral#(0));
     CheriMemResponse64 resp = defaultValue;
     resp.masterID = req.masterID;
     resp.transactionID = req.transactionID;
+    resp.data = unpack(0);
     if (req.operation matches tagged Read .unused) begin
-      resp.operation = tagged Read{data: unpack(0), last: True};
+      resp.operation = tagged Read{last: True};
     end else
       resp.operation = tagged Write;
     resp.error = BusError;

@@ -28,6 +28,7 @@
 # SUCH DAMAGE.
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -64,10 +65,11 @@ test:		.ent test
 		# Make $c1 a data capability for 'data'
 		#
 
+		cgetdefault $c1
 		dla	$t0, data
-		cincbase $c1, $c0, $t0
-		dli	$t0, 8
-		csetlen $c1, $c1, $t0
+		csetoffset $c1, $c1, $t0
+		dli	$t0, 0x4000
+		csetbounds $c1, $c1, $t0
 		dli	$t0, 0xd  # Permit_Store, Permit_Load and Global
 		candperm $c1, $c1, $t0
 
@@ -121,7 +123,7 @@ bev0_handler:
 		.end bev0_handler
 
 		.data
-		.align	3
+		.align	12
 data:		.dword	0x0123456789abcdef
 		.dword  0x0123456789abcdef
 

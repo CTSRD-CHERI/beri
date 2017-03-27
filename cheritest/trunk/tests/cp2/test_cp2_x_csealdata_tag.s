@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -58,10 +59,11 @@ test:		.ent test
 		# Make $c1 a data capability for the array 'data'
 		#
 
+		cgetdefault $c1
 		dla     $t0, data
-		cincbase $c1, $c0, $t0
+		csetoffset $c1, $c1, $t0
 		dli     $t0, 8
-                csetlen $c1, $c1, $t0
+                csetbounds $c1, $c1, $t0
 		dli     $t0, 0x5
 		candperm $c1, $c1, $t0
 
@@ -69,15 +71,14 @@ test:		.ent test
 		csetoffset $c2, $c0, $t0
 
 		#
-		# Write $c2 to memory, overwrite its cursor field in memory,
-		# and load it back in again. The write to the cursor field
-		# should clear the tag bit.
+		# Overwrite the first dword of the capability. This should
+		# clear the tag bit.
 		#
 
 		dla	$t1, cap1
 		cscr	$c2, $t1($c0)
-		ld	$t0, 8($t1)
-		sd	$t0, 8($t1)
+		ld	$t0, 0($t1)
+		sd	$t0, 0($t1)
 		clcr	$c2, $t1($c0)
 
 		cseal $c1, $c1, $c2 # This should raise an exception

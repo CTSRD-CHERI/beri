@@ -31,7 +31,7 @@
 .set noat
 
 #
-# Test blez (branch on less than or equal to zero, signed), greater than case.
+# Test blezl (branch on less than or equal to zero, signed), greater than case.
 #
 
 		.global start

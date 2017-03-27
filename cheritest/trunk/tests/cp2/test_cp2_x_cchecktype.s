@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -34,8 +35,11 @@
 # Test that cchecktype raises an exception if the otypes don't match.
 #
 
+#
 # In this test, sandbox isn't actually called, but its address is used
-# as an otype.
+# in a code capability.
+#
+
 sandbox:
 		creturn
 
@@ -61,15 +65,22 @@ test:		.ent test
 
 		dli	$a2, 0	# a2 will be set to 1 if an exception happens
 
+		#
                 # Make $c1 a template capability for a user-defined type 0x1111
+		#
+
 		li       $t0, 0x1111
 		csetoffset $c1, $c0, $t0
 
+		#
                 # Make $c2 a data capability for the array at address data
+		#
+
+		cgetdefault $c2
 		dla      $t0, data
-		cincbase $c2, $c0, $t0
-		li       $t0, 8
-		csetlen  $c2, $c2, $t0
+		csetoffset $c2, $c2, $t0
+		li       $t0, 4096		# Alignment for sealing
+		csetbounds $c2, $c2, $t0
 		
 		# Permissions Non_Ephemeral, Permit_Load, Permit_Store,
 		# Permit_Store.
@@ -117,5 +128,5 @@ bev0_handler:
 		.end bev0_handler
 
 		.data
-		.align 3
+		.align 12
 data:		.dword	0xfedcba9876543210

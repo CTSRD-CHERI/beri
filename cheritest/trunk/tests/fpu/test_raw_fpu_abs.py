@@ -38,16 +38,7 @@ class test_raw_fpu_abs(BaseBERITestCase):
         '''Test we can take absolute value of a double'''
         self.assertRegisterEqual(self.MIPS.s0, 0x07FF000000000000, "Failed to take absolute of double")
 
-    @attr('floatpaired')
-    def test_abs_paired(self):
-        '''Test we can take absolute values of paired single'''
-        self.assertRegisterEqual(self.MIPS.s2, 0x3F80000040000000, "Failed to take absolute of paired single")
-
-    @attr('floatpaired')
-    def test_abs_paired_qnan(self):
-        '''Test abs of a paired single where one element is QNaN'''
-        self.assertRegisterEqual(self.MIPS.s3, 0x7F81000040000000, "abs.ps failed to echo QNaN")
-
+    @attr('floatlegacyabs')
     def test_abs_single_denorm(self):
-        '''Test that abs.s flushes denormalized results to zero'''
-        self.assertRegisterEqual(self.MIPS.s4, 0x0, "abs.s failed to flush denormalised result")
+        '''Test that ABS.S flushes denormalized results to zero'''
+        self.assertRegisterEqual(self.MIPS.s4, 0x0, "ABS.S failed to flush denormalised result")

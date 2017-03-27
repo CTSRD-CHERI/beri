@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -57,7 +58,7 @@ test:		.ent test
 
 		dla	$t0, sandbox
 		csetoffset $c1, $c1, $t0
-		cjalr	$c24, $c1
+		cjalr	$c1, $c24
 		nop			# branch delay slot
 
 		# Check what was in the PCC

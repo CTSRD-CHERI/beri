@@ -1,10 +1,17 @@
-/*-
- * Copyright (c) 2015 Matthew Naylor
+/* Copyright 2015 Matthew Naylor
  * All rights reserved.
  *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-11-C-0249
+ * ("MRC2"), as part of the DARPA MRC research programme.
+ *
  * This software was developed by the University of Cambridge Computer
- * Laboratory as part of the Rigorous Engineering of Mainstream Systems (REMS)
- * project, funded by EPSRC grant EP/K008528/1.
+ * Laboratory as part of the Rigorous Engineering of Mainstream
+ * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
  *
  * @BERI_LICENSE_HEADER_START@
  *
@@ -31,31 +38,28 @@
 //   0) SC
 //   1) TSO
 //   2) PSO
-//   3) RMO
-//   4) SC-SA
-//   5) TSO-SA
-//   6) PSO-SA
-//   7) RMO-SA
+//   3) WMO
+//   4) POW
+//   5) TIM (WMO ignoring dependecies, e.g. time-based coherence)
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <assert.h>
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-#define MAX_REGS     64
 #define MAX_THREADS  4
-#define MAX_INSTRS   1024
+#define MAX_INSTRS   10000
 
 // ============================================================================
 // Types
 // ============================================================================
 
-typedef unsigned char Reg;
-typedef unsigned int Data;
+typedef int Data;
 typedef unsigned long long Addr;
 typedef unsigned char ThreadId;
 typedef unsigned char Model;
@@ -63,26 +67,28 @@ typedef unsigned char Model;
 typedef enum {
     LOAD
   , STORE
+  , SYNC
+  , RMW
 } Op;
 
 typedef struct {
   Op op;
   ThreadId tid;
-  Reg dest;
   Addr addr;
   Data data;
+  Data data2;
+  int success;
+  int reqTime, respTime;
 } Instr;
 
 // ============================================================================
 // Globals
 // ============================================================================
 
-// Register file for each thread
-Data regFile[MAX_THREADS][MAX_REGS];
-
 // Instruction trace
 Instr trace[MAX_INSTRS];
 int numInstrs = 0;
+int lastResponse[MAX_THREADS];
 
 // Have we been initialised?
 int init = 0;
@@ -95,17 +101,17 @@ int fromAxe[2];
 // Functions
 // ============================================================================
 
-const char* modelText(Model model)
+const char* modelText(Model model, int* ignoreDeps)
 {
+  // Ignore depedencies between memory operations?
+  *ignoreDeps = 0;
   switch (model) {
     case 0: return "sc";
     case 1: return "tso";
     case 2: return "pso";
-    case 3: return "rmo";
-    case 4: return "sc-sa";
-    case 5: return "tso-sa";
-    case 6: return "pso-sa";
-    case 7: return "rmo-sa";
+    case 3: return "wmo";
+    case 4: return "pow";
+    case 5: *ignoreDeps = 1; return "wmo";
   }
   return "";
 }
@@ -118,60 +124,148 @@ void axeConnect(Model model)
   if (fork() == 0) {
     dup2(toAxe[0], STDIN_FILENO);
     dup2(fromAxe[1], STDOUT_FILENO);
-    execlp("Axe", "Axe", "-i", modelText(model), NULL);
-    fprintf(stderr, "Failed to exec 'Axe' process.\n");
-    fprintf(stderr, "Please add 'Axe' to your PATH.\n");
+    int ignoreDeps;
+    char* m = modelText(model, &ignoreDeps);
+    if (ignoreDeps)
+      execlp("axe", "axe", "check", m, "-", "-i", NULL);
+    else
+      execlp("axe", "axe", "check", m, "-", NULL);
+    fprintf(stderr, "Failed to exec 'axe' process.\n");
+    fprintf(stderr, "Please add 'axe' to your PATH.\n");
     abort();
   }
 }
 
 void axeInit(Model model)
 {
+  int i;
   numInstrs = 0;
   if (!init) {
     axeConnect(model);
     init = 1;
   }
+  for (i = 0; i < MAX_THREADS; i++)
+    lastResponse[i] = -1;
 }
 
-void axeLoad(ThreadId tid, Reg dest, Addr addr)
+void axeLoad(ThreadId tid, Addr addr, int time)
 {
   Instr instr;
   instr.op   = LOAD;
   instr.tid  = tid;
-  instr.dest = dest;
   instr.addr = addr;
+  instr.data = -1;
+  instr.reqTime = time;
+  instr.respTime = -1;
+  assert(numInstrs < MAX_INSTRS);
   trace[numInstrs++] = instr;
 }
 
-void axeStore(ThreadId tid, Data data, Addr addr)
+void axeStore(ThreadId tid, Data data, Addr addr, int time)
 {
   Instr instr;
   instr.op   = STORE;
   instr.tid  = tid;
   instr.addr = addr;
-  instr.data = data;
+  instr.data = (int) data;
+  instr.reqTime = time;
+  instr.respTime = -1;
+  assert(numInstrs < MAX_INSTRS);
   trace[numInstrs++] = instr;
 }
 
-void axeSetReg(ThreadId tid, Reg dest, Data data)
+void axeRMW(ThreadId tid, Data data, Addr addr, int reqTime)
 {
-  regFile[tid][dest] = data;
+  Instr instr;
+  instr.op    = RMW;
+  instr.tid   = tid;
+  instr.addr  = addr;
+  instr.data  = -1;
+  instr.data2 = (int) data;
+  instr.success = 0;
+  instr.reqTime = reqTime;
+  instr.respTime = -1;
+  assert(numInstrs < MAX_INSTRS);
+  trace[numInstrs++] = instr;
+}
+
+void axeSync(ThreadId tid, int time)
+{
+  Instr instr;
+  instr.op   = SYNC;
+  instr.tid  = tid;
+  instr.reqTime = time;
+  instr.respTime = -1;
+  assert(numInstrs < MAX_INSTRS);
+  trace[numInstrs++] = instr;
+}
+
+void axeResponse(ThreadId tid, Data data, int time)
+{
+  int i = lastResponse[tid]+1;
+  for (;;) {
+    assert(i < numInstrs);
+    if (trace[i].tid == tid) {
+      if (trace[i].op == LOAD) {
+        trace[i].data = (int) data;
+        trace[i].respTime = time;
+        lastResponse[tid] = i;
+        break;
+      }
+      else if (trace[i].op == RMW) {
+        if (trace[i].data == -1) {
+          trace[i].data = (int) data;
+          trace[i].respTime = time;
+          lastResponse[tid] = i-1;
+        } else {
+          assert(data == 0 || data == 1);
+          if (data == 1) trace[i].success = 1;
+          lastResponse[tid] = i;
+        }
+        break;
+      }
+    }
+    i++;
+  }
+}
+
+void printTimestamps(char* buff, int buffLen, Instr instr)
+{
+  char numStr[32];
+  snprintf(numStr, sizeof(numStr), "%i", instr.respTime);
+  snprintf(buff, buffLen, "");
+  if (instr.reqTime >= 0) {
+    snprintf(buff, buffLen, "@ %i:%s", instr.reqTime,
+      instr.respTime >= 0 ? numStr : "");
+  }
 }
 
 unsigned char axeCheck(unsigned char showTrace)
 {
   int i;
   char buffer[1024];
+  char buffer2[1024];
   for (i = 0; i < numInstrs; i++) {
     Instr instr = trace[i];
-    if (instr.op == LOAD) {
-      snprintf(buffer, sizeof(buffer), "%i: v%lli == %i\n",
-        instr.tid, instr.addr, regFile[instr.tid][instr.dest]);
+    printTimestamps(buffer2, sizeof(buffer2), instr);
+    if (instr.op == LOAD || (instr.op == RMW && instr.success == 0)) {
+      if (instr.data == -1)
+        continue;
+      else {
+        snprintf(buffer, sizeof(buffer), "%i: v%lli == %i %s\n",
+          instr.tid, instr.addr, instr.data, buffer2);
+      }
     }
     else if (instr.op == STORE) {
-      snprintf(buffer, sizeof(buffer), "%i: v%lli := %i\n",
-        instr.tid, instr.addr, instr.data);
+      snprintf(buffer, sizeof(buffer), "%i: v%lli := %i %s\n",
+        instr.tid, instr.addr, instr.data, buffer2);
+    }
+    else if (instr.op == SYNC) {
+      snprintf(buffer, sizeof(buffer), "%i: sync %s\n", instr.tid, buffer2);
+    }
+    else if (instr.op == RMW) {
+      snprintf(buffer, sizeof(buffer), "%i: { v%lli == %i ; v%lli := %i } %s\n",
+        instr.tid, instr.addr, instr.data, instr.addr, instr.data2, buffer2);
     }
     write(toAxe[1], buffer, strlen(buffer));
     if (showTrace) printf("%s", buffer);

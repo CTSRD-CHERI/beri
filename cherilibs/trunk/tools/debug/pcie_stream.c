@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2014 Alex Horsman
- * Copyright (c) 2015 A. Theodore Markettos
+ * Copyright (c) 2015 Theo Markettos
  *
  * All rights reserved.
  *

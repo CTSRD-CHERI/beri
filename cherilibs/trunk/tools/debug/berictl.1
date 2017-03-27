@@ -1,5 +1,6 @@
 .\"-
 .\" Copyright (c) 2013-2014 SRI International
+.\" Copyright (c) 2015 A. Theodore Markettos
 .\" All rights reserved.
 .\"
 .\" This software was developed by SRI International and the University of
@@ -27,7 +28,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd December 4, 2013
+.Dd November 9, 2015
 .Dt BERICTL 1
 .Os
 .Sh NAME
@@ -55,12 +56,13 @@ is a set of commands that control BERI processors in simulation and
 on Altera and Xilinx FPGAs.
 By default
 .Nm
-connects to a single Altera FPGA that speaks the BERI1 debug protocol.
+connects over JTAG to a single Altera FPGA that speaks the BERI1 debug protocol.
 Options may be used to change this configuration.
 .Sh OPTIONS
 A number of options appear before the
 .Ar command
-and specify things that apply to most commands.
+and specify things that apply to most commands.  Some marked (*) require
+support to be compiled in.
 .Bl -tag -width indent
 .It Fl 2
 Enable the BERI2 debug protocol.
@@ -70,13 +72,17 @@ Specify which JTAG unit to attach to on a system with multiple FPGAs attached.
 Increase debugging output.
 May be specified multiple times.
 .It Fl j
-Use JTAG Atlantic interface to the JTAG bus.
+Use JTAG Atlantic interface to the Altera JTAG daemon (*).
+Requires $QUARTUS_ROOTDIR/quartus/{linux32,linux64} (to match CPU berictl is
+compiled for) added to LD_LIBRARY_PATH.
 .It Fl N
 Do not resume execution after running a command.
 .Em Note :
  This may become the default in the future.
 .It Fl n
-Connect to a NetFPGA board with a Xilinx FPGA.
+Connect to a NetFPGA board with a Xilinx FPGA (*).
+.It Fl P
+Connect to a Terasic DE4 board using PCI Express (*).
 .It Fl q
 Enable quiet mode.
 .It Fl s Ar socket-path-or-port

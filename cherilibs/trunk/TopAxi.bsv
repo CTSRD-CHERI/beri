@@ -37,6 +37,10 @@ import Proc::*; // The implementation
 import Peripheral::*; // BlueBus interfaces and counter
 `ifdef DMA
 import DMA::*;
+`else
+`ifdef VIRT_DMA
+import DMA::*;
+`endif
 `endif
 import MemTypes::*;
 import AvalonStreaming::*;
@@ -137,7 +141,7 @@ Integer dma_virt_master_index = valueOf(MasterCount1);
 Integer dma_virt_periph_index = valueOf(PeriphCount1);
 
 // Add CORE_COUNT for PIC
-typedef TAdd#(PeriphCount2, CORE_COUNT)    PeriphCount;
+typedef TAdd#(PeriphCount2, CORE_COUNT)     PeriphCount;
 typedef TLog#(PeriphCount)                  LogPeriphs;
 typedef BuffIndex#(LogPeriphs, PeriphCount) PeriphBuffIndex;
 
@@ -151,19 +155,19 @@ module mkTopAxi(TopAxi);
     Processor processor <- mkCheri();
     // Use top of masterID address space for DMA.
     `ifdef DMA
-    DMA#(4) dma <- mkDMA(DMAConfiguration {
-        icacheID:   13,
-        readID:     14,
-        writeID:    15,
+    DMA#(4) dma <- mkFourThreadDMA(DMAConfiguration {
+        icacheID:   12,
+        readID:     13,
+        writeID:    14,
         useTLB:     False
     });
     `endif
 
     `ifdef DMA_VIRT
-    DMA#(4) dmaVirt <- mkDMA(DMAConfiguration {
-        icacheID:   10,
-        readID:     11,
-        writeID:    12,
+    DMA#(4) dmaVirt <- mkFourThreadDMA(DMAConfiguration {
+        icacheID:   9,
+        readID:     10,
+        writeID:    11,
         useTLB:     True
     });
     mkConnection(processor.tlbs[0], dmaVirt.instructionTLBClient);
@@ -254,8 +258,8 @@ module mkTopAxi(TopAxi);
     Vector#(2, CheriSlave) interconnectSlaves = newVector();
     interconnectSlaves[0] = axi_translator.slave;
     interconnectSlaves[1] = burster.slave;
-    // helper function to route a packet to the right output
-    function Maybe#(BuffIndex#(1, 2)) route (CheriMemRequest r);
+    // helper function to route a packet to the right slave
+    function Maybe#(BuffIndex#(1, 2)) routeSlave (CheriMemRequest r);
         // Main memory by default
         let addr = pack(getRoutingField(r));
         BuffIndex#(1,2) ret = 0;
@@ -263,10 +267,27 @@ module mkTopAxi(TopAxi);
             ret = 1;
         return tagged Valid ret;
     endfunction
-    // Bus 
+
+    function Maybe#(MinimalBuffIndex#(MasterCount)) routeMaster(CheriMemResponse r);
+        let addr = getRoutingField(r);
+        if (addr == 15) // tag cache
+            return tagged Valid 0;
+        `ifdef DMA
+        else if (12 <= addr && addr <= 14)
+            return tagged Valid fromInteger(dma_master_index);
+        `endif
+        `ifdef DMA_VIRT
+        else if (9 <= addr && addr <= 11)
+            return tagged Valid fromInteger(dma_virt_master_index);
+        `endif
+        else
+            return tagged Valid 0;
+    endfunction
+
+    // Bus
     mkBus(
-        interconnectMasters, route,
-        interconnectSlaves, constFn(tagged Valid 0)
+        interconnectMasters, routeSlave,
+        interconnectSlaves, routeMaster
     );
 
     ///////////

@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -63,12 +64,12 @@ test:		.ent test
 		dli	$a2, 0
 
 		# Run sandbox with restricted permissions
-		# All permission except Access_EPCC
-		dli     $t0, 0x7bff
+		# All permissions except Access_System_Registers
+		dli     $t0, 0xff
 		candperm $c2, $c0, $t0
 		dla     $t0, sandbox
 		csetoffset $c2, $c2, $t0
-		cjalr   $c24, $c2
+		cjalr   $c2, $c24
 		nop			# Branch delay slot
 
 		ld	$fp, 16($sp)

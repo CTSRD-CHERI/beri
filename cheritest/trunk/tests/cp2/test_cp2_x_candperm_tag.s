@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2012 Michael Roe
+# Copyright (c) 2012, 2015 Michael Roe
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -25,13 +25,14 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
 .set noat
 
 #
-# Test that cincbase raises an exception if tag bit is not set on the capability
+# Test that CAndPerm raises an exception if tag bit is not set on the capability
 # register (i.e. it doesn't contain a capability).
 #
 
@@ -59,27 +60,46 @@ test:		.ent test
 		# Make $c1 a data capability for the array 'data'
 		#
 
+		cgetdefault $c1
 		dla     $t0, data
-		cincbase $c1, $c0, $t0
+		csetoffset $c1, $c1, $t0
 		dli     $t0, 8
-                csetlen $c1, $c1, $t0
+                csetbounds $c1, $c1, $t0
 		dli     $t0, 0x7
 		candperm $c1, $c1, $t0
 
 		#
-		# Write $c1 to memory, overwrite its otype field in memory,
-		# and load it back in again. The write to the otype field
-		# should clear the tag bit.
+		# Write $c1 to memory, then copy its first word as data,
+		# which should clear the tag bit.
+		#
+
 		dla	$t0, cap1
 		cscr	$c1, $t0($c0)
-		dli	$t1, 0
-		sd	$t1, 8($t0)
+		ld	$t1, 0($t0)
+		sd	$t1, 0($t0)
 		clcr	$c1, $t0($c0)
 
 		dli	$t1, 0
 		candperm $c1, $c1, $t1 # This should raise a C2E exception
 
-		cgetperm $a0, $c1
+		dla	$t1, cap2
+		cscr	$c1, $t1($c0)
+
+		ld	$s0, 0($t0)
+		ld	$t2, 0($t1)
+		xor	$s0, $s0, $t2
+
+		ld      $s1, 8($t0)
+                ld      $t2, 8($t1)
+                xor     $s1, $s1, $t2
+
+		ld      $s2, 16($t0)
+                ld      $t2, 16($t1)
+                xor     $s2, $s2, $t2
+
+		ld      $s3, 24($t0)
+                ld      $t2, 24($t1)
+                xor     $s3, $s3, $t2
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
@@ -109,6 +129,12 @@ cap1:		.dword	0x0123456789abcdef	# uperms/reserved
 		.dword	0x0123456789abcdef	# otype/eaddr
 		.dword	0x0123456789abcdef	# base
 		.dword	0x0123456789abcdef	# length
+
+		.align 5
+cap2:		.dword  0x0123456789abcdef      # uperms/reserved
+                .dword  0x0123456789abcdef      # otype/eaddr
+                .dword  0x0123456789abcdef      # base
+                .dword  0x0123456789abcdef      # length
 
 		.align	3
 data:		.dword	0x0123456789abcdef

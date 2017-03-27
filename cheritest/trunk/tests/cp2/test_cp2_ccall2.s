@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -69,24 +70,25 @@ test:		.ent test
 		jal memcpy
 		nop			# branch-delay slot
 
-                #
-                # Create a capability for the trusted system stack
-                #
+		#
+		# Create a capability for the trusted system stack
+		#
 
-                dla     $t0, trusted_system_stack
-                cincbase $c1, $c0, $t0
-                dli     $t0, 96
-                csetlen $c1, $c1, $t0
-                dla     $t0, tsscap
-                cscr    $c1, $t0($c0)
+		cgetdefault $c1
+		dla     $t0, trusted_system_stack
+		csetoffset $c1, $c1, $t0
+		dli     $t0, 96
+		csetbounds $c1, $c1, $t0
+		dla     $t0, tsscap
+		cscr    $c1, $t0($c0)
 
-                #
-                # Initialize the pointer into the trusted system stack
-                #
+		#
+		# Initialize the pointer into the trusted system stack
+		#
 
-                dla     $t0, tssptr
-                dli     $t1, 0
-                csdr    $t1, $t0($c0)
+		dla     $t0, tssptr
+		dli     $t1, 0
+		csdr    $t1, $t0($c0)
 
 		#
 		# Remove the permission to access reserved registers from
@@ -103,7 +105,7 @@ test:		.ent test
 		nop		# branch delay slot
 L1:
 		#
-                # Make $c4 a template capability for user-defined type
+		# Make $c4 a template capability for user-defined type
 		# number 0x1234.
 		#
 
@@ -111,13 +113,13 @@ L1:
 		csetoffset $c4, $c0, $t0
 
 		#
-                # Make $c3 a data capability for the array at address data
+		# Make $c3 a data capability for the array at address data
 		#
 
-		dla      $t0, data
-		cincbase $c3, $c0, $t0
-                dli      $t0, 8
-                csetlen  $c3, $c3, $t0
+		dla        $t0, data
+		cincoffset $c3, $c0, $t0
+		dli        $t0, 0x1000
+		csetbounds $c3, $c3, $t0
 		# Permissions Non_Ephemeral, Permit_Load, Permit_Store,
 		# Permit_Store.
 		# NB: Permit_Execute must not be included in the set of
@@ -130,7 +132,7 @@ L1:
 		# result in $c2.
 		#
 
-                cseal	 $c2, $c3, $c4
+		cseal	 $c2, $c3, $c4
 
 		#
 		# Make $c1 a code capability for sandbox
@@ -213,23 +215,23 @@ bev0_ccall_handler:
 		eret
 
 do_ccall:
-                #
-                # Load a capability for the trusted system stack into
-                # kernel reserved capability register 2 ($c28)
-                #
-                # $c27 should already be a capability for the kernel's
-                # data segment
-                #
+		#
+		# Load a capability for the trusted system stack into
+		# kernel reserved capability register 2 ($c28)
+		#
+		# $c27 should already be a capability for the kernel's
+		# data segment
+		#
 
-                dla     $k0, tsscap
-                clcr    $c28, $k0($c27)
+		dla     $k0, tsscap
+		clcr    $c28, $k0($c27)
 
-                #
-                # Make $k0 the current offset into the trusted system stack
-                #
+		#
+		# Make $k0 the current offset into the trusted system stack
+		#
 
-                dla     $k0, tssptr
-                cldr    $k0, $k0($c27)
+		dla     $k0, tssptr
+		cldr    $k0, $k0($c27)
 
 		#
 		# Push the IDC on to the trusted system stack
@@ -317,7 +319,7 @@ do_ccall:
 
 		#
 		# Move $c1.offset into EPC, so that when we return 
-                # PC will be set to the entry point of the invoked sandbox
+		# PC will be set to the entry point of the invoked sandbox
 		#
 
 		cgetoffset $k1, $c1
@@ -329,23 +331,23 @@ do_ccall:
 		eret
 
 do_creturn:
-                #
-                # Load a capability for the trusted system stack into
-                # kernel reserved capability register 2 ($c28)
-                #
-                # $c27 should already be a capability for the kernel's
-                # data segment
-                #
+		#
+		# Load a capability for the trusted system stack into
+		# kernel reserved capability register 2 ($c28)
+		#
+		# $c27 should already be a capability for the kernel's
+		# data segment
+		#
 
-                dla     $k0, tsscap
-                clcr    $c28, $k0($c27)
+		dla     $k0, tsscap
+		clcr    $c28, $k0($c27)
 
-                #
-                # Make $k0 the current offset into the trusted system stack.
-                #
+		#
+		# Make $k0 the current offset into the trusted system stack.
+		#
 
-                dla     $k0, tssptr
-                cldr    $k0, $k0($c27)
+		dla     $k0, tssptr
+		cldr    $k0, $k0($c27)
 
 		#
 		# Pop the IDC ($c26) off the trusted system stack
@@ -353,27 +355,27 @@ do_creturn:
 
 		clc	$c26, $k0, 0($c28)
 
-                #
-                # Pop the EPCC off the trusted system stack, so it will
-                # restored to the user's PCC when this exception handler
-                # returns to user space.
-                #
+		#
+		# Pop the EPCC off the trusted system stack, so it will
+		# restored to the user's PCC when this exception handler
+		# returns to user space.
+		#
 
-                clc     $c31, $k0, 32($c28)
+		clc     $c31, $k0, 32($c28)
 
-                #
+		#
 		# Set the return address (EPC) to the offset in the EPCC
 		# that was restored from the trusted system stack.
-                #
+		#
 
-                cgetoffset $k0, $c31
-                dmtc0   $k0, $14
+		cgetoffset $k0, $c31
+		dmtc0   $k0, $14
 
-                nop
-                nop
-                nop
-                nop
-                eret
+		nop
+		nop
+		nop
+		nop
+		eret
 		nop
 
 		#
@@ -394,31 +396,31 @@ bev0_ccall_handler_stub:
 		.end bev0_ccall_handler_stub
 
 		.data
-                .align 3
-tssptr:
-                .dword 0
-
-                .align 5
-tsscap:
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-
-                .align 5
-trusted_system_stack:
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-                .dword 0
-
 		.align 3
+tssptr:
+		.dword 0
+
+		.align 5
+tsscap:
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+
+		.align 5
+trusted_system_stack:
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+		.dword 0
+
+		.align 12
 data:		.dword	0xfedcba9876543210

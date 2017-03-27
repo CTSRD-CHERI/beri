@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -44,24 +45,48 @@ test:		.ent test
 		dli	$a0, 2
 		dli	$a1, 2
 
-		# Set the type, base, and length to something non-zero
-		cmove $c1, $c0
-		dli $t0, 0x10
-		csetoffset $c1, $c1, $t0
-		cincbase $c1, $c1, $t0
-		csetlen  $c1, $c1, $t0
-		
-		dli	 $t0, 4
-		cfromptr $c1, $c0, $t0
+		#
+		# Make $c1 a capability for 'data1', length 8, offset 2
+		# 
 
-		# Check the fields are zero
+		cgetdefault $c1
+		dla	$t0, data1
+		csetoffset $c1, $c1, $t0
+		dli	$t0, 8
+		csetbounds $c1, $c1, $t0
+		dli	$t0, 2
+		csetoffset $c1, $c1, $t0	
+		dli	$t0, 0x3
+		candperm $c1, $c1, $t0
+		
+		#
+		# Make $c2 a capability for 'data2', length 16, offset 3
+		# (fields different from $c1)
+		#
+
+		cgetdefault $c2
+		dla	$t0, data2
+		csetoffset $c2, $c2, $t0
+		dli	$t0, 16
+		csetbounds $c2, $c2, $t0
+		dli	$t0, 3
+		csetoffset $c2, $c2, $t0
+
+		dli	$t0, 4
+		cfromptr $c1, $c2, $t0
+
+		#
+		# Check the fields have been copied from $c2
+		#
+
 		cgetperm $a0, $c1
 		cgetbase $a1, $c1
+		dla	 $t0, data2
+		dsubu	 $a1, $t0
 		cgetlen  $a2, $c1
 		cgetoffset $a3, $c1
 		cgettag  $a4, $c1
 		cgetsealed $a5, $c1
-		cgettype $a6, $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)
@@ -69,3 +94,10 @@ test:		.ent test
 		jr	$ra
 		nop			# branch-delay slot
 		.end	test
+
+		.data
+		.align 5
+data1:		.dword 0
+data2:		.dword 0
+		.dword 0
+

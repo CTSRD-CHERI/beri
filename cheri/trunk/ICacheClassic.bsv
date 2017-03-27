@@ -198,7 +198,7 @@ module mkICacheClassic#(Bit#(16) coreId)(CacheInstIfc ifc);
       uncached = !req.tr.cached; // If the tlb tells us that it is uncached.
       debug2("icache", $display("Cache read test.  tlbAddr:%x, tag:%x", req.tr.addr, {tagsRead.tag,12'b0}));
       miss = !(tagsRead.tag == truncateLSB(req.tr.addr) && tagsRead.valid);
-      cycReport($display("[$IL1%s]", (miss)?"M":"H"));
+      cycReport($display("[$IL1%s] %x", (miss)?"M":"H", addr));
       if (!miss && !uncached) begin // If it's a hit...
         Vector#(4,Bit#(8)) instruction_bits = (addr[2] == 1) ? unpack(dataRead[63:32]) : unpack(dataRead[31:0]); // this is the mux
         resp.inst = classifyMIPSInstruction(pack(Vector::reverse(instruction_bits)));

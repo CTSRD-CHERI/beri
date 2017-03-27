@@ -22,6 +22,7 @@ lib/libncursesw.so.8
 lib/libsbuf.so.6
 lib/libufs.so.6
 lib/libutil.so.9
+lib/libxo.so.0
 lib/libz.so.6
 libexec/ld-elf.so.1
 mnt

@@ -1,6 +1,7 @@
 #!/usr/bin/make -f
 #-
 # Copyright (c) 2012-2013 Simon W. Moore
+# Copyright (c) 2016 A. Theodore Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -28,12 +29,13 @@
 
 BSC=bsc
 # SWM: use aggressive conditions and add path to fine Avalon2ClientServer, etc.
-LIBS=../../
+LIBS=../../:../JTAGAtlantic
 BSCFLAGS=-keep-fires -cross-info -aggressive-conditions -p +:$(LIBS)
 SUFFIXES=
 VERILOGDEST=../qsys_ip/JTAGUART2Stream
 
-all: $(VERILOGDEST) $(VERILOGDEST)/mkUART2Stream.v $(VERILOGDEST)/UART2Stream_hw.tcl
+all: $(VERILOGDEST) $(VERILOGDEST)/mkUART2Stream.v $(VERILOGDEST)/mkJTAGAtlantic2Stream.v \
+	$(VERILOGDEST)/UART2Stream_hw.tcl $(VERILOGDEST)/JTAGAtlantic2Stream_hw.tcl
 
 $(VERILOGDEST):
 	mkdir $(VERILOGDEST)
@@ -41,12 +43,19 @@ $(VERILOGDEST):
 $(VERILOGDEST)/mkUART2Stream.v: UART2Stream.bsv
 	$(BSC) $(BSCFLAGS) -vdir $(VERILOGDEST) -u -verilog -g mkUART2Stream UART2Stream.bsv
 
+$(VERILOGDEST)/mkJTAGAtlantic2Stream.v: JTAGAtlantic2Stream.bsv
+	$(BSC) $(BSCFLAGS) -vdir $(VERILOGDEST) -u -verilog -g mkJTAGAtlantic2Stream JTAGAtlantic2Stream.bsv
+
 $(VERILOGDEST)/UART2Stream_hw.tcl: UART2Stream_hw.tcl
 	cp UART2Stream_hw.tcl $(VERILOGDEST)
+
+$(VERILOGDEST)/JTAGAtlantic2Stream_hw.tcl: JTAGAtlantic2Stream_hw.tcl
+	cp JTAGAtlantic2Stream_hw.tcl $(VERILOGDEST)
 
 # SWM: remove *.c from "clean" since this will delete mtl_test_small.c
 # that we want to keep
 .PHONY: clean
 clean:
 	rm -f  *.bi *.bo *.ba *.info *.sched *.h *.o *.so $(VERILOGDEST)/mkUART2Stream.v $(VERILOGDEST)/UART2Stream_hw.tcl *~  >/dev/null
+	rm -f $(VERILOGDEST)/mkJTAGAtlantic2Stream.v $(VERILOGDEST)/JTAGAtlantic2Stream_hw.tcl > /dev/null
 	rm -rf $(VERILOGDEST)

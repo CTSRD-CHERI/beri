@@ -49,13 +49,13 @@ class test_cp2_creturn_trap(BaseBERITestCase):
     @attr('capabilities')
     def test_cp_creturn3(self):
         '''Test that $kcc is copied to $pcc when trap handler runs'''
-        self.assertRegisterEqual(self.MIPS.a4, 0x7fffffff,
+        self.assertRegisterAllPermissions(self.MIPS.a4,
             "$pcc was not set to $kcc on entry to trap handler")
 
     @attr('capabilities')
     def test_cp_creturn4(self):
         '''Test that creturn restored full perms to $pcc'''
-        self.assertRegisterEqual(self.MIPS.a6, 0x7fffffff,
+        self.assertRegisterAllPermissions(self.MIPS.a6,
             "creturn did not restore full perms to $pcc")
 
 

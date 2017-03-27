@@ -2,7 +2,7 @@
 # Copyright (c) 2012-2015 Jonathan Woodruff
 # Copyright (c) 2013 Colin Rothwell
 # Copyright (c) 2013 Bjoern A. Zeeb
-# Copyright (c) 2014 A. Theodore Markettos
+# Copyright (c) 2014 Theo Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -33,7 +33,7 @@ set_global_assignment -name DEVICE EP4SGX230KF40C2
 set_global_assignment -name TOP_LEVEL_ENTITY DE4_BERI
 set_global_assignment -name ORIGINAL_QUARTUS_VERSION 12.1
 set_global_assignment -name PROJECT_CREATION_TIME_DATE "11:20:12  NOVEMBER 26, 2012"
-set_global_assignment -name LAST_QUARTUS_VERSION 13.1
+set_global_assignment -name LAST_QUARTUS_VERSION 15.1.0
 set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
 set_global_assignment -name MIN_CORE_JUNCTION_TEMP 0
 set_global_assignment -name MAX_CORE_JUNCTION_TEMP 85
@@ -3182,9 +3182,7 @@ set_instance_assignment -name GLOBAL_SIGNAL OFF -from DE4_SOC_inst|ddr2_0|pll0|u
 set_instance_assignment -name ENABLE_BENEFICIAL_SKEW_OPTIMIZATION_FOR_NON_GLOBAL_CLOCKS ON -to DE4_SOC_inst|ddr2_0 -tag __DE4_SOC_ddr2_0_p0
 set_instance_assignment -name PLL_ENFORCE_USER_PHASE_SHIFT ON -to DE4_SOC_inst|ddr2_0|pll0|upll_memphy|auto_generated|pll1 -tag __DE4_SOC_ddr2_0_p0
 set_global_assignment -name UNIPHY_SEQUENCER_DQS_CONFIG_ENABLE ON
-set_global_assignment -name OPTIMIZE_MULTI_CORNER_TIMING ON
 set_global_assignment -name UNIPHY_TEMP_VER_CODE 47321990
-set_global_assignment -name ECO_REGENERATE_REPORT ON
 set_instance_assignment -name GLOBAL_SIGNAL ON -to ref_clk
 set_global_assignment -name LL_ENABLED ON -section_id "i2c_touch_config:touch"
 set_global_assignment -name LL_AUTO_SIZE OFF -section_id "i2c_touch_config:touch"
@@ -3194,15 +3192,11 @@ set_global_assignment -name LL_SECURITY_ROUTING_INTERFACE OFF -section_id "i2c_t
 set_global_assignment -name LL_IGNORE_IO_BANK_SECURITY_CONSTRAINT OFF -section_id "i2c_touch_config:touch"
 set_global_assignment -name LL_PR_REGION OFF -section_id "i2c_touch_config:touch"
 set_global_assignment -name LL_WIDTH 9 -section_id "i2c_touch_config:touch"
-set_global_assignment -name LL_HEIGHT 4 -section_id "i2c_touch_config:touch"
+set_global_assignment -name LL_HEIGHT 10 -section_id "i2c_touch_config:touch"
 set_global_assignment -name LL_ORIGIN X111_Y9 -section_id "i2c_touch_config:touch"
 set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "DE4_SOC_ddr2:ddr2"
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "DE4_SOC_ddr2:ddr2"
 set_global_assignment -name PARTITION_COLOR 39423 -section_id "DE4_SOC_ddr2:ddr2"
-set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC ON
-set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_RETIMING ON
-set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
-set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION ON
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|clk[1] -tag __DE4_SOC_ddr2_p0
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|clk[2] -tag __DE4_SOC_ddr2_p0
 set_instance_assignment -name GLOBAL_SIGNAL "DUAL-REGIONAL CLOCK" -to DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|clk[3] -tag __DE4_SOC_ddr2_p0
@@ -3357,7 +3351,6 @@ set_location_assignment PIN_AU22 -to OTG_RESET_n
 set_instance_assignment -name IO_STANDARD "1.8 V" -to OTG_RESET_n
 set_location_assignment PIN_AR22 -to OTG_WE_n
 set_instance_assignment -name IO_STANDARD "1.8 V" -to OTG_WE_n
-set_global_assignment -name PHYSICAL_SYNTHESIS_EFFORT NORMAL
 set_location_assignment PIN_AN34 -to UART_TXD
 set_location_assignment PIN_AN35 -to UART_CTS
 set_location_assignment PIN_AH32 -to UART_RXD
@@ -3375,8 +3368,6 @@ set_global_assignment -name ENABLE_SIGNALTAP ON
 set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "display_pll:display_pll_ins"
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "display_pll:display_pll_ins"
 set_global_assignment -name PARTITION_COLOR 65535 -section_id "display_pll:display_pll_ins"
-set_global_assignment -name OPTIMIZE_HOLD_TIMING "ALL PATHS"
-set_global_assignment -name FITTER_EFFORT "AUTO FIT"
 
 set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "DE4_SOC:DE4_SOC_inst"
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "DE4_SOC:DE4_SOC_inst"
@@ -3392,18 +3383,7 @@ set_global_assignment -name LL_PR_REGION OFF -section_id mac0
 set_global_assignment -name LL_WIDTH 30 -section_id mac0
 set_global_assignment -name LL_HEIGHT 28 -section_id mac0
 set_global_assignment -name LL_ORIGIN X0_Y59 -section_id mac0
-set_global_assignment -name LL_ENABLED ON -section_id mac1
-set_global_assignment -name LL_AUTO_SIZE OFF -section_id mac1
-set_global_assignment -name LL_STATE LOCKED -section_id mac1
-set_global_assignment -name LL_RESERVED OFF -section_id mac1
-set_global_assignment -name LL_SECURITY_ROUTING_INTERFACE OFF -section_id mac1
-set_global_assignment -name LL_IGNORE_IO_BANK_SECURITY_CONSTRAINT OFF -section_id mac1
-set_global_assignment -name LL_PR_REGION OFF -section_id mac1
-set_global_assignment -name LL_WIDTH 28 -section_id mac1
-set_global_assignment -name LL_HEIGHT 32 -section_id mac1
-set_global_assignment -name LL_ORIGIN X1_Y27 -section_id mac1
 set_instance_assignment -name LL_MEMBER_OF mac0 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|DE4_SOC_peripherals_0_tse_mac:tse_mac" -section_id mac0
-set_instance_assignment -name LL_MEMBER_OF mac1 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|DE4_SOC_peripherals_0_tse_mac:tse_mac1" -section_id mac1
 set_global_assignment -name LL_ENABLED ON -section_id ssram_and_flash
 set_global_assignment -name LL_AUTO_SIZE OFF -section_id ssram_and_flash
 set_global_assignment -name LL_STATE LOCKED -section_id ssram_and_flash
@@ -3416,61 +3396,35 @@ set_global_assignment -name LL_HEIGHT 14 -section_id ssram_and_flash
 set_global_assignment -name LL_ORIGIN X1_Y82 -section_id ssram_and_flash
 
 
-#set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name PARTITION_COLOR 16711935 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "i2c_avalon:i2c_avalon_1"
-#set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "i2c_avalon:i2c_avalon_1"
-#set_global_assignment -name PARTITION_COLOR 32896 -section_id "i2c_avalon:i2c_avalon_1"
+set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name PARTITION_COLOR 16711935 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "i2c_avalon:i2c_avalon_1"
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "i2c_avalon:i2c_avalon_1"
+set_global_assignment -name PARTITION_COLOR 32896 -section_id "i2c_avalon:i2c_avalon_1"
 set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "mkFanControl50MHz:fancontrol50mhz_0"
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "mkFanControl50MHz:fancontrol50mhz_0"
 set_global_assignment -name PARTITION_COLOR 14622752 -section_id "mkFanControl50MHz:fancontrol50mhz_0"
 set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "DE4_SOC_peripherals_0_tse_mac:tse_mac"
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "DE4_SOC_peripherals_0_tse_mac:tse_mac"
 set_global_assignment -name PARTITION_COLOR 2154272 -section_id "DE4_SOC_peripherals_0_tse_mac:tse_mac"
-set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "DE4_SOC_peripherals_0_tse_mac:tse_mac1"
-set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "DE4_SOC_peripherals_0_tse_mac:tse_mac1"
-set_global_assignment -name PARTITION_COLOR 16037301 -section_id "DE4_SOC_peripherals_0_tse_mac:tse_mac1"
-#set_global_assignment -name LL_ENABLED ON -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_AUTO_SIZE OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_STATE LOCKED -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_RESERVED OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_SECURITY_ROUTING_INTERFACE OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_IGNORE_IO_BANK_SECURITY_CONSTRAINT OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_PR_REGION OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_ROUTING_REGION_EXPANSION_SIZE 2147483647 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_WIDTH 16 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_HEIGHT 10 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
-#set_global_assignment -name LL_ORIGIN X64_Y1 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_ENABLED ON -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_AUTO_SIZE OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_STATE LOCKED -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_RESERVED OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_SECURITY_ROUTING_INTERFACE OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_IGNORE_IO_BANK_SECURITY_CONSTRAINT OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_PR_REGION OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_ROUTING_REGION_EXPANSION_SIZE 2147483647 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_WIDTH 16 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_HEIGHT 10 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_ORIGIN X64_Y1 -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
 set_instance_assignment -name LL_MEMBER_OF "i2c_touch_config:touch" -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|i2c_avalon:i2c_avalon_1" -section_id "i2c_touch_config:touch"
-#set_instance_assignment -name LL_MEMBER_OF "i2c_touch_config:touch" -to "i2c_touch_config:touch" -section_id "i2c_touch_config:touch"
-#set_global_assignment -name LL_ROUTING_REGION_EXPANSION_SIZE 2147483647 -section_id ssram_and_flash
-set_global_assignment -name LL_ENABLED ON -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_AUTO_SIZE OFF -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_STATE LOCKED -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_RESERVED OFF -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_SECURITY_ROUTING_INTERFACE OFF -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_IGNORE_IO_BANK_SECURITY_CONSTRAINT OFF -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_PR_REGION OFF -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_ROUTING_REGION_EXPANSION_SIZE 2147483647 -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_WIDTH 47 -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_HEIGHT 16 -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_ORIGIN X72_Y41 -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name LL_ENABLED ON -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_AUTO_SIZE OFF -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_STATE LOCKED -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_RESERVED OFF -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_SECURITY_ROUTING_INTERFACE OFF -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_IGNORE_IO_BANK_SECURITY_CONSTRAINT OFF -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_PR_REGION OFF -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_ROUTING_REGION_EXPANSION_SIZE 2147483647 -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_WIDTH 22 -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_HEIGHT 12 -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name LL_ORIGIN X97_Y55 -section_id "mkMulDiv:execute_mul"
+set_instance_assignment -name LL_MEMBER_OF "i2c_touch_config:touch" -to "i2c_touch_config:touch" -section_id "i2c_touch_config:touch"
+set_global_assignment -name LL_ROUTING_REGION_EXPANSION_SIZE 2147483647 -section_id ssram_and_flash
 set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "mkTopAxi:cpu"
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "mkTopAxi:cpu"
 set_global_assignment -name PARTITION_COLOR 16037301 -section_id "mkTopAxi:cpu"
-set_global_assignment -name FITTER_AUTO_EFFORT_DESIRED_SLACK_MARGIN "1 ns"
 set_location_assignment PIN_V30 -to PCIE_PREST_n
 set_location_assignment PIN_AN38 -to PCIE_REFCLK_p
 set_location_assignment PIN_AU38 -to PCIE_RX_p[0]
@@ -3514,17 +3468,7 @@ set_instance_assignment -name IO_STANDARD "1.4-V PCML" -to PCIE_TX_p[6]
 set_instance_assignment -name IO_STANDARD "1.4-V PCML" -to PCIE_TX_p[7]
 set_instance_assignment -name IO_STANDARD "2.5 V" -to PCIE_WAKE_n
 
-set_instance_assignment -name LL_MEMBER_OF "mkMulDiv:execute_mul" -to "DE4_SOC:DE4_SOC_inst|mkTopAxi:cheri_fpu|mkMIPSTop:processor_beri|mkMulDiv:execute_mul" -section_id "mkMulDiv:execute_mul"
-set_instance_assignment -name LL_MEMBER_OF "mkMulDiv:execute_mul" -to "DE4_SOC:DE4_SOC_inst|mkTopAxi:cpu|mkCheri:processor|mkMIPSTop:beri|mkMulDiv:execute_mul" -section_id "mkMulDiv:execute_mul"
-set_instance_assignment -name LL_MEMBER_OF "mkL2Cache:theMem_l2Cache" -to "DE4_SOC:DE4_SOC_inst|mkTopAxi:cheri_fpu|mkMIPSTop:processor_beri|mkL2Cache:theMem_l2Cache" -section_id "mkL2Cache:theMem_l2Cache"
-set_instance_assignment -name LL_MEMBER_OF "mkL2Cache:theMem_l2Cache" -to "DE4_SOC:DE4_SOC_inst|mkTopAxi:cpu|mkCheri:processor|mkMIPSTop:beri|mkL2Cache:theMem_l2Cache" -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name PARTITION_NETLIST_TYPE POST_SYNTH -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name PARTITION_COLOR 16037301 -section_id "mkL2Cache:theMem_l2Cache"
-set_global_assignment -name PARTITION_NETLIST_TYPE POST_SYNTH -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "mkMulDiv:execute_mul"
-set_global_assignment -name PARTITION_COLOR 11908596 -section_id "mkMulDiv:execute_mul"
-#set_instance_assignment -name LL_MEMBER_OF "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1" -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|ISP1761_IF:isp1761_0" -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_instance_assignment -name LL_MEMBER_OF "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1" -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|ISP1761_IF:isp1761_0" -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
 set_global_assignment -name SDC_FILE DE4_Top_Clocks.sdc
 set_global_assignment -name VERILOG_FILE floatMul.v
 set_global_assignment -name QIP_FILE floatMul.qip
@@ -3657,19 +3601,11 @@ set_instance_assignment -name PACKAGE_SKEW_COMPENSATION OFF -to M1_DDR2_clk[0] -
 set_instance_assignment -name PACKAGE_SKEW_COMPENSATION OFF -to M1_DDR2_clk[1] -tag __DE4_SOC_ddr2_p0
 set_instance_assignment -name PACKAGE_SKEW_COMPENSATION OFF -to M1_DDR2_clk_n[0] -tag __DE4_SOC_ddr2_p0
 set_instance_assignment -name PACKAGE_SKEW_COMPENSATION OFF -to M1_DDR2_clk_n[1] -tag __DE4_SOC_ddr2_p0
-set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
-set_global_assignment -name PHYSICAL_SYNTHESIS_MAP_LOGIC_TO_MEMORY_FOR_AREA ON
-set_global_assignment -name PARTITION_NETLIST_TYPE POST_SYNTH -section_id "mkMyPIC:myPIC"
-set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "mkMyPIC:myPIC"
-set_global_assignment -name PARTITION_COLOR 11908596 -section_id "mkMyPIC:myPIC"
-set_global_assignment -name PARTITION_NETLIST_TYPE POST_SYNTH -section_id "mkInternalPeripheralBridge:peripheralBridge"
-set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "mkInternalPeripheralBridge:peripheralBridge"
-set_global_assignment -name PARTITION_COLOR 16774902 -section_id "mkInternalPeripheralBridge:peripheralBridge"
-#set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0"
-#set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0"
-#set_global_assignment -name PARTITION_COLOR 16774902 -section_id "mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0"
+set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0"
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0"
+set_global_assignment -name PARTITION_COLOR 16774902 -section_id "mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0"
 set_instance_assignment -name LL_MEMBER_OF ssram_and_flash -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkAvalonStream2LCDandHDMI:avalonstream2lcdandhdmi_0" -section_id ssram_and_flash
-#set_instance_assignment -name LL_MEMBER_OF ssram_and_flash -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0" -section_id ssram_and_flash
+set_instance_assignment -name LL_MEMBER_OF ssram_and_flash -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0" -section_id ssram_and_flash
 set_global_assignment -name LL_ENABLED ON -section_id "DE4_SOC_ddr2:ddr2"
 set_global_assignment -name LL_AUTO_SIZE OFF -section_id "DE4_SOC_ddr2:ddr2"
 set_global_assignment -name LL_RESERVED OFF -section_id "DE4_SOC_ddr2:ddr2"
@@ -3682,18 +3618,40 @@ set_global_assignment -name LL_HEIGHT 11 -section_id "DE4_SOC_ddr2:ddr2"
 set_instance_assignment -name LL_MEMBER_OF "DE4_SOC_ddr2:ddr2" -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_ddr2:ddr2" -section_id "DE4_SOC_ddr2:ddr2"
 set_global_assignment -name LL_ORIGIN X1_Y0 -section_id "DE4_SOC_ddr2:ddr2"
 set_global_assignment -name LL_STATE LOCKED -section_id "DE4_SOC_ddr2:ddr2"
+
+
+set_global_assignment -name LL_ROUTING_REGION_EXPANSION_SIZE 2147483647 -section_id "i2c_touch_config:touch"
+set_global_assignment -name PARTITION_NETLIST_TYPE POST_FIT -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name PARTITION_COLOR 16774902 -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_ENABLED ON -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_AUTO_SIZE OFF -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_STATE LOCKED -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_RESERVED OFF -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_SECURITY_ROUTING_INTERFACE OFF -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_IGNORE_IO_BANK_SECURITY_CONSTRAINT OFF -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_PR_REGION OFF -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_ROUTING_REGION_EXPANSION_SIZE 2147483647 -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_WIDTH 21 -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_HEIGHT 5 -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_ORIGIN X51_Y12 -section_id "mkUSB1761Bridge:usb1761bridge"
+set_instance_assignment -name LL_MEMBER_OF "mkUSB1761Bridge:usb1761bridge" -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkUSB1761Bridge:usb1761bridge" -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name ALLOW_REGISTER_RETIMING ON
+set_global_assignment -name LL_CORE_ONLY OFF -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_global_assignment -name LL_CORE_ONLY OFF -section_id "DE4_SOC_ddr2:ddr2"
+set_global_assignment -name LL_CORE_ONLY OFF -section_id "i2c_touch_config:touch"
+set_global_assignment -name LL_CORE_ONLY OFF -section_id mac0
+set_global_assignment -name LL_ROUTING_REGION_EXPANSION_SIZE 2147483647 -section_id mac0
+set_global_assignment -name LL_CORE_ONLY OFF -section_id "mkUSB1761Bridge:usb1761bridge"
+set_global_assignment -name LL_CORE_ONLY OFF -section_id ssram_and_flash
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
-#set_instance_assignment -name PARTITION_HIERARCHY alter_8ac61 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1" -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
+set_instance_assignment -name PARTITION_HIERARCHY alter_8ac61 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1" -section_id "Altera_UP_SD_Card_Avalon_Interface:altera_up_sd_card_avalon_interface_1"
 set_instance_assignment -name PARTITION_HIERARCHY de4so_24f31 -to "DE4_SOC:DE4_SOC_inst" -section_id "DE4_SOC:DE4_SOC_inst"
 set_instance_assignment -name PARTITION_HIERARCHY ddr2_a5141 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_ddr2:ddr2" -section_id "DE4_SOC_ddr2:ddr2"
 set_instance_assignment -name PARTITION_HIERARCHY tsema_b5b21 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|DE4_SOC_peripherals_0_tse_mac:tse_mac" -section_id "DE4_SOC_peripherals_0_tse_mac:tse_mac"
-set_instance_assignment -name PARTITION_HIERARCHY tsema_df6f1 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|DE4_SOC_peripherals_0_tse_mac:tse_mac1" -section_id "DE4_SOC_peripherals_0_tse_mac:tse_mac1"
 set_instance_assignment -name PARTITION_HIERARCHY displ_0a351 -to "display_pll:display_pll_ins" -section_id "display_pll:display_pll_ins"
 set_instance_assignment -name PARTITION_HIERARCHY i2cav_6a5e1 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|i2c_avalon:i2c_avalon_1" -section_id "i2c_avalon:i2c_avalon_1"
 set_instance_assignment -name PARTITION_HIERARCHY fanco_77961 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkFanControl50MHz:fancontrol50mhz_0" -section_id "mkFanControl50MHz:fancontrol50mhz_0"
-set_instance_assignment -name PARTITION_HIERARCHY perip_40e41 -to "DE4_SOC:DE4_SOC_inst|mkTopAxi:cpu|mkInternalPeripheralBridge:peripheralBridge" -section_id "mkInternalPeripheralBridge:peripheralBridge"
-set_instance_assignment -name PARTITION_HIERARCHY theme_1aa51 -to "DE4_SOC:DE4_SOC_inst|mkTopAxi:cpu|mkCheri:processor|mkMIPSTop:beri|mkL2Cache:theMem_l2Cache" -section_id "mkL2Cache:theMem_l2Cache"
-#set_instance_assignment -name PARTITION_HIERARCHY mtlfr_17ed1 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0" -section_id "mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0"
-set_instance_assignment -name PARTITION_HIERARCHY execu_66be1 -to "DE4_SOC:DE4_SOC_inst|mkTopAxi:cpu|mkCheri:processor|mkMIPSTop:beri|mkMulDiv:execute_mul" -section_id "mkMulDiv:execute_mul"
-set_instance_assignment -name PARTITION_HIERARCHY mypic_3b771 -to "DE4_SOC:DE4_SOC_inst|mkTopAxi:cpu|mkCheri:processor|mkMyPIC:myPIC" -section_id "mkMyPIC:myPIC"
+set_instance_assignment -name PARTITION_HIERARCHY mtlfr_17ed1 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0" -section_id "mkMTL_Framebuffer_Flash:mtl_framebuffer_flash_0"
 set_instance_assignment -name PARTITION_HIERARCHY cpu_22b81 -to "DE4_SOC:DE4_SOC_inst|mkTopAxi:cpu" -section_id "mkTopAxi:cpu"
+set_instance_assignment -name PARTITION_HIERARCHY usb17_4b4e1 -to "DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkUSB1761Bridge:usb1761bridge" -section_id "mkUSB1761Bridge:usb1761bridge"

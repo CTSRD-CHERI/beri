@@ -38,6 +38,7 @@ import MasterSlave::*;
 import NumberTypes :: *;
 import Vector :: *;
 import Assert :: *;
+import DefaultValue :: *;
 
 //////////////////////////////
 // helper functions & types //
@@ -141,10 +142,10 @@ module mkOneWayBus
         w_to_arbiter <- replicateM(mkDWire(ToArbiterT{valid: False, packet: ?, dest: ?}));
 
     // state
-    Reg#(Bool)                              is_allocated <- mkReg(False);
-    Reg#(BuffIndex#(TLog#(n_in), n_in))     last_source  <- mkRegU;
-    Reg#(BuffIndex#(TLog#(n_out), n_out))   last_dest    <- mkRegU;
-    Reg#(InputStateT)                       state        <- mkReg(FIRST_FLIT);
+    Reg#(Bool)                            is_allocated <- mkReg(False);
+    Reg#(BuffIndex#(TLog#(n_in), n_in))   last_source  <- mkReg(defaultValue);
+    Reg#(BuffIndex#(TLog#(n_out), n_out)) last_dest    <- mkReg(defaultValue);
+    Reg#(InputStateT)                     state        <- mkReg(FIRST_FLIT);
 
     // rule generator function for the input fsm / deq the input fifo
     function Rules gen_input_rules (Integer i) = rules

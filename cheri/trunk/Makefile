@@ -10,12 +10,13 @@
 # Copyright (c) 2012 Simon W. Moore
 # Copyright (c) 2012-2013 Robert M. Norton
 # Copyright (c) 2012 Ben Thorner
-# Copyright (c) 2013-2014 A. Theodore Markettos
+# Copyright (c) 2013-2014 Theo Markettos
 # Copyright (c) 2013 Philip Withnall
 # Copyright (c) 2013 Michael Roe
 # Copyright (c) 2013-2014 Colin Rothwell
 # Copyright (c) 2013 Bjoern A. Zeeb
 # Copyright (c) 2013 Alan A. Mujumdar
+# Copyright (c) 2014-2016 Alexandre Joannou
 # Copyright (c) 2015 Paul Fox
 # All rights reserved.
 #
@@ -47,6 +48,7 @@
 #
 
 CHERILIBS_DIR   ?= ../../cherilibs/trunk
+MINIBOOT_DIR    ?= ../../cheribsd/trunk/miniboot
 TOOLS_DIR       = $(CHERILIBS_DIR)/tools
 PERIPHERALS_DIR = $(CHERILIBS_DIR)/peripherals
 INCLUDE_DIR     = $(CHERILIBS_DIR)/include
@@ -75,15 +77,25 @@ BSV_FILES=			\
 	$(CHERILIBS_DIR)/InternalPeriphBridge.bsv\
 	$(CHERILIBS_DIR)/Peripheral.bsv      \
 	$(CHERILIBS_DIR)/OrderingLimiter.bsv      \
-	$(CHERILIBS_DIR)/TagCache.bsv      \
+	$(CHERILIBS_DIR)/TagLookup.bsv      \
+	$(CHERILIBS_DIR)/MultiLevelTagLookup.bsv      \
+	$(CHERILIBS_DIR)/TagController.bsv      \
 	$(CHERILIBS_DIR)/TraceTypes.bsv      \
 	$(CHERILIBS_DIR)/AsymmetricBRAM/AsymmetricBRAM.bsv  \
 	$(CHERILIBS_DIR)/PIC.bsv			\
 	$(CHERILIBS_DIR)/Burst.bsv          \
 	$(CHERILIBS_DIR)/Bag.bsv        \
 	$(CHERILIBS_DIR)/CacheCore.bsv	\
+	$(CHERILIBS_DIR)/CacheCoreSpeculative.bsv \
+	$(CHERILIBS_DIR)/CacheCoreTypes.bsv  \
+	$(CHERILIBS_DIR)/CacheCoreWriteback.bsv  \
+	$(CHERILIBS_DIR)/CacheCoreFill.bsv  \
+        $(CHERILIBS_DIR)/CacheCoreServe.bsv  \
 	$(CHERILIBS_DIR)/CheriTLM.defines  \
+        $(CHERILIBS_DIR)/Debug.bsv \
 	$(CHERILIBS_DIR)/FF.bsv	\
+	$(CHERILIBS_DIR)/Capability128Libs.bsv        \
+	$(CHERILIBS_DIR)/Capability64c1Libs.bsv        \
 	ICache.bsv  \
 	ICacheClassic.bsv  \
 	DCache.bsv  \
@@ -91,6 +103,7 @@ BSV_FILES=			\
 	CP0.bsv			\
 	CapCop.bsv 	   \
 	CapCop128.bsv \
+	CapCop64.bsv \
         FPU/*.bsv     \
 	Decode.bsv		\
 	Execute.bsv		\
@@ -101,13 +114,14 @@ BSV_FILES=			\
 	ForwardingPipelinedRegFile.bsv		\
 	ForwardingPipelinedRegFileHighFrequency.bsv	\
 	MIPSTop.bsv		\
+	MIPSTopIfc.bsv		\
 	ResetBuffer.bsv \
 	Scheduler.bsv		\
 	TLB.bsv			\
 	Writeback.bsv			\
 	DebugUnit.bsv		\
 	Multicore.bsv		\
-#	$(PERIPHERALS_DIR)/DMA/*.bsv
+	$(PERIPHERALS_DIR)/DMA/*.bsv
 
 C_HEADERS=$(INCLUDE_DIR)/parameters.h
 
@@ -155,6 +169,8 @@ BSCFLAGS+= -no-warn-action-shadowing -show-schedule -parallel-sim-link $(NCPU)
 
 ifdef NOT_FLAT
 BSCFLAGS+=-D NOT_FLAT
+IP_DIR := $(IP_DIR)notflat
+BUILD_DIR := $(BUILD_DIR)_notflat
 endif
 
 ifdef WITH_COMPOSITOR
@@ -196,37 +212,84 @@ print-versions:
 
 EXTRACTINFO=$(TOOLS_DIR)/cheri_genfiles.py
 
+ifdef NOPRINTS
+BLUESPEC_FLAGS += -D NOPRINTS
+endif
+
+export TAGS_STRUCT= 0
+export TAGS_ALIGN=32
+# it looks like this is the only way to get make to understand about whitespaces...
+EMPTY :=
+SPACE := $(EMPTY) $(EMPTY)
+TSTRUCT = $(subst $(SPACE),_,$(strip $(TAGS_STRUCT)))
 ifdef CAP
+export CAPSIZE=256
 BLUESPEC_FLAGS += -D CAP
 IP_DIR := $(IP_DIR)cheri
-BUILD_DIR := $(BUILD_DIR)_cap
+BUILD_DIR := $(BUILD_DIR)_cap_tags_$(TSTRUCT:"%"=%)
 else
 ifdef CAP128
+export CAPSIZE=128
 BLUESPEC_FLAGS += -D CAP128
-IP_DIR := $(IP_DIR)cheri
-BUILD_DIR := $(BUILD_DIR)_cap128
-MEM128=1
+IP_DIR := $(IP_DIR)cheri128
+BUILD_DIR := $(BUILD_DIR)_cap128_tags_$(TSTRUCT:"%"=%)
+else
+ifdef CAP64
+export CAPSIZE=64
+BLUESPEC_FLAGS += -D CAP64
+IP_DIR := $(IP_DIR)cheri64
+BUILD_DIR := $(BUILD_DIR)_cap64_tags_$(TSTRUCT:"%"=%)
 else
 IP_DIR := $(IP_DIR)beri
 endif
 endif
+endif
+
+ifdef CANDIDATE1
+BLUESPEC_FLAGS += -D CANDIDATE1
+IP_DIR := $(IP_DIR)_can1
+BUILD_DIR := $(BUILD_DIR)_can1
+endif
+
+ifdef PREFETCH
+ifeq ($(PREFETCH), L2CACHE)
+BLUESPEC_FLAGS += -D PFTCH -D L2_PFTCH
+BSV_FILES += Prefetcher.bsv
+else ifeq ($(PREFETCH), DCACHE)
+BLUESPEC_FLAGS += -D PFTCH -D DCACHE_PFTCH
+BSV_FILES += Prefetcher.bsv
+else ifeq ($(PREFETCH), CAP_L2CACHE)
+BLUESPEC_FLAGS += -D PFTCH  -D CAPPFTCH -D L2_PFTCH
+BSV_FILES += Prefetcher.bsv
+else ifeq ($(PREFETCH), CAP_DCACHE)
+BLUESPEC_FLAGS += -D PFTCH  -D CAPPFTCH -D DCACHE_PFTCH
+BSV_FILES += Prefetcher.bsv
+endif
+endif
+
+ifndef NOSTATCOUNTERS
+BLUESPEC_FLAGS += -D STATCOUNTERS
+BSV_FILES += $(CHERILIBS_DIR)/StatCounters.bsv
+endif
 
 ifdef MEM64
 BSCFLAGS+=-D MEM64
-DCACHECORE=1
-ICACHECORE=1
 BUILD_DIR := $(BUILD_DIR)_mem64
 IP_DIR := $(IP_DIR)_mem64
 else 
 ifdef MEM128
 BSCFLAGS+=-D MEM128
-DCACHECORE=1
-ICACHECORE=1
 BUILD_DIR := $(BUILD_DIR)_mem128
 IP_DIR := $(IP_DIR)_mem128
 else
 BSCFLAGS+=-D MEM256
 endif
+endif
+
+ifdef WRITEBACK_DCACHE
+BLUESPEC_FLAGS += -D WRITEBACK_DCACHE
+IP_DIR := $(IP_DIR)_writeback
+BUILD_DIR := $(BUILD_DIR)_writeback
 endif
 
 ifdef ALIGNEDMEMORY
@@ -235,27 +298,36 @@ else
 BLUESPEC_FLAGS += -D UNALIGNEDMEMORY
 endif
 
-ifdef DCACHECORE
-BLUESPEC_FLAGS += -D DCACHECORE
-BUILD_DIR := $(BUILD_DIR)_dcachecore
-endif
-
-ifdef ICACHECORE
-BLUESPEC_FLAGS += -D ICACHECORE
-BUILD_DIR := $(BUILD_DIR)_icachecore
-endif
-
 ifdef MICRO
 BLUESPEC_FLAGS += -D MICRO -D MULTI -D CORE_COUNT_IN=1
 BUILD_DIR := $(BUILD_DIR)_micro
 IP_DIR := $(IP_DIR)_micro
 endif
 
+ifdef BIG_DEBUG_BUF
+BLUESPEC_FLAGS += -D BIG_DEBUG_BUF
+BUILD_DIR := $(BUILD_DIR)_bigbuf
+IP_DIR := $(IP_DIR)_bigbuf
+endif
+
+ifdef CHERIOS
+BLUESPEC_FLAGS += -D CHERIOS
+BUILD_DIR := $(BUILD_DIR)_cherios
+IP_DIR := $(IP_DIR)_cherios
+endif
+
 ifdef MULTI
+ifdef TIMEBASED
+BLUESPEC_FLAGS += -D MULTI -D TIMEBASED -D CORE_COUNT_IN=$(MULTI)
+BUILD_DIR := $(BUILD_DIR)_multi_timebased_$(MULTI)
+IP_DIR := $(IP_DIR)_multi_timebased_$(MULTI)
+DTS_CPP_FLAGS += -DMULTI=$(MULTI)
+else
 BLUESPEC_FLAGS += -D MULTI -D CORE_COUNT_IN=$(MULTI)
 BUILD_DIR := $(BUILD_DIR)_multi_$(MULTI)
 IP_DIR := $(IP_DIR)_multi_$(MULTI)
 DTS_CPP_FLAGS += -DMULTI=$(MULTI)
+endif
 endif
 
 ifdef RMA
@@ -301,6 +373,11 @@ BUILD_DIR := $(BUILD_DIR)_hardCall
 IP_DIR := $(IP_DIR)_hardCall
 endif
 
+# FPU is an alias for COP1 being defined
+ifdef FPU
+COP1=1
+endif
+
 ifdef COP1
 BLUESPEC_FLAGS += -D COP1
 BSC_SIM_LIBS += -l mpfr -l gmp
@@ -333,12 +410,22 @@ BSV_FILES += \
 EXTRA_LINK += Test/Mem/Hash.c Test/Mem/Axe.c
 endif
 
+ifdef TEST_MEM_ISA
+BLUESPEC_FLAGS += -D TEST_MEM_ISA
+BUILD_DIR := $(BUILD_DIR)_testmem_isa
+endif
+
 IP_NAME := $(shell echo $$(basename $(IP_DIR)) | tr '[:lower:]' '[:upper:]')
+
+ifdef CAPSIZE
+BSVPATH:=$(BSVPATH):$(BUILD_DIR)
+BSV_FILES+=$(BUILD_DIR)/TagTableStructure.bsv
+endif
 
 verilog: BUILD_DIR := $(BUILD_DIR)_verilog
 
 BLUESPEC_SIM_FLAGS += -D BLUESIM -D DEBUG_INST
-BSC_SIM_FLAGS += -Xl -Wl,-rpath=$(PERIPHERALS_DIR) -L $(PERIPHERALS_DIR) -l pism
+BSC_SIM_FLAGS += -Xl -Wl,-rpath=$(PERIPHERALS_DIR) -L $(PERIPHERALS_DIR) -l pism -parallel-sim-link 4
 
 # Avalon Case Variable Names
 PHYS_TOPLEVEL = TopAxi
@@ -361,13 +448,10 @@ endif
 
 $(PHYS_VERILOG_TOPLEVEL): $(PHYS_BSV_TOPLEVEL) $(BSV_FILES) megawizard
 	mkdir -p $(BUILD_DIR)
-	mkdir -p $(IP_DIR)
+	mkdir -p $(IP_DIR)	
 	$(BSC) -unspecified-to X -opt-undetermined-vals -vdir $(IP_DIR) -simdir $(BUILD_DIR) -bdir $(BUILD_DIR) -u -verilog $(BLUESPEC_FLAGS) $(PHYS_BSV_TOPLEVEL)
 	cp $(CHERILIBS_DIR)/BRAM2Load.v $(IP_DIR)/
-	cp $(CHERILIBS_DIR)/AsymmetricBRAM/AsymmetricBRAM.v $(IP_DIR)/
-ifeq ($(MULTI),2)
-	cp ip_include/dualcore_hw.tcl $(IP_DIR)/$(IP_NAME)_hw.tcl
-else
+	cp $(CHERILIBS_DIR)/AltMEM.v $(IP_DIR)/
 ifdef MEM64
 	cp ip_include/hw64.tcl $(IP_DIR)/$(IP_NAME)_hw.tcl
 else 
@@ -375,7 +459,6 @@ ifdef MEM128
 	cp ip_include/hw128.tcl $(IP_DIR)/$(IP_NAME)_hw.tcl
 else
 	cp ip_include/hw.tcl $(IP_DIR)/$(IP_NAME)_hw.tcl
-endif
 endif
 endif
 ifdef COP1
@@ -390,7 +473,7 @@ endif
 
 $(PHYS_BA_TOPLEVEL): $(BSV_FILES)
 	mkdir -p $(BUILD_DIR)
-	$(BSC) -simdir $(BUILD_DIR) -bdir $(BUILD_DIR) -u -sim $(BLUESPEC_FLAGS) -show-schedule $(PHYS_BSV_TOPLEVEL)
+	$(BSC) -opt-undetermined-vals -unspecified-to X -simdir $(BUILD_DIR) -bdir $(BUILD_DIR) -u -sim $(BLUESPEC_FLAGS) -show-schedule $(PHYS_BSV_TOPLEVEL)
 
 mem64.hex: sw
 
@@ -417,10 +500,20 @@ sim sim.dtb sim.so: $(BUILD_DIR_SIM)/sim $(BUILD_DIR_SIM)/sim.so $(BUILD_DIR_SIM
 	ln -s $(BUILD_DIR_SIM)/sim.dtb sim.dtb
 	ln -s $(BUILD_DIR_SIM)/sim.so sim.so
 
-$(BUILD_DIR_SIM)/sim $(BUILD_DIR_SIM)/sim.so: $(BSV_FILES) $(PISM_LIB) mem64.hex
+sim.tar.gz : sim sim.so sim.dtb memoryconfig $(PERIPHERALS_DIR)/dram.so $(PERIPHERALS_DIR)/ethercap.so $(PERIPHERALS_DIR)/fb.so $(PERIPHERALS_DIR)/libpism.so $(PERIPHERALS_DIR)/sdcard.so $(PERIPHERALS_DIR)/uart.so $(PERIPHERALS_DIR)/virtio_block.so
+	mkdir -p tarball_files/
+	cp $^ tarball_files/.
+	cd tarball_files/ && tar -cvzf $@ * && cp $@ ../ &&	cd ../
+	rm -rf tarball_files/
+
+clean_sim.tar.gz :
+	rm -f sim.tar.gz
+
+$(BUILD_DIR_SIM)/sim $(BUILD_DIR_SIM)/sim.so: $(BSV_FILES) $(PISM_LIB) $(EXTRA_LINK)
+	rm -f $(CHERILIBS_DIR)/MEM.bo
 	mkdir -p $(BUILD_DIR_SIM)
-	$(BSC) $(BSC_SIM_FLAGS) $(BSC_SIM_LIBS) -simdir $(BUILD_DIR_SIM) -bdir $(BUILD_DIR_SIM) -u -sim $(BLUESPEC_FLAGS) $(BLUESPEC_SIM_FLAGS)-show-schedule $(SIM_BSV_TOPLEVEL)
-	$(BSC) $(BSC_SIM_FLAGS) $(BSC_SIM_LIBS) -sim -e $(SIM_TOPLEVEL_MODULE) -simdir $(BUILD_DIR_SIM) -bdir $(BUILD_DIR_SIM) -o $(BUILD_DIR_SIM)/sim $(BUILD_DIR_SIM)/*.ba $(EXTRA_LINK)
+	CXXFLAGS=-D_GLIBCXX_USE_CXX11_ABI=0 MAKEFLAGS= $(BSC) $(BSC_SIM_FLAGS) $(BSC_SIM_LIBS) -simdir $(BUILD_DIR_SIM) -bdir $(BUILD_DIR_SIM) -u -sim $(BLUESPEC_FLAGS) $(BLUESPEC_SIM_FLAGS)-show-schedule $(SIM_BSV_TOPLEVEL)
+	CXXFLAGS=-D_GLIBCXX_USE_CXX11_ABI=0 MAKEFLAGS= $(BSC) $(BSC_SIM_FLAGS) $(BSC_SIM_LIBS) -sim -e $(SIM_TOPLEVEL_MODULE) -simdir $(BUILD_DIR_SIM) -bdir $(BUILD_DIR_SIM) -o $(BUILD_DIR_SIM)/sim $(BUILD_DIR_SIM)/*.ba $(EXTRA_LINK)
 
 test: sim
 	cd ../../cheritest/trunk && $(MAKE) CHERIROOT=../../cheri/trunk test
@@ -441,19 +534,34 @@ verilog: $(PHYS_VERILOG_TOPLEVEL) miniboot version.hex
 sw: $(C_HEADERS)
 	$(MAKE) -C sw/helloworld
 
-miniboot: ../../cheribsd/trunk/miniboot/miniboot.S
-	cd ../../cheribsd/trunk/miniboot && $(MAKE)
-	cp -r ../../cheribsd/trunk/miniboot/mem64.hex $(IP_DIR)/
+miniboot: $(MINIBOOT_DIR)/miniboot.S
+ifdef CHERIOS
+	$(MAKE) -C $(MINIBOOT_DIR) CHERIOS=cherios
+	cp $(MINIBOOT_DIR)/mem64.hex $(IP_DIR)/
+	$(MAKE) -C $(MINIBOOT_DIR) clean
+	$(MAKE) -C $(MINIBOOT_DIR) CHERIOS=cherios ALWAYS_WAIT=yesplease
+	cp $(MINIBOOT_DIR)/mem64.hex $(IP_DIR)/mem64-nodip.hex
+else
+	$(MAKE) -C $(MINIBOOT_DIR)
+	cp $(MINIBOOT_DIR)/mem64.hex $(IP_DIR)/
+	$(MAKE) -C $(MINIBOOT_DIR) clean
+	$(MAKE) -C $(MINIBOOT_DIR) ALWAYS_WAIT=yesplease
+	cp $(MINIBOOT_DIR)/mem64.hex $(IP_DIR)/mem64-nodip.hex
+endif
 
 synth: $(PHYS_VERILOG_TOPLEVEL)
 	(cd boards/$(BOARD_NAME) && make synth)
 program:
 	(cd boards/$(BOARD_NAME) && make program)
 run:
-	bash -c 'time echo -n "LADQ" | ./sim -m 300000 2>&1'
+	bash -c 'time echo -n "LADQ" | PISM_MODULES_PATH=../../cherilibs/trunk/peripherals ./sim -m 300000 2>&1'
 
 megawizard:
+ifdef COP1
 	$(MAKE) -C FPU/QuartusProject megawizard
+else
+	# don't need to build Megawizard files since no FPU used
+endif
 
 #
 # Developer section and development targets for testing
@@ -465,6 +573,10 @@ ifdef GENERICL1
 $(CHERILIBS_DIR)/AsymmetricBRAM/mem_model.o: $(CHERILIBS_DIR)/AsymmetricBRAM/mem_model.c
 	$(CC) -fPIC -c $< -o $@
 endif
+
+$(BUILD_DIR)/TagTableStructure.bsv: $(CHERILIBS_DIR)/tagsparams.py
+	mkdir -p $(BUILD_DIR)
+	$^ -c $(CAPSIZE) -s $(TAGS_STRUCT:"%"=%) -a $(TAGS_ALIGN) -b $(BUILD_DIR)/TagTableStructure.bsv
 
 peripherals: pism_modules
 pism_modules:
@@ -482,12 +594,14 @@ clean:
 	rm -f sim
 	rm -f sim.dtb
 	rm -f sim.so
+	rm -f sim.tar.gz
 	rm -f sim.out
 	rm -f mem.bin
 	rm -rf ./csrc/
 	rm -rf ./ip/*
 	rm -f $(CHERILIBS_DIR)/*.bo
 	rm -f $(CHERILIBS_DIR)/*.bi
+	rm -f $(BUILD_DIR)/TagTableStructure.bsv
 	rm -f *.o
 	rm -f *.hex
 	rm -f mkRegFile.v
@@ -496,5 +610,6 @@ clean:
 	rm -f $(CHERILIBS_DIR)/AsymmetricBRAM/mem_model.o
 	rm -f ip_name.txt
 	$(MAKE) -C $(PERIPHERALS_DIR) clean
+	$(MAKE) -C $(MINIBOOT_DIR) clean
 	$(MAKE) -C FPU/QuartusProject clean
 	cd sw && $(MAKE) clean

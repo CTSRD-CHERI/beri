@@ -40,19 +40,27 @@
 		.text
 		.global start
 start:
-        dli $s0, 0x1111
-        dli $s1, 0x2222
+		#
+		# Set the cache coherency algorithm for kseg0
+		#
+        	mfc0    $t0, $16
+        	ori     $t0, $t0, 7
+        	xori    $t0, $t0, 5
+        	mtc0    $t0, $16
 
-        # This is where the bug was discovered
+        	dli $s0, 0x1111
+        	dli $s1, 0x2222
+
+        	# This is where the bug was discovered
 		# dla	$t0, 0x90000000003da140
-        # dla $t1, 0x90000000004da140
-        dla $t0, 0xffffffff803da0e0
-        dla $t1, 0xffffffff804da0e0
+        	# dla $t1, 0x90000000004da140
+        	dla $t0, 0xffffffff803da0e0
+        	dla $t1, 0xffffffff804da0e0
 
-        sd $s0, 0($t0)
-        sd $s1, 0($t1)
-        ld $a0, 0($t0)
-        ld $a1, 0($t1)
+        	sd $s0, 0($t0)
+        	sd $s1, 0($t1)
+        	ld $a0, 0($t0)
+        	ld $a1, 0($t1)
 
 		# Dump registers in the simulator
 		mtc0	$v0, $26
@@ -60,7 +68,7 @@ start:
 		nop
 
 		# Terminate the simulator
-        mtc0 $v0, $23
+        	mtc0 $v0, $23
 end:
 		b end
 		nop

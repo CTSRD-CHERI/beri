@@ -10,7 +10,7 @@
  * Copyright (c) 2013 Simon W. Moore
  * Copyright (c) 2013 Alan A. Mujumdar
  * Copyright (c) 2014 Colin Rothwell
- * Copyright (c) 2014-2015 Alexandre Joannou
+ * Copyright (c) 2014-2016 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -67,40 +67,84 @@ typedef 8 MaxNoOfFlits;
 `endif
 // XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX XXX
 
+`ifdef CAP
+  `define USECAP 1
+  typedef 256 CapWidth;
+`elsif CAP128
+  `define USECAP 1
+  typedef 128 CapWidth;
+`elsif CAP64
+  `define USECAP 1
+  typedef 64 CapWidth;
+`endif
+
+`ifdef USECAP
+  typedef TDiv#(CapWidth,8) CapBytes;
+`endif
+
 import Vector :: *;
 import DefaultValue :: *;
 import Interconnect :: *;
 import MasterSlave :: *;
 
+
+typedef Bit#(TSub#(width,TLog#(bytePerLine))) PhyLineNumber#(numeric type width, numeric type bytePerLine);
+typedef Bit#(TLog#(bytePerLine)) PhyByteOffset#(numeric type bytePerLine);
+typedef Bit#(TAdd#(TLog#(bytePerLine),3)) PhyBitOffset#(numeric type bytePerLine);
+
 // physical byte address type
 // CR: width is the TOTAL width of the type; this type is a clever way to allow byte
 // slicing from Alexendre.
 typedef struct {
-    Bit#(TSub#(width,TLog#(bytePerLine)))   lineNumber;
-    Bit#(TLog#(bytePerLine))                byteOffset;
+    PhyLineNumber#(width, bytePerLine)   lineNumber;
+    PhyByteOffset#(bytePerLine)          byteOffset;
 } PhyByteAddress#(numeric type width, numeric type bytePerLine) deriving (Bits, Eq, Bounded, FShow);
 
-typedef Bit#(TLog#(bytePerLine)) PhyByteOffset#(numeric type bytePerLine);
-typedef Bit#(TAdd#(TLog#(bytePerLine),3)) PhyBitOffset#(numeric type bytePerLine);
+typedef struct {
+    PhyByteAddress#(width, bytePerLine) byteAddr;
+    Bit#(3) bitOffset;
+} PhyBitAddress#(numeric type width, numeric type bytePerLine) deriving (Bits, Eq, Bounded, FShow);
 
+instance Ord#(PhyByteAddress#(a,b));
+    function Bool \<= (PhyByteAddress#(a,b) x, PhyByteAddress#(a,b) y);
+        return (pack(x) <= pack(y));
+    endfunction
+endinstance
 
 // physical address for cheri
 `ifdef MEM128
-  typedef PhyByteAddress#(40,16) CheriPhyAddr;
-  typedef PhyByteOffset#(16) CheriPhyByteOffset;
-  typedef PhyBitOffset#(16)  CheriPhyBitOffset;
+  typedef 16 CheriBusBytes;
   BytesPerFlit cheriBusBytes = BYTE_16;
 `elsif MEM64
-  typedef PhyByteAddress#(40,8) CheriPhyAddr;
-  typedef PhyByteOffset#(8) CheriPhyByteOffset;
-  typedef PhyBitOffset#(8)  CheriPhyBitOffset;
+  typedef 8 CheriBusBytes;
   BytesPerFlit cheriBusBytes = BYTE_8;
 `else
-  typedef PhyByteAddress#(40,32) CheriPhyAddr;
-  typedef PhyByteOffset#(32) CheriPhyByteOffset;
-  typedef PhyBitOffset#(32)  CheriPhyBitOffset;
+  typedef 32 CheriBusBytes;
   BytesPerFlit cheriBusBytes = BYTE_32;
 `endif
+`ifdef CAP
+  BytesPerFlit capBytesPerFlit = BYTE_32;
+`elsif CAP128
+  BytesPerFlit capBytesPerFlit = BYTE_16;
+`elsif CAP64
+  BytesPerFlit capBytesPerFlit = BYTE_8;
+`endif
+`ifdef USECAP
+  typedef TDiv#(CheriBusBytes,CapBytes) CapsPerFlit;
+  typedef Vector#(CapsPerFlit,Bool) CapTags;
+  typedef Bit#(TSub#(40,TLog#(CapBytes))) CapNumber;
+  typedef struct {
+    CapNumber capNumber;
+    Bit#(TLog#(CapBytes))           offset;
+  } CheriCapAddress deriving (Bits, Eq, Bounded, FShow);
+`endif
+typedef TMul#(CheriBusBytes,8) CheriDataWidth;
+typedef TSub#(40,TLog#(CheriBusBytes)) CheriLineAddrWidth;
+typedef PhyLineNumber#(40,CheriBusBytes)  CheriPhyLineNumber;
+typedef PhyByteAddress#(40,CheriBusBytes) CheriPhyAddr;
+typedef PhyBitAddress#(40,CheriBusBytes) CheriPhyBitAddr;
+typedef PhyByteOffset#(CheriBusBytes) CheriPhyByteOffset;
+typedef PhyBitOffset#(CheriBusBytes)  CheriPhyBitOffset;
 typedef PhyByteAddress#(40,8) CheriPeriphAddr;
 
 // bytes per flit
@@ -117,11 +161,9 @@ typedef enum {
 
 // Data type
 typedef struct {
-    `ifdef CAP
-      // is this line a capability
-      Vector#(TDiv#(width,256),Bool) cap;
-    `elsif CAP128
-      Vector#(TDiv#(width,128),Bool) cap;
+    `ifdef USECAP
+      // is this frame has capabilities
+      CapTags cap;
     `endif
     // actual data
     Bit#(width) data;
@@ -129,7 +171,7 @@ typedef struct {
 
 // what cache to target
 typedef enum {
-    ICache, DCache, None, L2
+    ICache, DCache, None, L2, TCache
 } WhichCache deriving (Bits, Eq, FShow);
 
 // what cache operation to perform
@@ -140,6 +182,7 @@ typedef enum {
     CacheInvalidateIndexWriteback,
     CacheRead,
     CacheWrite,
+    CacheSync,
 // here only as a temporary fix for migration to the new format
     Read, //XXX
 // here only as a temporary fix for migration to the new format
@@ -147,6 +190,8 @@ typedef enum {
 // here only as a temporary fix for migration to the new format
     StoreConditional, //XXX
     CacheLoadTag,
+    CachePrefetch,
+    CacheInternalInvalidate,
     CacheNop
 } CacheInst deriving (Bits, Eq, FShow);
 
@@ -202,16 +247,20 @@ typedef struct {
             BytesPerFlit bytesPerFlit;
         } Read;
         struct {
+            // True for the last flit of the burst
+            Bool last;
             // uncached / cached access
             Bool uncached;
             // SC / standard write
             Bool conditional;
             // byte enable vector
             Vector#(TDiv#(data_width,8), Bool) byteEnable;
-            // line data
+            // A bit mask for each byte, enabling bit updates.
+            Bit#(8) bitEnable;
+            // line data, 
+            // at the bottom so we can "truncate(pack())" this field 
+            // to get the data without "matches".
             Data#(data_width) data;
-            // True for the last flit of the burst
-            Bool last;
         } Write;
         // for a cache operation
         CacheOperation CacheOp;
@@ -258,7 +307,8 @@ instance FShow#(MemoryRequest#(a,b,c,d))
                 $format(" | address: 0x%0x ",pack(req.addr), fshow(req.addr)) +
                 $format(" | uncached: ") + fshow(wop.uncached) +
                 $format(" | conditional: ") + fshow(wop.conditional) +
-                $format(" | byteEnable: %0x", pack(wop.byteEnable)) +
+                $format(" | byteEnable: 0x%0x", pack(wop.byteEnable)) +
+                $format(" | bitEnable: 0x%0x", pack(wop.bitEnable)) +
                 $format(" | last: ") + fshow(wop.last) +
                 $format(" | data: ") + fshow(wop.data)
             );
@@ -279,16 +329,23 @@ endinstance
 typedef Bit#(4) CheriMasterID;
 typedef Bit#(4) CheriTransactionID;
 
-`ifdef MEM64
-  typedef 64 CheriDataWidth;
-`elsif MEM128
-  typedef 128 CheriDataWidth;
-`else
-  typedef 256 CheriDataWidth;
-`endif
 typedef Data#(CheriDataWidth) CheriData;
 typedef MemoryRequest#(CheriPhyAddr,CheriMasterID,CheriTransactionID,CheriDataWidth) CheriMemRequest;
 typedef MemoryRequest#(CheriPeriphAddr,CheriMasterID,CheriTransactionID,64)  CheriMemRequest64;
+
+typedef struct {
+  CheriMasterID      masterID;
+  CheriTransactionID transactionID;
+} ReqId deriving (Bits, Eq, FShow);
+
+`ifdef MEM128
+  typedef 8 Indices;
+`elsif MEM64
+  typedef 9 Indices;
+`else // MEM256 and default
+  typedef 7 Indices;
+`endif
+Bit#(3) indicesMinus6 = fromInteger(valueOf(Indices) - 6);
 
 //////////////////////////////////
 // cheri memory response format //
@@ -307,8 +364,6 @@ typedef struct {
     // content of the response
     union tagged {
         struct {
-            // line data
-            Data#(data_width) data;
             // True for the last flit of the burst
             Bool last;
         } Read;
@@ -317,6 +372,8 @@ typedef struct {
         // True for a success
         Bool SC;
     } operation;
+    // line data for Read (could be in tagged Union, but avoid muxes by putting it here)
+    Data#(data_width) data;
 } MemoryResponse#(type masterid_t, type transactionid_t, numeric type data_width) deriving (Bits);
 
 instance DefaultValue#(MemoryResponse#(a,b,c))
@@ -326,6 +383,7 @@ instance DefaultValue#(MemoryResponse#(a,b,c))
             masterID:       unpack(0),
             transactionID:  unpack(0),
             error:          NoError,
+            data:           ?,
             operation:      tagged Write
         };
 endinstance
@@ -348,20 +406,22 @@ instance FShow#(MemoryResponse#(a,b,c))
                 $format(" | transactionID: %0d", rsp.transactionID) +
                 $format(" | error: ") + fshow(rsp.error) +
                 $format(" | last: ") + fshow(rop.last) +
-                $format(" | data: ") + fshow(rop.data)
+                $format(" | data: ") + fshow(rsp.data)
             );
             tagged Write .wop: return (
                 $format("Write MemoryResponse - ") +
                 $format("masterID: %0d", rsp.masterID) +
                 $format(" | transactionID: %0d", rsp.transactionID) +
-                $format(" | error: ") + fshow(rsp.error)
+                $format(" | error: ") + fshow(rsp.error) +
+                $format(" ( data: ") + fshow(rsp.data) + $format(" )")
             );
             tagged SC .scop: return (
                 $format("SC MemoryResponse - ") +
                 $format("masterID: %0d", rsp.masterID) +
                 $format(" | transactionID: %0d | ", rsp.transactionID) +
                 $format(" | error: ") + fshow(rsp.error) +
-                $format(" | success: ") + fshow(scop)
+                $format(" | success: ") + fshow(scop) +
+                $format(" ( data: ") + fshow(rsp.data) + $format(" )")
             );
             default: return (
                 $format("Unknown MemoryResponse")
@@ -378,3 +438,11 @@ typedef Slave#(CheriMemRequest, CheriMemResponse)       CheriSlave;
 
 typedef Master#(CheriMemRequest64, CheriMemResponse64)  CheriPeriphMaster;
 typedef Master#(CheriMemRequest, CheriMemResponse)      CheriMaster;
+
+function Bool expectWriteResponse(CheriMemRequest r);
+  case (r.operation) matches
+    tagged Write .wop &&& (!wop.conditional): return True;
+    tagged CacheOp .cop &&& (cop.inst != CacheLoadTag): return True;
+    default: return False;
+  endcase
+endfunction

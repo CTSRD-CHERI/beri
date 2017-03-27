@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -51,19 +52,22 @@ test:		.ent test
 		jal	bev0_handler_install
 		nop
 
+		cgetdefault $c1
 		dla	$t0, cap1
-		cincbase $c1, $c0, $t0
+		csetoffset $c1, $c1, $t0
 		dli	$t0, 32
-		csetlen $c1, $c1, $t0
+		csetbounds $c1, $c1, $t0
 		dli	$t0, 0
 		dli	$t1, 0
 
 		dli	$a0, 0
 		dli	$a2, 0 # $a2 will be set to 1 if an exception is raised
 		dli	$a3, 0
-		csetlen $c2, $c2, $0 # Initialize length to 0 to test if load occured.
+		cgetdefault $c2
+ 		# Initialize length to 0 to test if load occured.
+		csetoffset $c2, $c2, $zero
 		clc	$c2, $zero, 32($c1) # This should raise an exception
-		cgetlen $a0, $c2
+		cgetoffset $a0, $c2
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

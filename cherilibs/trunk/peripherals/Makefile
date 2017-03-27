@@ -35,13 +35,14 @@
 
 # Build peripherals as shared objects
 
-VPATH=.:pismdev:pismdev/dram:pismdev/uart:pismdev/sdcard:pismdev/ether:pismdev/framebuffer:pismdev/debug_stream
+VPATH=.:pismdev:pismdev/dram:pismdev/uart:pismdev/sdcard:pismdev/virtio:pismdev/ether:pismdev/framebuffer:pismdev/debug_stream
 
 TARGETS=libpism.so				\
 	dram.so					\
 	ethercap.so				\
 	fb.so					\
 	sdcard.so				\
+	virtio_block.so				\
 	uart.so					\
 	chericonf				\
 	pismtest
@@ -50,6 +51,8 @@ objs=						\
 	dram.o					\
 	ethercap.o				\
 	sdcard.o				\
+	virtio_block.o				\
+	virtio.o				\
 	uart.o					\
 	fb.o					\
 	chericonf.o				\
@@ -60,21 +63,22 @@ objs=						\
 
 SUBDIRS=					\
 	AvalonSampler				\
+	MTL_LCD					\
+	MTL_LCD_HDMI				\
 	TERASIC_ISP1761				\
 	USB1761Bridge				\
 	JTAGUART2Stream				\
 	i2c					\
+	AlteraUPP_sd_card			\
 	FanControl				\
+	ReconfigPLL				\
+	opencore_16550_uart			\
 	HDMI					\
 	PixelStream				\
 	uart16550				\
-	PCIExpressStream		\
-	ReconfigPLL				\
+	PCIExpressStream			\
+	AdjustableJTAGUART			\
 	$(NULL)
-#	MTL_LCD					\
-#	MTL_LCD_HDMI				\
-#	opencore_16550_uart			\
-#	AlteraUPP_sd_card			\
 
 all: $(TARGETS) $(SUBDIRS)
 $(SUBDIRS):
@@ -115,6 +119,9 @@ fb.so: fb.o libpism.so
 
 sdcard.so: sdcard.o libpism.so
 	$(CC) $(MODULE_CFLAGS) -o $@ $^ -lpism
+
+virtio_block.so: virtio_block.o virtio.o libpism.so
+	$(CC) $(MODULE_CFLAGS) -o $@ $^ -lbsd -lpism
 
 uart.so: uart.o libpism.so
 	$(CC) $(MODULE_CFLAGS) -o $@ $^ -lpism

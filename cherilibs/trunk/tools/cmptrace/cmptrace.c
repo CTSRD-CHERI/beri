@@ -43,7 +43,7 @@
 #include <strings.h>
 #include <getopt.h>
 
-static unsigned long putc_start = 0xffffffff804c33c0;
+static unsigned long long putc_start = 0xffffffff804c33c0;
 
 #define BUFF_SIZE 128
 
@@ -54,6 +54,7 @@ struct trace_info {
   unsigned long long trace_memvalue;
   int trace_reg;
   int trace_memwrite;
+  int trace_capwrite;
   int trace_count;
   int trace_core;
 };
@@ -77,6 +78,7 @@ int reg;
     info->trace_addr = 0;
     info->trace_memvalue = 0;
     info->trace_memwrite = 0;
+    info->trace_capwrite = 0;
     info->trace_pc = new_pc1;
     info->trace_count = new_count1;
     info->trace_core = new_core1;
@@ -107,6 +109,7 @@ int reg;
           info->trace_memvalue = 0;
           info->trace_addr = 0;
           info->trace_memwrite = 0;
+          info->trace_capwrite = 0;
           info->trace_count = new_count1;
           info->trace_pc = new_pc1;
         }
@@ -118,6 +121,7 @@ int reg;
           info->trace_memvalue = 0;
           info->trace_addr = 0;
           info->trace_memwrite = 0;
+          info->trace_capwrite = 0;
           info->trace_count = new_count1;
           info->trace_pc = new_pc1;
         }
@@ -149,18 +153,21 @@ int reg;
           info->trace_value = strtoull(cp + 5, NULL, 16);
         }
       }
-      else if (strncmp(buff, "MEM[", 4) == 0)
+      else if (strncmp(buff, "Store", 5) == 0)
       {
         info->trace_memwrite = 1;
-        info->trace_addr = strtoull(buff + 6, NULL, 16);
-        cp = strstr(buff, "data:");
+        if (strncmp(buff, "Store cap", 9) == 0)
+          info->trace_capwrite = 1;
+          /* XXX: ought to parse the capability here */
+        info->trace_memvalue = strtoull(buff + 8, NULL, 16);
+        cp = strstr(buff, "mask");
         if (cp)
         {
-          info->trace_memvalue = strtoull(cp + 8, NULL, 16);
-          cp = strstr(cp, "mask:");
+          mask = strtoull(cp + 7, NULL, 16);
+          cp = strstr(cp, "vAddr");
           if (cp)
           {
-            mask = strtoull(cp + 8, NULL, 16);
+            info->trace_addr = strtoull(cp + 8, NULL, 16);
             if (mask)
             {
               info->trace_memvalue &= mask;
@@ -171,6 +178,7 @@ int reg;
               }
 #if 0
              fprintf(stderr, "memvalue = %llx\n", info->trace_memvalue);
+             fprintf(stderr, "memaddr = %llx\n", info->trace_addr);
 #endif
             }
           }
@@ -178,7 +186,8 @@ int reg;
         else
           info->trace_memvalue = 0;
       }
-      else if (strncmp(buff, "exception", 9) == 0)
+      else if ((strncmp(buff, "MIPS exception", 14) == 0) ||
+          (strncmp(buff, "Cap exception", 13) == 0))
       {
         /* The instruction didn't commit, so forget about it and its
          * state changes, and wait to see if the next instruction will be
@@ -189,6 +198,7 @@ int reg;
         info->trace_memvalue = 0;
         info->trace_addr = 0;
         info->trace_memwrite = 0;
+        info->trace_capwrite = 0;
         exception_skip = 1;
       }
     } while ((!feof(f1)) && (done1 == 0));
@@ -212,6 +222,7 @@ int new_time2;
     info->trace_value = 0;
     info->trace_addr = 0;
     info->trace_memwrite = 0;
+    info->trace_capwrite = 0;
     info->trace_memvalue = 0;
 
     do
@@ -280,6 +291,9 @@ int new_time2;
       else if (strncmp(line, "Address ", 8) == 0)
       {
         info->trace_addr = strtoull(line + 8, NULL, 16);
+        if (strstr(line, "CapLine") != NULL)
+          info->trace_capwrite = 1;
+          /* XXX: ought to parse capability here */
         cp = strstr(line, "<-");
         if (cp)
           info->trace_memvalue = strtoull(cp + 3, NULL, 16);
@@ -349,7 +363,7 @@ int multicore;
     switch (c)
     {
       case 'a':
-        putc_start = strtol(optarg, NULL, 16);
+        putc_start = strtoull(optarg, NULL, 16);
         break;
       case 'm':
         multicore = 1;
@@ -428,7 +442,14 @@ int multicore;
 
         }
 
-        if (l3_info.trace_memvalue != blue_info.trace_memvalue)
+        if (l3_info.trace_capwrite != blue_info.trace_capwrite)
+        {
+          printf("capwrite differs: count1 = %d count2 = %d\n",
+            l3_info.trace_count, blue_info.trace_count);
+        }
+
+        if ((l3_info.trace_capwrite == 0) &&
+          (l3_info.trace_memvalue != blue_info.trace_memvalue))
         {
           printf("memvalue differs: count1 = %d count2 = %d memvalue1 = %llx memvalue2 = %llx\n",
             l3_info.trace_count, blue_info.trace_count,
@@ -450,6 +471,15 @@ int multicore;
     }
   }
 
+  if ((l3_info.trace_count == 0) || (blue_info.trace_count == 0))
+  {
+    fprintf(stderr, "No instructions were processed. Empty log file?\n");
+    return -1;
+  }
+
   printf("Finished comparing traces\n");
+  printf("Count1 = %d Count2 = %d\n", l3_info.trace_count,
+    blue_info.trace_count);
+
   return 0;
 }

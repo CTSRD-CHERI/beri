@@ -34,20 +34,22 @@ from nose.plugins.attrib import attr
 #
 
 class test_cp2_x_csc_perm(BaseBERITestCase):
+
     @attr('capabilities')
     def test_cp2_x_csc_perm_1(self):
-        '''Test csc did not store a capability without Permit_Store_Capability'''
+        '''Test CSC did not store a capability without Permit_Store_Capability'''
         self.assertRegisterEqual(self.MIPS.a0, 0,
-            "csc wrote a capability without Permit_Store_Capability permission")
+            "CSC wrote a capability without Permit_Store_Capability permission")
 
     @attr('capabilities')
     def test_cp2_x_csc_perm_2(self):
-        '''Test csc raises an exception when it does not have Permit_Store_Capability permission'''
+        '''Test CSC raises an exception when it does not have Permit_Store_Capability permission'''
         self.assertRegisterEqual(self.MIPS.a2, 1,
-            "csc did not raise an exception when it did not have Permit_Store_Capability permission")
-    @attr('capabilities')
+            "CSC did not raise an exception when it did not have Permit_Store_Capability permission")
 
+    @attr('capabilities')
     def test_cp2_x_csc_perm_3(self):
         '''Test capability cause was set correctly when didn't have Permit_Store_Capability permission'''
         self.assertRegisterEqual(self.MIPS.a3, 0x1502,
-            "Capability cause was not set correctly when didn't have Permit_Store_Capability permission")
+            "CSC did not set capability cause correctly when didn't have Permit_Store_Capability permission")
+

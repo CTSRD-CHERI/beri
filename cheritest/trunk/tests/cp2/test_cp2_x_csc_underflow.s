@@ -57,13 +57,22 @@ test:		.ent test
 
 		#
 		# Make $c1 a data capability for the array 'data'
-		# The length of this capability should be large, so that
-		# if a negative offset is incorrectly sign-extended, it
-		# will be within the range of the capability.
 		#
 
 		dla     $t0, data
-		cincbase $c1, $c0, $t0
+		cincoffset $c1, $c0, $t0
+.if CAP_SIZE==128
+		# The length of this capability should be small for the compressed 
+		# case so that the lower bound is precise.
+		dli     $t0, 0xff
+.else
+		# The length of this capability should be large for the 
+		# uncomressed case so that if a negative offset is incorrectly
+		# sign-extended, it will be within the range of the capability.
+		cgetlen	$t1, $c1
+		dsubu		$t0, $t1, $t0
+.endif
+		csetbounds	$c1, $c1, $t0
 		dli     $t0, 0x7f
 		candperm $c1, $c1, $t0
 

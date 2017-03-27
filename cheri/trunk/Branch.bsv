@@ -62,6 +62,7 @@ typedef struct {
 } Prediction deriving(Bits, Eq);
 
 typedef struct {
+  Bool    jump;
   Int#(2) history;
   Seg     seg;
   Target  target;
@@ -72,8 +73,13 @@ typedef enum {Init, Run} State deriving(Bits, Eq);
   (*synthesize*)
 `endif
 module mkBranch(BranchIfc);
-  Reg#(Address)                        pc <- mkConfigReg(64'h9000000040000000);
-  Reg#(Address)                    specPc <- mkReg(64'h9000000040000000);
+  `ifndef CAP64
+      Reg#(Address)                        pc <- mkConfigReg(64'h9000000040000000);
+      Reg#(Address)                    specPc <- mkReg(64'h9000000040000000);
+  `else
+      Reg#(Address)                        pc <- mkConfigReg(64'hFFFFFFFFE0000000);
+      Reg#(Address)                    specPc <- mkReg(64'hFFFFFFFFE0000000);
+  `endif
   Reg#(UInt#(4))               flushCount <- mkReg(0);
   //FIFOF#(Bool)                  flushFifo <- mkUGFIFOF1;
   Reg#(Epoch)                       epoch <- mkConfigReg(0);
@@ -98,7 +104,7 @@ module mkBranch(BranchIfc);
   // result (i.e. the one likely to be needed the furthest in the future).
   Reg#(UInt#(5))                callDepth <- mkReg(0);
   Reg#(Address)                   callTop <- mkRegU;
-  Reg#(Bit#(4))                  globHist <- mkConfigReg(0);
+  Reg#(Bit#(3))                  globHist <- mkConfigReg(0);
 
   rule callHistoryReq;
     callHistory.read.put(callDepth - 1);
@@ -147,7 +153,7 @@ module mkBranch(BranchIfc);
       end else specPc <= pc;
       issueEpoch <= epoch;
     end
-    Key key = {globHist,7'b0} ^ nextPc[12:2];
+    Key key = {globHist,0} ^ truncate(nextPc[20:2]);
     histories.read.put(key);
     keys.enq(key);
     debug($display("Branch delivering spec PC = %x in epoch %x at time:%t", nextPc, issueEpoch, $time));
@@ -190,9 +196,9 @@ module mkBranch(BranchIfc);
 
     Address target = (case (branchType)
       Branch:  return {hist.seg,signExtend(hist.target),2'b0};
-      Jump:    return (hist.history >= 0) ?
-        {instPc[63:28], pack(instruction)[25:0], 2'b0}
-        :{hist.seg,signExtend(hist.target),2'b0};
+      Jump:    return (hist.jump) ?
+        {hist.seg,signExtend(hist.target),2'b0}:
+        {instPc[63:28], pack(instruction)[25:0], 2'b0};
       JumpReg: return popLink ?
         callTop
         :{hist.seg,signExtend(hist.target),2'b0};
@@ -255,7 +261,7 @@ module mkBranch(BranchIfc);
       pc <= truePc;
       case (check.branchType)
         Branch: begin
-          globHist <= {globHist[2:0],pack(taken)};
+          globHist <= {truncate(globHist),pack(taken)};
           if (check.tookTarget) begin
             miss = (!taken) || (check.target != truePc);
           end else begin
@@ -264,6 +270,7 @@ module mkBranch(BranchIfc);
           if (taken) begin
             check.history.target = truePc[39:2];
             check.history.seg = truePc[63:59];
+            check.history.jump = False;
           end
           check.history.history = boundedPlus(check.history.history,(taken)?1:-1);
         end
@@ -273,6 +280,7 @@ module mkBranch(BranchIfc);
           end
           check.history.target = truePc[39:2];
           check.history.seg = truePc[63:59];
+          check.history.jump = False;
           // For a jump reg, use the history to indicate whether to use the call
           // stack or not. We just want to go the opposite direction we went
           // last time if we missed.
@@ -284,11 +292,12 @@ module mkBranch(BranchIfc);
             miss = True;
             check.history.target = truePc[39:2];
             check.history.seg = truePc[63:59];
+            check.history.jump = True;
           end
           // For a jump, use the history to indicate whether we used the simple
           // calculation or not. This would help if C0 is not 0.
-          Int#(2) histSign = (check.history.history >= 0) ? 1:-1;
-          check.history.history = boundedPlus(check.history.history,(miss)?-histSign:histSign);
+          //Int#(2) histSign = (check.history.history >= 0) ? 1:-1;
+          //check.history.history = boundedPlus(check.history.history,(miss)?-histSign:histSign);
         end
       endcase
       case (check.branchType)

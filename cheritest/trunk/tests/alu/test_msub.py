@@ -27,29 +27,36 @@
 #
 
 from beritest_tools import BaseBERITestCase
+from nose.plugins.attrib import attr
 
 class test_msub(BaseBERITestCase):
-	def test_initial(self):
-		'''Test that lo is full'''
-		self.assertRegisterEqual(self.MIPS.a0, 0, "Hi is incorrect")
-		self.assertRegisterEqual(self.MIPS.a1, 0xffffffffffffffff, "Lo is not full")
 
-	def test_msub_zeroed(self):
-		'''Test that the bits correctly overflow from lo into hi'''
-		self.assertRegisterEqual(self.MIPS.a2, 1, "Hi was incorrect")
-		self.assertRegisterEqual(self.MIPS.a3, 0, "Lo was incorrect")
+    @attr('madd')
+    def test_initial(self):
+        '''Test that lo is full'''
+        self.assertRegisterEqual(self.MIPS.a0, 0, "Hi is incorrect")
+        self.assertRegisterEqual(self.MIPS.a1, 0xffffffffffffffff, "Lo is not full")
 
-	def test_msub_pos(self):
-		'''Test msub with a positive number'''
-		self.assertRegisterEqual(self.MIPS.a4, 0, "Subtraction incorrect")
-		self.assertRegisterEqual(self.MIPS.a5, 0xfffffffffffff5e9, "Subtraction incorrect")
+    @attr('madd')
+    def test_msub_zeroed(self):
+        '''Test that the bits correctly overflow from lo into hi'''
+        self.assertRegisterEqual(self.MIPS.a2, 1, "Hi was incorrect")
+        self.assertRegisterEqual(self.MIPS.a3, 0, "Lo was incorrect")
 
-	def test_msub_neg(self):
-		'''Test msub with a negative number'''
-		self.assertRegisterEqual(self.MIPS.a6, 0x80, "Subtraction of negative number incorrect")
-		self.assertRegisterEqual(self.MIPS.a7, 0xfffffffffffff5e9, "Lo incorrectly affected by addition in the higher range")
+    @attr('madd')
+    def test_msub_pos(self):
+        '''Test msub with a positive number'''
+        self.assertRegisterEqual(self.MIPS.a4, 0, "Subtraction incorrect")
+        self.assertRegisterEqual(self.MIPS.a5, 0xfffffffffffff5e9, "Subtraction incorrect")
+
+    @attr('madd')
+    def test_msub_neg(self):
+        '''Test msub with a negative number'''
+        self.assertRegisterEqual(self.MIPS.a6, 0x80, "Subtraction of negative number incorrect")
+        self.assertRegisterEqual(self.MIPS.a7, 0xfffffffffffff5e9, "Lo incorrectly affected by addition in the higher range")
 		
-	def test_msub_after_mtlo(self):
-		'''Test msub following mtlo'''
-		self.assertRegisterEqual(self.MIPS.s0, 0, "Multiply subtract immediatly after mtlo had the wrong hi register")
-		self.assertRegisterEqual(self.MIPS.s1, 1024, "Multiply subtract immediatly after mtlo had the wrong lo register")
+    @attr('madd')
+    def test_msub_after_mtlo(self):
+        '''Test msub following mtlo'''
+        self.assertRegisterEqual(self.MIPS.s0, 0, "Multiply subtract immediatly after mtlo had the wrong hi register")
+        self.assertRegisterEqual(self.MIPS.s1, 1024, "Multiply subtract immediatly after mtlo had the wrong lo register")

@@ -1,10 +1,17 @@
-/*-
- * Copyright (c) 2015 Matthew Naylor
+/* Copyright 2015 Matthew Naylor
  * All rights reserved.
  *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-11-C-0249
+ * ("MRC2"), as part of the DARPA MRC research programme.
+ *
  * This software was developed by the University of Cambridge Computer
- * Laboratory as part of the Rigorous Engineering of Mainstream Systems (REMS)
- * project, funded by EPSRC grant EP/K008528/1.
+ * Laboratory as part of the Rigorous Engineering of Mainstream
+ * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
  *
  * @BERI_LICENSE_HEADER_START@
  *
@@ -29,7 +36,6 @@ import Vector::*;
 import MasterSlave::*;
 
 import MIPS::*;
-import MIPSTop::*;
 import MIPSTop_TestMem ::*;
 import MemTypes::*;
 
@@ -42,6 +48,7 @@ import MemoryClient::*;
 import TestEquiv::*;
 import ModelDRAM :: *;
 import Clocks::*;
+import MIPSTopIfc::*;
 
 (* synthesize *)
 module mkTestMemTop (Empty);
@@ -55,8 +62,8 @@ module [Module] mkTestMemTopSingle (Empty);
 
   // Instantiate DRAM model
   // (max oustanding requests = 4, latency = 20, address width = 17)
-  //ModelDRAM#(17) dram <- mkModelDRAMAssoc(4, 20, reset_by r.new_rst);
-  ModelDRAM#(35) dram <- mkModelDRAMHash(4, 20, reset_by r.new_rst);
+  ModelDRAM#(35) dram <- mkModelDRAMAssoc(4, 20, reset_by r.new_rst);
+  //ModelDRAM#(35) dram <- mkModelDRAMHash(4, 20, reset_by r.new_rst);
 
   `ifdef MULTI
       // Instantiate minimal core
@@ -68,7 +75,7 @@ module [Module] mkTestMemTopSingle (Empty);
       // Make equivalence checker
       case (valueOf(CORE_COUNT))
         0,1:     mkTestMemSingle(beri.mipsMemories[0], r);
-        2:       mkTestMemDualExclusive(beri.mipsMemories, r);
+        //2:       mkTestMemDualExclusive(beri.mipsMemories, r);
         default: mkTestMemoryModel(beri.mipsMemories, r);
       endcase      
   `else
@@ -80,10 +87,12 @@ module [Module] mkTestMemTopSingle (Empty);
 
       // Make equivalence checker
       mkTestMemSingle(beri.mipsMemory, r);
+      
+      // Needed to keep compiler happy
+      rule irqs;
+        beri.putState(0, False, 0);
+      endrule
   `endif
 
-  // Needed to keep compiler happy
-  rule irqs;
-    beri.putIrqs(0);
-  endrule
+
 endmodule

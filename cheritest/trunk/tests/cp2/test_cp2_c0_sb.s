@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -43,21 +44,18 @@ test:		.ent test
 
 		#
 		# Set up $c1 to point at data.
+		# We want $c1.length to be 8.
 		#
+		cgetdefault $c1
 		dla	$t0, data
-		cincbase	$c1, $c1, $t0
-
-		#
-		# We want $c1.length to be 16.
-		#
-		cgetlen	$t1, $c1
-		dli		$t1, 8
-		csetlen	$c1, $c1, $t1
+		csetoffset $c1, $c1, $t0
+		dli	$t1, 8
+		csetbounds $c1, $c1, $t1
 
 		#
 		# Install new $c0
 		#
-		cmove	$c0, $c1
+		csetdefault $c1
 
 		dli	$t0, 0
 		dli	$t1, 0x00
@@ -87,7 +85,7 @@ test:		.ent test
 		#
 		# Restore privileged c0 for test termination.
 		#
-		cmove	$c0, $c30
+		csetdefault $c30
 
 		#
 		# Load using restored privilege for checking.

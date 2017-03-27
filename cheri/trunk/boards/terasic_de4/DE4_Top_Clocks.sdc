@@ -1,6 +1,6 @@
 #
-# Copyright (c) 2012-2015 Jonathan Woodruff
-# Copyright (c) 2014 A. Theodore Markettos
+# Copyright (c) 2012-2013 Jonathan Woodruff
+# Copyright (c) 2014 Theo Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of

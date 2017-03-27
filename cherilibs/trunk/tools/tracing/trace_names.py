@@ -46,7 +46,8 @@ trace_res = {
 # result is '<reg><-<val>' or 'store' or 'branch/coproc'
 #0       T0: [9000000040000000] fp<-0000000000000000 inst=3c1e0000 (0 dead cycles)
 'cheri2' : re.compile('(?P<instID>\d+)\s+T(?P<thread>\d+): \[(?P<pc>[0-9a-f]+)\][^i]*inst=(?P<inst>[0-9a-f]+)'),
-    'stream' : re.compile('^Time=\s+(?P<time>\d+) : (?P<pc>[0-9a-f]+): (?P<inst>[0-9a-f]+)\s+(?P<op>\w*)\s+(?P<args>[^D]*)DestReg <- 0x(?P<result>[0-9a-f]+) \{(?P<asid>[0-9a-f]+)}')
+    'stream' : re.compile('^Time=\s+(?P<time>\d+) : (?P<pc>[0-9a-f]+): (?P<inst>[0-9a-f]+)\s+(?P<op>\w*)\s+(?P<args>[^D]*)DestReg <- 0x(?P<result>[0-9a-f]+) \{(?P<asid>[0-9a-f]+)}'),
+    'raw': re.compile('(?P<pc>[0-9a-f]{16})'),
 }
 
 def usage(msg):
@@ -95,6 +96,7 @@ def annotate_trace(options):
     syms = map(lambda x: x[1], names)
     is_cheri2 = options.trace_format == 'cheri2'
     is_stream = options.trace_format == 'stream'
+    is_raw    = options.trace_format == 'raw'
     trace_re = trace_res[options.trace_format]
     if options.trace_file is None:
         trace_file=sys.stdin
@@ -107,7 +109,7 @@ def annotate_trace(options):
             i = bisect.bisect_right(addresses, addr)-1
             sym = syms[i]
             #inst = disassemble(m.group('inst'))
-            if is_cheri2:
+            if is_cheri2 or is_raw:
                 print line[:-1], sym
             elif is_stream:
                 print "%s %-6.6s %-25.25s result=%s asid=%s" % (m.group('pc'), m.group('op'), m.group('args').replace("\t",' '), m.group('result'), m.group('asid')), sym

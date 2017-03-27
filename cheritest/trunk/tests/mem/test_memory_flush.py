@@ -31,5 +31,6 @@ from nose.plugins.attrib import attr
 class test_memory_flush(BaseBERITestCase):
 
     @attr('swi')
+    @attr('swisync')
     def test_stored_value(self):
         self.assertRegisterEqual(self.MIPS.a1, 0, "Software exception did not kill store")

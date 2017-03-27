@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -69,10 +70,11 @@ test:		.ent test
 		# Make $c27 a data capability for the array 'data'
 		#
 
+		cgetdefault $c27
 		dla     $t0, data
-		cincbase $c27, $c0, $t0
+		csetoffset $c27, $c27, $t0
 		dli     $t0, 8
-                csetlen $c27, $c27, $t0
+                csetbounds $c27, $c27, $t0
 		dli     $t0, 0x7
 		candperm $c27, $c27, $t0
 		
@@ -81,7 +83,7 @@ test:		.ent test
 		candperm $c2, $c0, $t0
 		dla     $t0, sandbox
 		csetoffset $c2, $c2, $t0
-		cjalr   $c24, $c2
+		cjalr   $c2, $c24
 		nop			# Branch delay slot
 
 		cgetoffset	$a0, $c27	# Should be 0

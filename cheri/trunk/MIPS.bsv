@@ -7,7 +7,7 @@
  * Copyright (c) 2013 Robert M. Norton
  * Copyright (c) 2013 Robert N. M. Watson
  * Copyright (c) 2013 Simon W. Moore
- * Copyright (c) 2013, 2014, 2015 Alexandre Joannou
+ * Copyright (c) 2013-2017 Alexandre Joannou
  * Copyright (c) 2013, 2014 Colin Rothwell
  * All rights reserved.
  *
@@ -42,6 +42,8 @@
   `define USECAP 1
 `elsif CAP128
   `define USECAP 1
+`elsif CAP64
+  `define USECAP 1
 `endif
  
 import MemTypes :: *;
@@ -50,6 +52,10 @@ import MasterSlave :: *;
 import FIFO :: *;
 import FIFOF :: *;
 import Vector::*;
+`ifdef STATCOUNTERS
+import StatCounters::*;
+import GetPut::*;
+`endif
 
 typedef Bit#(5) RegNum; // A MIPS register number
 typedef Bit#(16) Imm16; // A 16 bit immediate from a MIPS instruction
@@ -66,8 +72,10 @@ typedef union tagged{
   Bit#(16)  HalfWord;
   Bit#(32)  Word;
   Bit#(64)  DoubleWord;
-  Bit#(CheriDataWidth) Line;
-  Bit#(CheriDataWidth) CapLine;
+  Line      Line;
+  `ifdef USECAP
+    Bit#(CapWidth) CapLine;
+  `endif
 } SizedWord deriving(Bits, Eq, FShow);
 
 typedef enum {RegFile, ControlToken, Debug, None, CoPro0, CoPro1, CoPro2} FetchSrc deriving(Bits, Eq, FShow);
@@ -84,7 +92,7 @@ typedef enum {None, Branch, Jump, JumpReg} BranchType deriving(Bits, Eq, FShow);
 // The size of an instructions memory access may be none (no memory access), byte, halfword, word, doubleword or line (256 bits).
 // MIPS also has word and doubleword left and write memory operations which are odd.
 typedef enum {
-  Line,
+  CapWord,
   DoubleWord, 
   DoubleWordLeft,
   DoubleWordRight,
@@ -115,6 +123,7 @@ typedef struct {
   Bit#(3)   coProSelect; // The shadow register to select in the coprocessor. This is used in the Capability Coprocessor, not in CP0.
   WriteBack writeDest;   // The destination register file for writeback, including "none" for no writeback.
                          // RegFile and CoPro0 are examples.
+  Bool      pendingWrite; // Whether this operation will produce the result in Execute (e.g. ADD) or Writeback (e.g. Load).
   Bool      sixtyFourBitOp;  // Is this a 64-bit operation?  ie, should we sign extend the result (for some cases)?
   Bool      signedOp;  // Is this a signed operation?
   AluOp     alu;       // What function should the alu perform?  ie, add, subtract, xor...
@@ -141,11 +150,13 @@ typedef struct {
   Bool      signExtendMem; // Sign extend the result of a memory load.
   Bool      link; // Writeback the PC+8 to a register.  Used for jump and link instructions to store the return address. 
   CacheOperation   cop; // The cache operation to perform and which cache to perform it on.  Usually a nop.
+  Bool      observesCP0; // This instruction might be sensitive to any outstanding CP0 updates, and should stall if one is in flight.
   `ifdef USECAP
     CapOp     capOp; // Capability operation to perform (if the capabiltiy unit is included)
   `endif
   Bool      fromDebug;  // Whether this instruction is from debug or not.
   Bool      flushPipe; // Flush the pipe after this instruction.
+  Bool      writeRegMask;  // Write the register file mask of non-zero registers.
   `ifdef MULTI
     Bit#(16)  coreCount;
     Bit#(16)  coreID;
@@ -159,7 +170,7 @@ typedef struct {
       epoch: ?,
       pc: 64'h0000000000000000,
       archPc: ?,
-      inst: ?,
+      inst: classifyMIPSInstruction(0),
       branchDelay: False,
       branch: Never,
       branchLikely: False,
@@ -169,6 +180,7 @@ typedef struct {
       dest: ?,
       coProSelect: 3'b0,
       writeDest: None,
+      pendingWrite: False,
       sixtyFourBitOp: True,
       signedOp: False,
       alu: Add,
@@ -187,12 +199,14 @@ typedef struct {
       pcUpdate: 4,
       writePC: True,
       cop: CacheOperation{inst: CacheNop, cache: None, indexed: True},
+      observesCP0: False,
       `ifdef USECAP
         capOp: None,
       `endif
       link: False,
       fromDebug: False,
-      flushPipe: False
+      flushPipe: False,
+      writeRegMask: False
     };
 
 // ----------------------------- Instructions -----------------------------
@@ -246,7 +260,7 @@ typedef struct {
 // Also Cop1, Cap & Cop3 are implementation dependant.
 typedef enum {  Add, Sub, Or, Xor, 
             And, Nor, SLT, SLTU, 
-            SLL, SRA, SRL, MovC, 
+            SLL, SRA, SRL, //CLZ,
             Mul, Div, MulI, Madd, Msub,
             THi, TLo, FHi, FLo, 
             MOVZ, MOVN, Cop1, Cap, Nop
@@ -481,10 +495,12 @@ typedef enum
   NONE1F,
   
   NONE20,
+  //CLZ,
   NONE21,
   NONE22,
   NONE23,
   NONE24,
+  //DCLZ,
   NONE25,
   NONE26,
   NONE27,
@@ -617,7 +633,7 @@ typedef enum {
 // Opcodes for the capability memory protection coprocessor instructions, found in bits 25:21 of a COP2 instruction.
 typedef enum {
   MFC      = 5'h00,  // Move From Capability Register Field
-  None01   = 5'h01,
+  CSetBounds = 5'h01, // Set both the base of a capability from the offset of the source and the length from a general purpose register.
   CSeal    = 5'h02,  // Seal a capability
   CUnseal  = 5'h03,  // Create a Data Capability from a sealed Capability
   MTC      = 5'h04,  // Move to Capability Register Field
@@ -631,10 +647,10 @@ typedef enum {
   CRelBase = 5'h0c,
   COffset  = 5'h0d,
   CCompare = 5'h0e,
-  None0f   = 5'h0f,
-  None10   = 5'h10,
-  None11   = 5'h11,
-  None12   = 5'h12,
+  CClear   = 5'h0f,
+  CLLSC    = 5'h10,
+  CBEZ     = 5'h11,
+  CBNZ     = 5'h12,
   None13   = 5'h13,
   None14   = 5'h14,
   None15   = 5'h15,
@@ -655,61 +671,227 @@ typedef enum {
   CIncOffset = 3'h0,
   CSetOffset = 3'h1,
   CGetOffset = 3'h2,
-  CIncBase2  = 3'h3,
   Unused     = 3'h4 // <- Make sure Bluespec derives this as a 3-bit value
 } OffsetOpCode deriving(Bits, Eq, FShow);
 
 
 // the CapOp type is used internally as an operation code for the capability memory protection unit.
 typedef enum {
-  None,           // Do nothing
+  // FetchA = r1
   BranchTagUnset, // Branch if the operand register is not a valid capability (segment descriptor)
   BranchTagSet,   // Branch if the operand register is a valid capability (segment descriptor)
-  GetPerm,        // Get the permissions field of the capability operand and place in general purpose target register
-  GetBase,        // Get the base field of the capability operand and place in general purpose target register
-  GetLen,         // Get the length field of the capability operand and place in general purpose target register
-  GetType,        // Get the type field of the capability operand and place in general purpose target register
-  GetUnsealed,    // Get the "unsealed" flag of the capability operand and place in general purpose target register
-  GetPCC,         // Get the current program counter capability and place in a capability register
-  GetTag,         // Get the valid capability flag from a capability register into a general purpose register.
-  GetConfig,      // Get the capability config register into a general purpose register.
-  SetConfig,      // Set the capability config register from a general purpose register.
-  AndPerm,        // And the permissions field of a capability with a general purpose value producing a capability result.
-  IncBase,        // Increment the base field of a capability with a general purpose value producing a capability result.
-  SetLen,         // Set the length field of a capability with a general purpose value producing a capability result.
-  SetType,        // Set the type field of an executable capability with a general purpose value producing a capability result.
-  ClearTag,       // Clear the valid capability flag on a capability register
-  IncBaseNull,    // Increment base, make capability null if increment amount is 0 (for C semantics)
-  CheckPerms,     // Compare general purpose value with permissions, throw exception if asserted bits don't match.
-  CheckType,      // Compare the type of two capabilities, throw exception if they don't match.
-  GetRelBase,     // Get the difference between the base of one capability and other. (to convert base to c0 reletive pointer.)
+  BranchEqZero,   // Branch if the operand capability is zero
+  BranchNEqZero,  // Branch if the operand capability is not zero
   SC,             // Store capability 
   LC,             // Load capability
   S,              // Store (width is stored elsewhere)
   L,              // Load (width is stored elsewhere)
-  LLD,            // Load linked double
-  SCD,            // Store conditional double
-  JR,             // Jump capability register
-  JALR,           // Jump and link capability register
-  Seal,           // Seal a capability
-  Unseal,         // Unseal a capability given possession of an unsealed executable one of the same type
   Call,           // Capability protected procedure call
-  Return,         // Capability protected procedure return
-  //Exception,      // 
-  ERET,           // An ERET, return the entry point 
-  JumpRegister,   // Perform a target offset reletive to PCC for a general purpose jump register operation
+  CallFast,       // Capability protected procedure call in hardware
+  CheckType,      // Compare the type of two capabilities, throw exception if they don't match.
+  CheckPerms,     // Compare general purpose value with permissions, throw exception if asserted bits don't match.
+  // FetchA = r2
+  GetPerm,        // Get the permissions field of the capability operand and place in general purpose target register
+  GetBase,        // Get the base field of the capability operand and place in general purpose target register
+  GetLen,         // Get the length field of the capability operand and place in general purpose target register
+  GetType,        // Get the type field of the capability operand and place in general purpose target register
+  GetSealed,      // Get the "sealed" flag of the capability operand and place in general purpose target register
+  GetTag,         // Get the valid capability flag from a capability register into a general purpose register.
+  AndPerm,        // And the permissions field of a capability with a general purpose value producing a capability result.
+  SetBounds,      // Set both the base of a capability from the offset of the source and the length from a general purpose register.
+  SetBoundsExact, // Set both the base of a capability from the offset of the source and the length from a general purpose register, exception if not exact.
+  ClearTag,       // Clear the valid capability flag on a capability register
+  IncBaseNull,    // Increment base, make capability null if increment amount is 0 (for C semantics)
   IncOffset,      // Increment the offset value (no bounds checking)
   SetOffset,      // Set the offset value
   GetOffset,      // Move the offset value to an integer register
-  IncBase2,       // Increment the base *without* moving the offset.  
-  CmpEQ,          // Compare two capabilities are equal
-  CmpNE,          // Compare two capabilities are not equal
-  CmpLT,          // Compare one capability is less than another
-  CmpLE,          // Compare one capability is less than or equal to another
-  CmpLTU,         // Compare one capability is less than another unsigned
-  CmpLEU,         // Compare one capability is less than or equal to another unsigned
-  ReportRegs      // Debug register report, only valid simulation.
+  JR,             // Jump capability register
+  JALR,           // Jump and link capability register
+  CmpEQ,          // Compare two capability pointers are equal
+  CmpNE,          // Compare two capability pointers are not equal
+  CmpLT,          // Compare one capability pointer is less than another
+  CmpLE,          // Compare one capability pointer is less than or equal to another
+  CmpLTU,         // Compare one capability pointer is less than another unsigned
+  CmpLEU,         // Compare one capability pointer is less than or equal to another unsigned
+  CmpEQX,         // Compare two capabilities are binary equals
+  // FetchA = r3
+  Seal,           // Seal a capability
+  Unseal,         // Unseal a capability given possession of an unsealed executable one of the same type
+  GetRelBase,     // Get the difference between the base of one capability and other. (to convert base to c0 reletive pointer.)
+  Subtract,       // Subtract two capability addresses, put the result in a general-purpose register
+  // No FetchA
+  GetPCC,         // Get the current program counter capability and place in a capability register
+  SetPCCOffset,   // Get PCC, set the offset, write to a general-purpose register.
+  GetConfig,      // Get the capability config register into a general purpose register.
+  SetConfig,      // Set the capability config register from a general purpose register.
+  Return,         // Capability protected procedure return
+  Clear,          // Clear a set of capability registers
+  Move,           // Simply move a capability register
+  ReportRegs,     // Debug register report, only valid simulation.
+  JumpRegister,   // Perform a target offset reletive to PCC for a general purpose jump register operation
+  ERET,           // An ERET, return the entry point 
+  LegacyL,        // A legacy load
+  LegacyS,        // A legacy store
+  None            // Do nothing
 } CapOp deriving(Bits, Eq, FShow);
+
+// Values of the function field for 3-operand (or less) capability instructions.
+typedef enum
+{
+  CapFuncGetPermOld,
+  CapFuncGetTypeOld,
+  CapFuncGetBaseOld,
+  CapFuncGetLenOld,
+  CapFuncGetCauseOld,
+  CapFuncGetTagOld,
+  CapFuncGetSealedOld,
+  CapFuncGetPCCOld,
+  
+  CapFuncSetBounds,
+  CapFuncSetBoundsExact,
+  CapFuncSub,
+  CapFuncSeal,
+  CapFuncUnseal,
+  CapFuncAndPerm,
+  CapFuncSetOffset,
+  CapFuncIncOffset,
+  
+  CapFuncCToPtr,
+  CapFuncCFromPtr,
+  CapFuncEQ,
+  CapFuncNE,
+  CapFuncLT,
+  CapFuncLE,
+  CapFuncLTU,
+  CapFuncLEU,
+  
+  CapFuncEXEQ,
+  NONE19,
+  NONE1A,
+  NONE1B,
+  NONE1C,
+  NONE1D,
+  NONE1E,
+  NONE1F,
+  
+  NONE20,
+  NONE21,
+  NONE22,
+  NONE23,
+  NONE24,
+  NONE25,
+  NONE26,
+  NONE27,
+  
+  NONE28,
+  NONE29,
+  NONE2A,
+  NONE2B,
+  NONE2C,
+  NONE2D,
+  NONE2E,
+  NONE2F,
+  
+  NONE30,
+  NONE31,
+  NONE32,
+  NONE33,
+  NONE34,
+  NONE35,
+  NONE36,
+  NONE37,
+  
+  NONE38,
+  NONE39,
+  NONE3A,
+  NONE3B,
+  NONE3C,
+  NONE3D,
+  NONE3E,
+  CapFuncTwoOp
+} CapFuncThreeOpCode deriving(Bits, Eq, FShow);
+
+// Values of the function field for 2-operand capability instructions.
+typedef enum
+{
+  CapFuncGetPerm,
+  CapFuncGetType,
+  CapFuncGetBase,
+  CapFuncGetLen,
+  CapFuncGetTag,
+  CapFuncGetSealed,
+  CapFuncGetOffset,
+  CapFuncGetPCCSetOffset,
+  
+  CapFuncCheckPerm,
+  CapFuncCheckType,
+  CapFuncMove,
+  CapFuncClearTag,
+  NONE0C,
+  NONE0D,
+  NONE0E,
+  NONE0F,
+  
+  NONE10,
+  NONE11,
+  NONE12,
+  NONE13,
+  NONE14,
+  NONE15,
+  NONE16,
+  NONE17,
+  
+  NONE18,
+  NONE19,
+  NONE1A,
+  NONE1B,
+  NONE1C,
+  NONE1D,
+  NONE1E,
+  CapFuncOneOp
+} CapFuncTwoOpCode deriving(Bits, Eq, FShow);
+
+// Values of the function field for 1-operand capability instructions.
+typedef enum
+{
+  CapFuncGetPCC,
+  CapFuncGetCause,
+  CapFuncSetCause,
+  CapFuncCJR,
+  NONE04,
+  NONE05,
+  NONE06,
+  NONE07,
+  
+  NONE08,
+  NONE09,
+  NONE0A,
+  NONE0B,
+  NONE0C,
+  NONE0D,
+  NONE0E,
+  NONE0F,
+  
+  NONE10,
+  NONE11,
+  NONE12,
+  NONE13,
+  NONE14,
+  NONE15,
+  NONE16,
+  NONE17,
+  
+  NONE18,
+  NONE19,
+  NONE1A,
+  NONE1B,
+  NONE1C,
+  NONE1D,
+  NONE1E,
+  NONE1F
+} CapFuncOneOpCode deriving(Bits, Eq, FShow);
+
+
 
 // Exception codes for the capability unit.
 // The capability memory protection unit has its own exception codes in its "config" register which
@@ -725,7 +907,7 @@ typedef enum {
   None08   = 8'h07, 
   CkPerms  = 8'h08,  
   Ctlbs    = 8'h09, // Attempt to store a capability in a page that does not allow capabilities to be stored.
-  None0a   = 8'h0a,
+  Inxact   = 8'h0a, // A capability maniuplation was not able to exactly represent its result
   None0b   = 8'h0b,
   None0c   = 8'h0c,
   None0d   = 8'h0d,
@@ -740,13 +922,13 @@ typedef enum {
   StoreCap = 8'h15, // Violation of store capability permission of a capability
   StoreEph = 8'h16, // Violation of store ephemeral capabilty permission of a capability
   PerSeal  = 8'h17, // Violation of the permit seal permission of a capability
-  SetType  = 8'h18, // Violation of the set type permission of a capability
+  SysRegs  = 8'h18, // Violation of the set type permission of a capability
   None19   = 8'h19,
-  CR31     = 8'h1a, // Violation of the "Access CR31" permission on the capability in PCC
-  CR30     = 8'h1b, // Violation of the "Access CR30" permission on the capability in PCC
-  CR29     = 8'h1c, // Violation of the "Access CR29" permission on the capability in PCC
-  CR27     = 8'h1d, // Violation of the "Access CR27" permission on the capability in PCC
-  CR28     = 8'h1e, // Violation of the "Access CR28" permission on the capability in PCC
+  None1a   = 8'h1a, // Violation of the "Access CR31" permission on the capability in PCC
+  None1b   = 8'h1b, // Violation of the "Access CR30" permission on the capability in PCC
+  None1c   = 8'h1c, // Violation of the "Access CR29" permission on the capability in PCC
+  None1d   = 8'h1d, // Violation of the "Access CR27" permission on the capability in PCC
+  None1e   = 8'h1e, // Violation of the "Access CR28" permission on the capability in PCC
   None1f   = 8'h1f,
   N20=8'h20,N21=8'h21,N22=8'h22,N23=8'h23,N24=8'h24,N25=8'h25,N26=8'h26,N27=8'h27,
   N28=8'h28,N29=8'h29,N2a=8'h2a,N2b=8'h2b,N2c=8'h2c,N2d=8'h2d,N2e=8'h2e,N2f=8'h2f,
@@ -779,12 +961,12 @@ typedef enum {
 } CapExpCode deriving(Bits, Eq, FShow);
 
 // Below are constants that define the size of the TLB.
-typedef 128 TLBSize;  // TLBSize is the size of the direct-mapped portion of the TLB
-typedef 7  LogTLBSize; // LogTLBSize must be the log base 2 of TLBSize
+typedef 256 TLBSize;  // TLBSize is the size of the direct-mapped portion of the TLB
+typedef 8  LogTLBSize; // LogTLBSize must be the log base 2 of TLBSize
 typedef 16 AssosTLBSize; // AssosTLBSize is the size of the fully associative array at the bottom of the TLB
 typedef 4  LogAssosTLBSize; // LogAssosTLB size must be log2(AssosTLBSIze)
-typedef 144 TLBSizeTotal; // TLBSizeTotal must be TLBSize + AssosTLBSize
-typedef 8  LogTLBSizePlusOne; // LogTLBSizePlusOne must be LgTLBSize + 1, just like it says on the tin.
+typedef 272 TLBSizeTotal; // TLBSizeTotal must be TLBSize + AssosTLBSize
+typedef 9  LogTLBSizePlusOne; // LogTLBSizePlusOne must be LgTLBSize + 1, just like it says on the tin.
 // The below declarations are integer versions of the above types to be used when integer values are needed
 Integer tlbSize = valueOf(TLBSize);
 Integer logTLBSize = valueOf(LogTLBSize);
@@ -815,7 +997,7 @@ typedef struct {
   TlbEntryHi  entryHi; // The MIPS architectural EntryHi field. 
   Bool    valid;    // Always valid for a stored entry.  Will be returned invalid if there is no entry.
   Bit#(12)  pageMask;  // Mask of valid bits to compare (i.e. for varying the page size)
-  Bit#(4)   whichLoBit; // Bit to check for which EntryLo to use, the MSB of the page mask.
+  Bit#(5)   whichLoBit; // Bit to check for which EntryLo to use, the MSB of the page mask.
   Bool      g;      // Global.  This virtual address maps in all spaces.
 } TlbAssosEntry deriving(Bits, Eq, FShow); // 78 bits
 
@@ -831,6 +1013,7 @@ typedef struct {
 
 // The TlbResponse type is returned from the TLB to the L1 cache on every memory request.
 typedef struct {
+  Bool        valid;
   PhyAddress  addr;       // The physical address returned from the translation
   Exception   exception;  // The instruction's exception state as seen by the TLB (possibly modified by the TLB itself).  
   Bool        write;      // Whether this is a write operation
@@ -847,9 +1030,10 @@ typedef struct {
 
 // The CacheRequestInstT structure is used in the L1 instruction cache server interface.
 typedef struct {
-  CacheOperation     cop;  // The cache operation, the most common being read and write, but includes invalidate operations.
-  InstId      instId;      // The id of the instruction making the request
-  TlbResponse tr;
+  CacheOperation     cop;         // The cache operation, the most common being read and write, but includes invalidate operations.
+  InstId             instId;      // The id of the instruction making the request
+  InstructionT       defaultInst;
+  TlbResponse        tr;
 } CacheRequestInstT deriving (Bits, Eq, FShow);
 
 // The CacheResponseInstT is the instruction cache response.
@@ -1132,6 +1316,12 @@ typedef struct {
   Bool synci_step;//  Cache line size
   Bool cc;        //  Count register
   Bool ccres;     //  Count resolution
+  Bool insts;     //  Instruction counter
+  Bool instTLBMiss; //  I-TLB miss counter
+  Bool dataTLBMiss; //  D-TLB miss counter
+  `ifdef STATCOUNTERS
+  Vector#(8,Bool) statcounters; // CHERI specific statcounters
+  `endif
   Bool tls;       //  Thread local storage
 } HWREna deriving(Bits, Eq, FShow);
 
@@ -1188,7 +1378,7 @@ typedef struct {
   Bool      d;    // Dirty - True if writes are allowed.  Writes will cause exception otherwise.
   Bool      v;    // Valid - If False, attempts to use this location cause an exception.
   Bool      g;    // Global - If True this entry will match regardless of ASID.  Both "Lo(G)"s in an odd/even pair should be identical.
-} TlbEntryLo deriving(Bits, Eq, FShow); // 32 bits
+} TlbEntryLo deriving(Bits, Eq, FShow); // 34-36 bits
 
 // The Context type describes the format of the context CP0 register from the MIPS spec, used for a table of TLB entries.
 typedef struct {
@@ -1214,6 +1404,13 @@ typedef enum {
   Spacer        = 3'd4  // (Make sure there are 3 bits in this field)
 } CacheCA deriving(Bits, Eq, FShow);
 
+`ifndef CHERIOS
+interface TranslationIfc;
+  method ActionValue#(TlbResponse) request(TlbRequest req);
+  method ActionValue#(TlbResponse) response();
+endinterface
+`endif // CHERIOS
+
 // The CPOIfc interface is the interface for the system control processor, or coprocessor 0 (CP0).
 interface CP0Ifc;
   method Action                             readReq(RegNum rn, Bit#(3) sel);  // Initiate a CP0 register read
@@ -1227,17 +1424,19 @@ interface CP0Ifc;
   method CoProEn                            getCoprocessorEnables(); // Report the current state of the coprocessor enable signals.
   method HWREna                             getHardwareRegisterEnables();
   method Bit#(8)                            getAsid(); // Report the current address space identifier.
-  method Action                             putCount(Bit#(32) commonCount); // Put the common count register for all cores.
+  method Action                             putCount(Bit#(48) commonCount); // Put the common count register for all cores.
   method Action                             putCacheConfiguration(L1ChCfg iCacheConfig, L1ChCfg dCacheConfig); // Recieve a report of 
                                                                      // the L1 cache configurations.  This allows the caches to define their
                                                                      // own configurations.
   method Action                             putDeterministicCycleCount(Bool cycleCount);
   // Whether the CP0 thinks tracing should be turned on
   method Bool                               shouldTrace();
-  interface Server#(TlbRequest, TlbResponse) tlbLookupInstruction; // Initiate an instruction TLB lookup
-  interface Server#(TlbRequest, TlbResponse) tlbLookupData;        // Initiate a data TLB lookup
+  `ifndef CHERIOS
+      interface TranslationIfc tlbLookupInstruction; // Initiate an instruction TLB lookup
+      interface TranslationIfc tlbLookupData;        // Initiate a data TLB lookup
+  `endif // CHERIOS
   `ifdef DMA_VIRT
-      interface Vector#(2, Server#(TlbRequest, TlbResponse)) tlbs; // For the DMA
+    interface Vector#(2, TranslationIfc) tlbs; // For the DMA
   `endif
 
 endinterface
@@ -1266,7 +1465,7 @@ typedef struct {
 } CoProInst deriving(Bits, Eq, FShow);
 
 // The CoProReg type is the type used for the registers of the example coprocessor.
-typedef Bit#(256) CoProReg;
+typedef Data#(CheriDataWidth) CoProReg;
 
 // CoProVals is the type used for submitting operands from the main pipeline from execute into the coprocessor.
 typedef struct {
@@ -1280,7 +1479,7 @@ typedef struct {
   Word        data;  // Data value
   SizedWord   storeData;
   Exception   exception; // An exception code
-} CoProResponse deriving(Bits);
+} CoProResponse deriving(Bits, FShow);
 
 // CoProMemAccess is the type of a memory request from the generic coprocessor.
 typedef struct {
@@ -1381,6 +1580,46 @@ typedef enum {
     UNRECOGNISED = 6'h3F //A bit ugly, but will do for now.
 } CoProFPXOp deriving(Bits, Eq, FShow);
 
+/***** Register file interface and types *****/
+// Register file interface determines the number of rename registers.
+typedef ForwardingPipelinedRegFileIfc#(MIPSReg, 4) MIPSRegFileIfc;
+
+typedef enum {
+  None,
+  Simple,
+  Conditional,
+  Pending
+} WriteType deriving (Bits, Eq, FShow);
+
+interface ForwardingPipelinedRegFileIfc#(type regType, numeric type renameRegs);
+  method Action reqRegs(ReadReq req);
+  // These two methods, getRegs and writeRegSpeculative should be called in the
+  // same rule, Execute.
+  method ActionValue#(ReadRegs#(regType)) readRegs();
+  method Action writeRegSpeculative(regType data, Bool write);
+  method Action writeReg(regType data, Bool committing);
+  method Action writeRaw(RegNum regW, regType data);
+  method Action readRawPut(RegNum regA);
+  method ActionValue#(regType) readRawGet();
+  method Action putDebugRegs(regType a, regType b);
+  method Action clearRegs(Bit#(32) mask);
+endinterface
+
+typedef struct {
+  Epoch     epoch;
+  RegNum    a;
+  RegNum    b;
+  WriteType write;
+  RegNum    dest;
+  Bool      fromDebug;
+  Bool      rawReq;
+} ReadReq deriving (Bits, Eq, FShow);
+
+typedef struct {
+  regType regA;
+  regType regB;
+} ReadRegs#(type regType) deriving (Bits, Eq, FShow);
+
 /****** Debug Reporting Functions ******/
 
 // Translate a subset of the AluOp values into a string for debug printouts.
@@ -1397,17 +1636,28 @@ function String aluOpString(AluOp o);
     SLL:  aluOpString = "SLL";
     SRA:  aluOpString = "SRA";
     SRL:  aluOpString = "SRL";
-    MovC: aluOpString = "MovC";
+    Nop:  aluOpString = "Nop";
+    Mul:  aluOpString = "Mul";
+    Div:  aluOpString = "Div";
+    MOVZ: aluOpString = "MovZ";
+    MOVN: aluOpString = "MovN";
   endcase
 endfunction
 
 // Translate a subset of the MemSize values into a string for debug printouts
 function String memSizeString(MemSize s);
   case(s)
+    CapWord: memSizeString = "CapWord";
     DoubleWord: memSizeString = "DoubleWord";
+    DoubleWordLeft: memSizeString  = "DoubleWordLeft";
+    DoubleWordRight: memSizeString = "DoubleWordRight";
     Word: memSizeString = "Word";
+    WordLeft:  memSizeString = "WordLeft";
+    WordRight: memSizeString = "WordRight";
     HalfWord: memSizeString = "HalfWord";
     Byte: memSizeString = "Byte";
+    None: memSizeString = "None";
+    default: memSizeString = "Unknown";
   endcase
 endfunction
 
@@ -1419,6 +1669,44 @@ function String memOpString(MemOp o);
     DCacheOp, ICacheOp: memOpString = "CacheOp";
     None: memOpString = "None";
   endcase
+endfunction
+
+function Bit#(n) reverseBytes(Bit#(n) x) provisos (Mul#(8,n8,n));
+  Vector#(n8,Bit#(8)) vx = unpack(x);
+  return pack(Vector::reverse(vx));
+endfunction
+
+function Word storeRotate(ControlTokenT c);
+  Word data = ?;
+  if (c.storeData matches tagged DoubleWord .d) data = d;
+  Bit#(3) offset = truncate(c.opA);
+  case(c.memSize)
+    WordLeft: begin
+      data[31:0] = reverseBytes(data[31:0]);
+      Bit#(5) shift = {truncate(offset),3'b0};
+      data[31:0] = data[31:0] << shift;
+      data[31:0] = reverseBytes(data[31:0]);
+    end
+    WordRight: begin
+      data[31:0] = reverseBytes(data[31:0]);
+      Bit#(5) shift = {(2'd3 - truncate(offset)),3'b0};
+      data[31:0] = data[31:0] >> shift;
+      data[31:0] = reverseBytes(data[31:0]);
+    end
+    DoubleWordLeft: begin
+      data = reverseBytes(data);
+      Bit#(6) shift = {3'b0,truncate(offset)}*6'h8;
+      data = data << shift;
+      data = reverseBytes(data);
+    end
+    DoubleWordRight: begin
+      data = reverseBytes(data);
+      Bit#(6) shift = (6'd7 - {3'b0,truncate(offset)})*6'h8;
+      data = data >> shift;
+      data = reverseBytes(data);
+    end
+  endcase
+  return data;
 endfunction
 
 // Function to display the contents of a control token in a human readable format.
@@ -1464,7 +1752,7 @@ endfunction
 // The displayTrace function prints a record for an instruction commit.
 // This function is meant to produce instruction commit reports for a concise trace of execution.
 `ifndef MULTI
-function Action displayTrace(ControlTokenT c, MIPSReg writeResult, UInt#(48) instCount);
+function Action displayTrace(ControlTokenT c, MIPSReg writeResult, Bit#(48) instCount);
   return action
     Bit#(64) curTime <- $time;
     Bit#(64) cycles = curTime/10;
@@ -1495,18 +1783,21 @@ function Action displayTrace(ControlTokenT c, MIPSReg writeResult, UInt#(48) ins
         Write: begin
           Word storeDouble = ?;
           if (c.storeData matches tagged DoubleWord .d) storeDouble = d; 
-          if (c.inst matches tagged Immediate .ii)
-            case (c.memSize)
-              Byte: $write("Address %x <- %x, from Reg %d", c.opA, storeDouble[7:0], ii.rt);
-              HalfWord: $write("Address %x <- %x, from Reg %d", c.opA, storeDouble[15:0], ii.rt);
-              Word: $write("Address %x <- %x, from Reg %d", c.opA, storeDouble[31:0], ii.rt);
-              default: $write("Address %x <- %x, from Reg %d", c.opA, storeDouble, ii.rt);
-            endcase
-            
+          RegNum src = ?;
+          if (c.inst matches tagged Immediate .ii) src = ii.rt;
           `ifdef USECAP
-            else if (c.inst matches tagged Coprocessor .ci)
-               $write("Address %x <- %x, from Reg %d", c.opA, c.storeData, ci.r1);
+            else if (c.inst matches tagged Coprocessor .ci) src = unpack(pack(ci.cOp));
           `endif
+          case (c.memSize)
+            Byte: $display("Address %x <- %x, from Reg %d", c.opA, storeRotate(c)[7:0], src);
+            HalfWord: $display("Address %x <- %x, from Reg %d", c.opA, storeRotate(c)[15:0], src);
+            Word, WordLeft, WordRight: $display("Address %x <- %x, from Reg %d", c.opA, storeRotate(c)[31:0], src);
+            DoubleWord, DoubleWordLeft, DoubleWordRight: $display("Address %x <- %x, from Reg %d", c.opA, storeRotate(c), src);
+            `ifdef USECAP
+              CapWord: $display("Address %x <-", c.opA, fshow(c.storeData), " from CapReg %d", src);
+            `endif
+            default: $display("Address %x <- %x, from Reg %d", c.opA, storeRotate(c), src);
+          endcase
         end
         None:
           $write("");
@@ -1525,7 +1816,7 @@ function Action displayTrace(ControlTokenT c, MIPSReg writeResult, UInt#(48) ins
   endaction;
 endfunction
 `else
-function Action displayTrace(ControlTokenT c, MIPSReg writeResult, UInt#(48) instCount, Bit#(16) coreID);
+function Action displayTrace(ControlTokenT c, MIPSReg writeResult, Bit#(48) instCount, Bit#(16) coreID);
   return action
     if (!c.dead) begin
       $write("\n");
@@ -1559,18 +1850,21 @@ function Action displayTrace(ControlTokenT c, MIPSReg writeResult, UInt#(48) ins
         Write: begin
           Word storeDouble = ?;
           if (c.storeData matches tagged DoubleWord .d) storeDouble = d; 
-          if (c.inst matches tagged Immediate .ii)
-            case (c.memSize)
-              Byte: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeDouble[7:0], ii.rt);
-              HalfWord: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeDouble[15:0], ii.rt);
-              Word: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeDouble[31:0], ii.rt);
-              default: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeDouble, ii.rt);
-            endcase
-            
+          RegNum src = ?;
+          if (c.inst matches tagged Immediate .ii) src = ii.rt;
           `ifdef USECAP
-            else if (c.inst matches tagged Coprocessor .ci)
-               $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, c.storeData, ci.r1);
+            else if (c.inst matches tagged Coprocessor .ci) src = unpack(pack(ci.cOp));
           `endif
+          case (c.memSize)
+            Byte: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeRotate(c)[7:0], src);
+            HalfWord: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeRotate(c)[15:0], src);
+            Word, WordLeft, WordRight: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeRotate(c)[31:0], src);
+            DoubleWord, DoubleWordLeft, DoubleWordRight: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeRotate(c), src);
+            `ifdef USECAP
+            	CapWord: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <-", curTime, coreID, c.opA, fshow(c.storeData), " from CapReg %d", src);
+            `endif
+            default: $display("Time:%0d, Core:%0d, Thread:0 :: Address %x <- %x, from Reg %d", curTime, coreID, c.opA, storeRotate(c), src);
+          endcase
         end
       endcase
 
@@ -1628,23 +1922,23 @@ interface CacheInstIfc;
   method ActionValue#(CacheResponseInstT) getRead();
   method Action invalidate(PhyAddress addr);
   method L1ChCfg getConfig();
-  // for test purposes
-  method Action debugDump();
   interface Master#(CheriMemRequest, CheriMemResponse) memory;
+  `ifdef STATCOUNTERS
+  interface Get#(ModuleEvents) cacheEvents;
+  `endif
 endinterface: CacheInstIfc
 
 interface CacheDataIfc;
   method Action put(CacheRequestDataT reqIn);
-  `ifdef MULTI
-    method Action putStoreConditional(CacheRequestDataT reqIn);
-  `endif
   method ActionValue#(CacheResponseDataT) getResponse();
   method Action invalidate(PhyAddress addr);
+  method ActionValue#(Bool) getInvalidateDone;
   method Action nextWillCommit(Bool committing);
   method L1ChCfg getConfig();
-  // for test purposes
-  method Action debugDump();
   interface Master#(CheriMemRequest, CheriMemResponse) memory;
+  `ifdef STATCOUNTERS
+  interface Get#(ModuleEvents) cacheEvents;
+  `endif
 endinterface: CacheDataIfc
 
 typedef struct {
@@ -1665,10 +1959,21 @@ typedef CacheRequestDataTGeneric#(CheriDataWidth) CacheRequestDataT;
 typedef struct {
   Exception   exception;
   `ifdef USECAP
-    Bool        capability;
+    Bool           isCap;
   `endif
-  SizedWord     data;
+  Line             data;
+  Bool             scResult;
 } CacheResponseDataT deriving (Bits, Eq, FShow);
+
+typedef struct {
+  Exception   exception;
+  `ifdef USECAP
+    Bool           isCap;
+    Bit#(CapWidth) loadedCap;
+  `endif
+  Word             data;
+  Bool             scResult;
+} MemResponseDataT deriving (Bits, Eq, FShow);
 
 // Memory access type.  Note that MemNull used as part of arbiterlock release message.
 typedef enum { MemRead, MemWrite, MemNull} MemAccessT deriving(Bits, Eq, FShow);
@@ -1701,13 +2006,19 @@ function BytesPerFlit memSizeTobpf(MemSize m);
     DoubleWordLeft:  BYTE_8;
     DoubleWordRight: BYTE_8; 
     //: BYTE_16;
-    Line: cheriBusBytes;
+    `ifdef USECAP
+      CapWord: capBytesPerFlit;
+    `endif
   endcase;
 endfunction
 
+`ifndef BLUESIM
+  `define NOPRINTS 1
+`endif
+
 function Action debug(Action a);
   action 
-    `ifdef BLUESIM
+    `ifndef NOPRINTS
       Bool debugB <- $test$plusargs("debug");
       if (debugB)
         a;
@@ -1717,7 +2028,7 @@ endfunction
 
 function Action trace(Action a);
   action 
-    `ifdef BLUESIM
+    `ifndef NOPRINTS
       Bool traceB <- $test$plusargs("trace");
       if (traceB)
         a;
@@ -1727,7 +2038,7 @@ endfunction
 
 function Action cachedump(Action a); 
   action
-    `ifdef BLUESIM
+    `ifndef NOPRINTS
       Bool cachedumpB <- $test$plusargs("cachedump");
       if (cachedumpB)
         a;
@@ -1737,7 +2048,7 @@ endfunction
 
 function Action tlbtrace(Action a);
   action 
-    `ifdef BLUESIM
+    `ifndef NOPRINTS
       Bool traceB <- $test$plusargs("tlbTrace");
       if (traceB)
         a;
@@ -1747,7 +2058,7 @@ endfunction
 
 function Action ctrace(Action a);
   action 
-    `ifdef BLUESIM
+    `ifndef NOPRINTS
       Bool traceB <- $test$plusargs("cTrace");
       if (traceB)
         a;

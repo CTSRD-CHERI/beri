@@ -7,7 +7,7 @@
  * Copyright (c) 2013 SRI International
  * Copyright (c) 2013 Robert N. M. Watson
  * Copyright (c) 2013 Simon W. Moore
- * Copyright (c) 2014 Alexandre Joannou
+ * Copyright (c) 2014-2017 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -52,9 +52,16 @@ import CP0::*;
   import CoProFPInst::*;
 `endif
 
+`ifdef STATCOUNTERS
+import StatCounters::*;
+import Debug::*;
+`endif
+
 `ifdef CAP
   `define USECAP 1
 `elsif CAP128
+  `define USECAP 1
+`elsif CAP64
   `define USECAP 1
 `endif
 
@@ -144,6 +151,13 @@ function ActionValue#(ControlTokenT) decodeSpecial2(Rtype ri, ControlTokenT i, M
         di.alu = Msub;
         return di;
       end
+      /*
+      DCLZ, CLZ: begin
+          if(func == DCLZ) di.sixtyFourBitOp = True;
+          di.alu = CLZ;
+          return di;
+      end
+       */
       default: begin
         let rv <- unknownInstruction(i);
         return rv;
@@ -229,8 +243,9 @@ function ActionValue#(ControlTokenT) decodeSpecial(Rtype ri, ControlTokenT i, MI
         di.exception = Bp;
       end
       SYNC: begin
-        //di.writeDest = None;
-        //di.flushPipe = True;
+        di.cop.inst = CacheSync;
+        di.cop.cache = DCache;
+        di.mem = DCacheOp;
       end
       default: begin
         di <- unknownInstruction(i);
@@ -244,7 +259,11 @@ endfunction
 // The mkDecode module implements the Decode stage of the MIPS pipeline.
 // mkDecode exports a FIFO interface of the pipeline ControlTokenT type
 // but needs to import interfaces to many other entities in the pipeline.
+`ifndef STATCOUNTERS
 module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
+`else
+module mkDecode#(CP0Ifc cp0, StatCounters statCounters)(PipeStageIfc);
+`endif
 
   // This is the fifo of control tokens
   FIFO#(ControlTokenT) outQ <- mkFIFO;
@@ -257,6 +276,11 @@ module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
       MIPSReg rt = 0;
       
       CoProEn cpEn = cp0.getCoprocessorEnables();
+      `ifdef STATCOUNTERS
+      Maybe#(Bit#(64)) maybe_statcounters_rsp <- statCounters.response.get();
+      Bit#(64) statcounters_rsp = fromMaybe(?, maybe_statcounters_rsp);
+      debug2("StatCounters", $display("<time %0t, Decode> statcounters response : ", $time, fshow(maybe_statcounters_rsp)));
+      `endif
 
       case(i.inst) matches
         tagged Immediate .ii: begin
@@ -382,8 +406,12 @@ module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
                     di.cop.cache = None; // Instruction L2 if there is one.  There isn't.
                   end
                   3: begin
-                    di.cop.cache = L2;
-                    di.mem = DCacheOp;
+                    `ifndef CHERIOS
+                        di.cop.cache = L2;
+                        di.mem = DCacheOp;
+                    `else // CHERIOS
+                        di.cop.cache = None;
+                    `endif // CHERIOS
                   end
                 endcase
                 debug($display("Decode: Cache Operation ii.rt=%x, cache=%x, inst=%x", ii.rt[1:0], di.cop.cache, di.cop.inst));
@@ -427,13 +455,39 @@ module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
                       if (!hwrena.cc && !privileged) di.exception = RI;
                       di.opA = rc;
                       di.alu = Nop;
-                      di.sixtyFourBitOp = False;
+                      di.sixtyFourBitOp = True;
                     end
                     3: begin
                       if (!hwrena.ccres && !privileged) di.exception = RI;
                       di.opA = 1;
                       di.alu = Nop;
                     end
+                    4: begin
+                      if (!hwrena.insts && !privileged) di.exception = RI;
+                      di.opA = rc;
+                      di.alu = Nop;
+                      di.sixtyFourBitOp = True;
+                    end
+                    5: begin
+                      if (!hwrena.instTLBMiss && !privileged) di.exception = RI;
+                      di.opA = rc;
+                      di.alu = Nop;
+                      di.sixtyFourBitOp = True;
+                    end
+                    6: begin
+                      if (!hwrena.dataTLBMiss && !privileged) di.exception = RI;
+                      di.opA = rc;
+                      di.alu = Nop;
+                      di.sixtyFourBitOp = True;
+                    end
+                    `ifdef STATCOUNTERS
+                    7,8,9,10,11,12,13,14: begin
+                      if (!hwrena.statcounters[ri.rd-7] && !privileged) di.exception = RI;
+                      di.opA = statcounters_rsp;
+                      di.alu = Nop;
+                      di.sixtyFourBitOp = True;
+                    end
+                    `endif
                     29: begin
                       if (!hwrena.tls && !privileged) di.exception = RI;
                       di.sixtyFourBitOp = True;
@@ -516,8 +570,19 @@ module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
                     // execute stage, so set the tags to indicate that it has an
                     // immediate field that we can use.
                     //if (ci.op == COP2 && (ci.cOp == CBTS || ci.cOp == CBTU))
-                    CBTS, CBTU: di.inst = tagged Immediate unpack(pack(ci));
+                    CBTS, CBTU, CBEZ, CBNZ: di.inst = tagged Immediate unpack(pack(ci));
                     CJALR: di.opB = pc + 8;
+                    CClear: begin
+                      Bit#(32) mask = ~0; // All '1s' by default.
+                      Itype tmpInst = unpack(pack(ci));
+                      case(ci.r1)
+                        0: mask[15:0]  = ~tmpInst.imm;
+                        1: mask[31:16] = ~tmpInst.imm;
+                        2: mask[15:0]  = ~tmpInst.imm;
+                        3: mask[31:16] = ~tmpInst.imm;
+                      endcase
+                      di.opA = zeroExtend(mask);
+                    end
                   endcase
                 end
               end
@@ -530,9 +595,6 @@ module mkDecode#(CP0Ifc cp0)(PipeStageIfc);
   endfunction
 
   method Action enq(ControlTokenT ct);
-    // zero the operands to ensure the optimiser knows they are not used.
-    //ct.opA = 0;
-    //ct.opB = 0;
     ct.storeData = tagged DoubleWord 0;
     MIPSReg pc = ct.pc;
     MIPSReg rc <- cp0.readGet(ct.writeDest==CoPro0); // Coprocessor Register Read

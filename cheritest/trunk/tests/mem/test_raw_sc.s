@@ -94,7 +94,7 @@ thread_spin:    bnez    $k0, thread_spin # spin if not thread 0
 		lw	$s1, -4($gp)
 		
 		# Initialize link register to a different address.
-		ll 	$k0, 16($gp)
+		ll 	$k0, 0($gp)
 		# Fail to store and load a word into word storage
 		dli	$s2, 0x01234567
 		sc	$s2, -20($gp)			# @dword

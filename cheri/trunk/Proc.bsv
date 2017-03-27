@@ -49,6 +49,7 @@ import MasterSlave::*;
 
 import MIPS::*;
 import MIPSTop::*;
+import MIPSTopIfc::*;
 
 import MemTypes::*;
 import CheriAxi::*;
@@ -76,14 +77,17 @@ module mkCheri(Processor);
     
     // Synchronised count and pause registers for all cores.
     Reg#(Bit#(48))  count   <- mkReg(48'b0);
+`ifdef START_PAUSED
+    Reg#(Bool)      pause   <- mkReg(True);
+`else
     Reg#(Bool)      pause   <- mkReg(False);
-  
+`endif
+
     (* fire_when_enabled, no_implicit_conditions *)
     rule irqForward;
       Bit#(0) tid = unpack(0);
-      beri.putIrqs(truncate(myPIC.irqMapper.getMIPSIrqs(tid))); // rmn30 XXX don't support irq 5-7 
       if (!pause) count <= count + 1;
-      beri.putState(count, pause);
+      beri.putState(count, pause, truncate(myPIC.irqMapper.getMIPSIrqs(tid)));
     endrule
     
     rule getPause;

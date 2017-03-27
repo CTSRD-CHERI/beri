@@ -45,8 +45,12 @@ import MEM::*;
 import CacheCore::*;
 import BeriUGBypassFIFOF::*;
 import Vector::*;
+import ConfigReg::*;
 `ifdef NOCACHE
   import PISM::*;
+`endif
+`ifdef STATCOUNTERS
+import StatCounters::*;
 `endif
 
 /* =================================================================
@@ -62,73 +66,51 @@ import Vector::*;
 `endif
 
 typedef SizeOf#(CheriPhyByteOffset) ByteOffsetSize;
- 
-typedef enum {Init, Serving, Fill
-  `ifdef MULTI
-    , StoreConditional
-  `endif
-} CacheState deriving (Bits, Eq);
 
 `ifdef NOT_FLAT
   (*synthesize*)
 `endif
-module mkICache#(Bit#(16) coreId)(CacheInstIfc);
-  FIFOF#(CacheResponseInstT)         preRsp_fifo <- mkFIFOF;
-  FIFO#(CheriPhyByteOffset)                addrs <- mkFIFO;
-  FIFO#(Bool)                       nextFromCore <- mkFIFO;
-  FIFOF#(Bool)                        returnNext <- mkUGSizedFIFOF(16); // Lots of room due to being unguarded.
-  FIFOF#(CheriMemResponse)              rsp_fifo <- mkBeriUGBypassFIFOF;
+module mkICache#(Bit#(16) cacheId)(CacheInstIfc);
+  FIFO#(CacheResponseInstT)          preRsp_fifo <- mkLFIFO;
+  FIFO#(CheriPhyByteOffset)                addrs <- mkLFIFO;
+  Reg#(CacheRequestInstT)              reqInWire <- mkWire;
+  FIFOF#(Bool)                      nextFromCore <- mkLFIFOF;
+  //FIFOF#(Bool)                        returnNext <- mkUGSizedFIFOF(4); // Lots of room due to being unguarded.
   FF#(CheriMemRequest, 2)                memReqs <- mkUGFF();
-  FIFOF#(CheriMemResponse)               memRsps <- mkUGFIFOF;
-  CacheCore#(1, 7)                          core <- mkCacheCore(coreId, WriteThrough, ICache, 
+  FF#(CheriMemResponse, 2)               memRsps <- mkUGFF(); // If this FIFO has capacity for less than 4 (the size of one burst response) the system can wedge on a SYNC when the data interface stalls waiting for all responses.
+  CacheCore#(2, Indices, 1)                 core <- mkCacheCore(cacheId, WriteThrough, OnlyReadResponses, InOrder, ICache, 
                                                                 zeroExtend(memReqs.remaining()), 
-                                                                ff2fifof(memReqs), memRsps);
-  FIFOF#(PhyAddress)              invalidateFifo <- mkUGFIFOF;
+                                                                ff2fifof(memReqs), ff2fifof(memRsps));
   Reg#(CheriTransactionID)        transactionNum <- mkReg(0);
-  
-  rule runCache;
-    Maybe#(CheriMemResponse) memResp <- core.get(rsp_fifo.notFull);
-    if (memResp matches tagged Valid .mr) begin
-      if (mr.operation matches tagged Read .rop &&& returnNext.first) begin
-        debug2("icache", $display("<time %0t, cache %0d, ICache> got response! ", $time, coreId, fshow(mr)));
-        rsp_fifo.enq(mr);
-      end
-      returnNext.deq();
-    end
-  endrule
+  Reg#(PhyAddress)                lastInvalidate <- mkRegU;
 
-  method Action put(CacheRequestInstT reqIn);
-    debug2("icache", $display("<time %0t, cache %0d, ICache> putting ICache request ", $time, coreId, fshow(reqIn)));
+  rule packCommits;
+    core.nextWillCommit(True);
+  endrule
+  
+  Bool putReady = (core.canPut() && nextFromCore.notFull());
+  
+  rule doPut(putReady);
+    CacheRequestInstT reqIn = reqInWire;
+    debug2("icache", $display("<time %0t, cache %0d, ICache> putting ICache request ", $time, cacheId, fshow(reqIn)));
     Bool cached = reqIn.tr.cached;
     CheriMemRequest mem_req = defaultValue;
     mem_req.addr = unpack(reqIn.tr.addr);
-    if (cached) mem_req.addr.byteOffset = 0;
-    mem_req.masterID = unpack(truncate(coreId));
+    mem_req.masterID = unpack(truncate(cacheId));
     mem_req.transactionID = transactionNum;
+    mem_req.operation = tagged CacheOp CacheOperation{
+                            inst: CacheNop,
+                            cache: ICache,
+                            indexed: True
+                          };
     CacheOperation cop = reqIn.cop;
-    Bool putToCore = (reqIn.tr.exception == None);
-    // Indicate that we smuggled an invalidate in a NOP.
-    Bool nopInvalidate = False;
+    Bool expectResponse = False;
     Bool returnInst = False;
     
-    CacheResponseInstT resp = CacheResponseInstT {
-      inst: classifyMIPSInstruction(32'b0),
-      exception: reqIn.tr.exception
-    };
-    
+    CacheResponseInstT resp = CacheResponseInstT{inst: reqIn.defaultInst, exception: reqIn.tr.exception};
+
     case (cop.inst)
       CacheNop: begin
-        if (invalidateFifo.notEmpty) begin
-          mem_req.addr = unpack(invalidateFifo.first);
-          mem_req.operation = tagged CacheOp CacheOperation{
-                                                inst: CacheInvalidate, 
-                                                cache: ICache,
-                                                indexed: False
-                                             };
-          debug2("icache", $display("<time %0t, cache %0d, ICache> invalidating ", $time, coreId, fshow(mem_req)));
-          invalidateFifo.deq();
-          nopInvalidate = True;
-        end
       end
       Read: begin
         if (resp.exception == None) begin
@@ -138,56 +120,70 @@ module mkICache#(Bit#(16) coreId)(CacheInstIfc);
                             noOfFlits: 0,
                             bytesPerFlit: BYTE_4
                           };
-        end else putToCore = False;
+          expectResponse = True;
+        end
         returnInst = True;
       end
       default: begin
+        resp.exception = None; // Not really necissary since we don't respond.
         mem_req.operation = tagged CacheOp cop;
-        resp.exception = None;
-        putToCore = True;
       end
     endcase
     
-    Bool expectResponse = True;
-    if (putToCore) begin
-      debug2("icache", $display("<time %0t, cache %0d, ICache> putting to core ", $time, coreId, fshow(mem_req)));
-      core.put(mem_req);
-      core.nextWillCommit(True);
-      // Ensure that the core never sees the same transaction ID twice.
-      transactionNum <= transactionNum + 1;
-      returnNext.enq(returnInst);
-      // If we put it to the core, but will not return an instruction, don't expect a response.  A Cache instruction, for example.
-      expectResponse = returnInst;
-    end
-    if (expectResponse) begin
-      resp.inst = unpack(zeroExtend(pack(nopInvalidate)));
+    debug2("icache", $display("<time %0t, cache %0d, ICache> putting to core ", $time, cacheId, fshow(mem_req)));
+    core.put(mem_req);
+    // Ensure that the core never sees the same transaction ID twice.
+    transactionNum <= transactionNum + 1;
+      
+    if (returnInst) begin
       preRsp_fifo.enq(resp);
-      nextFromCore.enq(putToCore);
+      nextFromCore.enq(expectResponse);
       addrs.enq(truncate(reqIn.tr.addr));
     end
+  endrule
+  
+  method Action put(CacheRequestInstT reqIn) if (putReady);
+    reqInWire <= reqIn;
   endmethod
   
-  method ActionValue#(CacheResponseInstT) getRead() if (!nextFromCore.first || rsp_fifo.notEmpty);
+  method ActionValue#(CacheResponseInstT) getRead() if (!nextFromCore.first || core.response.canGet());
     CacheResponseInstT resp <- toGet(preRsp_fifo).get;
     CheriPhyByteOffset addr <- toGet(addrs).get;
     Bool    fromCore <- toGet(nextFromCore).get;
     if (fromCore) begin
-      CheriMemResponse mr <- toGet(rsp_fifo).get;
-      if (mr.operation matches tagged Read .rr) begin
-        Vector#(BusInsts,Bit#(32)) instArray = unpack(rr.data.data);
-        Integer top = valueOf(ByteOffsetSize)-1;
-        Bit#(TSub#(ByteOffsetSize,2)) index = addr[top:2];
+      CheriMemResponse mr <- core.response.get();
+      Vector#(8,Bit#(8)) byteArray = unpack(truncate(mr.data.data));
+      byteArray = reverse(byteArray);
+      Vector#(2,Bit#(32)) instArray = unpack(pack(byteArray)); 
+      Bit#(1) index = ~addr[2];
+      resp.inst = classifyMIPSInstruction(instArray[index]);
+      //if (mr.operation matches tagged Read .rr) begin
+        // Verilog synthesis chokes on this series of array ops.  Lame.
+        //Vector#(TMul#(BusInsts,4),Bit#(8)) byteArray = unpack(rr.data.data);
+        //byteArray = reverse(byteArray);
+        //Vector#(BusInsts,Bit#(32)) instArray = unpack(pack(byteArray)); 
+        //Bit#(TLog#(BusInsts)) index = (0-1)-truncate(addr>>2);
+        //resp.inst = classifyMIPSInstruction(instArray[index]);
+        /*Vector#(BusInsts,Bit#(32)) instArray = unpack(rr.data.data);
+        Bit#(TLog#(BusInsts)) index = truncate(addr>>2);
         Vector#(4,Bit#(8)) instBits = unpack(instArray[index]);
-        resp.inst = classifyMIPSInstruction(pack(Vector::reverse(instBits)));
-      end
-    end else resp.inst = classifyMIPSInstruction(32'b0);
-    debug2("icache", $display("<time %0t, cache %0d, ICache> returning ICache response ", $time, coreId, fshow(resp)));
+        resp.inst = classifyMIPSInstruction({instBits[0],instBits[1],instBits[2],instBits[3]});*/
+      //end
+    end //else resp.inst = classifyMIPSInstruction(32'b0);
+    debug2("icache", $display("<time %0t, cache %0d, ICache> returning ICache response ", $time, cacheId, fshow(resp)));
     return resp;
   endmethod
 
-  method Action invalidate(Bit#(40) addr) if (invalidateFifo.notFull);
-    invalidateFifo.enq(addr);
-  endmethod
+  `ifndef TIMEBASED
+    method Action invalidate(Bit#(40) addr);
+      // Filter out multiple invalidates to the same line.
+      if (addr != lastInvalidate) begin
+        debug2("icache", $display("<time %0t, cache %0d, ICache> put Invalidate! addr:%x", $time, cacheId, addr));
+        core.invalidate(unpack(addr));
+      end
+      lastInvalidate <= addr;
+    endmethod
+  `endif
 
   method L1ChCfg getConfig();
     /*L1ChCfg{
@@ -195,18 +191,23 @@ module mkICache#(Bit#(16) coreId)(CacheInstIfc);
       l:6,  //  Cache line size = 2*2^L.  L=0 if there is no cache. (32)
       s:1   //  Number of Cache index positions is 64 * 2^S. Mult by Associativity for total number of cache lines. (128)
     };*/
-    `ifdef MEM256
-      L1ChCfg ret = L1ChCfg{ a:0, l:6, s:1};
-    `elsif MEM128
-      L1ChCfg ret = L1ChCfg{ a:0, l:5, s:1};
+    `ifdef MEM128
+      L1ChCfg ret = L1ChCfg{ a:1, l:5, s:indicesMinus6};
     `elsif MEM64
-      L1ChCfg ret = L1ChCfg{ a:0, l:4, s:1};
+      L1ChCfg ret = L1ChCfg{ a:1, l:4, s:indicesMinus6};
+    `else
+      L1ChCfg ret = L1ChCfg{ a:1, l:6, s:indicesMinus6};
     `endif
     return ret;
   endmethod
   
   interface Master memory;
     interface request  = toCheckedGet(ff2fifof(memReqs));
-    interface response = toCheckedPut(memRsps);
+    interface response = toCheckedPut(ff2fifof(memRsps));
   endinterface
+  `ifdef STATCOUNTERS
+  interface Get cacheEvents;
+    method ActionValue#(ModuleEvents) get () = core.cacheEvents.get();
+  endinterface
+  `endif
 endmodule

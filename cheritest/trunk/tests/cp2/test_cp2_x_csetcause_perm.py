@@ -43,5 +43,5 @@ class test_cp2_x_csetcause_perm(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_x_csetcause_reg_2(self):
         '''Test csetcause set capability cause when did not have permission'''
-        self.assertRegisterEqual(self.MIPS.a3, 0x1aff,
-            "csetcause did not set capability cause correctly when did not have Permit_Access_EPCC")
+        self.assertRegisterEqual(self.MIPS.a3, 0x18ff,
+            "csetcause did not set capability cause correctly when did not have Permit_Access_System_Registers")

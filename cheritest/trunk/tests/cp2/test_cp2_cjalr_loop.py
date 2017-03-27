@@ -33,6 +33,7 @@ from nose.plugins.attrib import attr
 #
 
 class test_cp2_cjalr_loop(BaseBERITestCase):
+
     @attr('capabilities')
     def test_cp2_cjalr1(self):
         '''Test that sandbox has been called'''

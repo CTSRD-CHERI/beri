@@ -120,6 +120,9 @@ test:		.ent test
 		# (5) writeback and invalidate L2 cache lines.  
 		#
 		cache 0x01, 0($t0)
+		nop
+		nop
+		nop
 		cache 0x17, 0($t0)
 		
 		#

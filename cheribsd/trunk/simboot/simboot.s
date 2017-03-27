@@ -53,6 +53,15 @@ start:
 		or	$at, $at, 0xe0
 		mtc0	$at, $12
 
+		#
+		# Set CP0.Config.K0, the kseg0 coherency algorithm
+		#
+
+		mfc0    $t0, $16
+                ori     $t0, $t0, 7
+                xori    $t0, $t0, 5
+                mtc0    $t0, $16
+
 switch_cached:
 		dla	$t0, get_corethread_id
 		dli	$t1, 0x9800000000000000

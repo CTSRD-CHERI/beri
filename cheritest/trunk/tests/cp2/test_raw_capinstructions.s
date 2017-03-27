@@ -1,5 +1,7 @@
 #-
 # Copyright (c) 2011 Steven J. Murdoch
+# Copyright (c) 2012-2015 Michael Roe
+# Copyright (c) 2015 SRI International
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -33,7 +35,10 @@
 		.global start
 		.ent start
 start:
-                # get fields of a capability
+		#
+                # Get fields of a capability
+		#
+
 		cgetperm  $a1, $c2
 		cgettype  $a1, $c2
 		cgetoffset $a1, $c2
@@ -41,28 +46,53 @@ start:
 		cgetlen   $a1, $c2
                 cgettag   $a1, $c2
                 cgetsealed $a1, $c2
-		cgetpcc   $c2
-		cgetcause $a1
 
-                # set the fields of a capability
+		#
+                # Set the fields of a capability
+		#
+
 		dli       $a3,  0
 		candperm  $c1, $c2, $a3
 		csetoffset $c1, $c2, $a3
 		cincoffset $c1, $c2, $a3
-		cincbase  $c1, $c2, $a3
-		csetlen   $c1, $c2, $a3
+		csetbounds $c1, $c2, $a3
                 ccleartag $c1, $c2
-		csetcause $a3
-
 		cmove     $c1,  $c2
+
+		#
+		# Get/set special registers
+		#
+
+		cgetpcc   $c2
+		cgetpccsetoffset $c2, $a3
+		cgetcause $a1
+		csetcause $a1
+		cgetdefault $c1
+		csetdefault $c1
+
+		#
+		# Clear registers
+		#
+
+		clearlo 0x1
+		clearhi 0x1
+		cclearlo 0x1
+		cclearhi 0x1
+
+		#
+		# Load/store operations
+		#
+
+		dla	$t0, cap1
+		csetoffset $c2, $c0, $t0
 
 		# store/load capability, register and immediate offset
 		csc	  $c1, $a3, 0($c2)
 		clc       $c1, $a3, 0($c2)
 
 		# negative immmediate offset
-		csc       $c1, $a3, -1($c2)
-		clc       $c1, $a3, -1($c2)
+		csc       $c1, $a3, -32($c2)
+		clc       $c1, $a3, -32($c2)
 
                 # store/load capability, register offset
                 dla       $a3, cap1
@@ -81,9 +111,9 @@ start:
 
 		# negative immediate offset
 		clb       $a1, $a3, -1($c2)
-		clh       $a1, $a3, -1($c2)
-		clw       $a1, $a3, -1($c2)
-		cld       $a1, $a3, -1($c2)
+		clh       $a1, $a3, -2($c2)
+		clw       $a1, $a3, -4($c2)
+		cld       $a1, $a3, -8($c2)
 
                 # load via capability, sign extend, register offset
                 clbr      $a1, $a3($c2)
@@ -120,9 +150,9 @@ start:
 
 		# negative immediate offset
 		csb       $a1, $a3, -1($c2)
-		csh       $a1, $a3, -1($c2)
-		csw       $a1, $a3, -1($c2)
-		csd       $a1, $a3, -1($c2)
+		csh       $a1, $a3, -2($c2)
+		csw       $a1, $a3, -4($c2)
+		csd       $a1, $a3, -8($c2)
 
                 # store via capability, register offset
                 csbr      $a1, $a3($c2)
@@ -155,13 +185,29 @@ start:
 		cseal	  $c1, $c2, $c3
 		cunseal   $c1, $c2, $c3
 
-		# load linked/store conditional
-		clld      $t1, $a3, 0($c2)
-		cscd      $t1, $a3, 0($c2)
-		clldr     $t1, $a3($c2)
-		cscdr     $t1, $a3($c2)
-		clldi     $t1, 0($c2)
-		cscdi     $t1, 0($c2)
+		# load linked/store conditional, sign extend
+		csetoffset $c4, $c2, $a3
+		cllb	$t1, $c4
+		cscb	$t1, $t1, $c4
+		cllh	$t1, $c4
+		csch	$t1, $t1, $c4
+		cllw	$t1, $c4
+		cscw	$t1, $t1, $c4
+		clld	$t1, $c4
+		cscd	$t1, $t1, $c4
+
+		# load linked/store conditional, zero extend
+		cllbu	$t1, $c4
+		cscb	$t1, $t1, $c4
+		cllhu	$t1, $c4
+		csch	$t1, $t1, $c4
+		cllwu	$t1, $c4
+		cscw	$t1, $t1, $c4
+		cscd	$t1, $t1, $c4
+
+		# load linked/store conditional, capability
+		cllc	$c1, $c4
+		cscc	$t1, $c1, $c4
 
 		# check capability fields
 		cmove $c1, $c0
@@ -178,6 +224,7 @@ start:
 		cle	  $t1, $c0, $c1
 		cltu	  $t1, $c0, $c1
 		cleu	  $t1, $c0, $c1
+		cexeq	  $t1, $c0, $c1
 
                 # jumps
 		dla       $t1, l0
@@ -188,7 +235,7 @@ start:
 l0:
 		dla       $t1, l1
 		csetoffset $c1, $c0, $t1
-		cjalr     $c24, $c0
+		cjalr     $c0, $c24
 		# branch delay slot
 		nop
 

@@ -26,7 +26,9 @@
 #
 
 from beritest_tools import BaseBERITestCase
+from nose.plugins.attrib import attr
 
+@attr('bev1ram')
 class test_code_rom_relocation(BaseBERITestCase):
     def test_t0(self):
         self.assertRegisterEqual(self.MIPS.t0, 1, "instruction before jump missed")

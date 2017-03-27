@@ -34,15 +34,16 @@
 void lock_init(lock_t * lock)
 {
     *lock = 0;
+    asm volatile ("sync\n");
 }
 
 void lock_acquire(lock_t * lock)
 {
     asm volatile (
         "lock_read :            \n" /* to avoid reaching L2 */
-        "ld     $8, 0(%0)       \n" /* and only stay in L1 */
-        "bnez   $8, lock_read   \n" /* loop on cached read */
-        "nop                    \n"
+        //"ld     $8, 0(%0)       \n" /* and only stay in L1 XXX use to test polling detection */
+        //"bnez   $8, lock_read   \n" /* loop on cached read */
+        //"nop                    \n"
         "lld    $8, 0(%0)       \n" /* first ll try (reaching L2) */
         "bnez   $8, lock_read   \n" /* retry if lock already taken */
         "dli    $9, 1           \n" /* prepare argument for sc */
@@ -57,4 +58,5 @@ void lock_acquire(lock_t * lock)
 void lock_release(lock_t * lock)
 {
     *lock = 0;
+    asm volatile ("sync\n");
 }

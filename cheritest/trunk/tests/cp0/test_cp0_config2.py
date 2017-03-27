@@ -68,7 +68,7 @@ class test_cp0_config2(BaseBERITestCase):
     @attr('beri1cache')
     def test_cp0_config2_ss_beri1(self):
         '''Test the value of CP0.Config2.SS'''
-        self.assertRegisterMaskEqual(self.MIPS.a2, 0xf00, 0x100, "Config2 has unexpected value for number of L2 index positions")
+        self.assertRegisterMaskEqual(self.MIPS.a2, 0xf00, 0x300, "Config2 has unexpected value for number of L2 index positions")
 
     @attr('config2')
     @attr('beri2cache')

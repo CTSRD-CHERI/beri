@@ -33,12 +33,26 @@ from nose.plugins.attrib import attr
 #
 
 class test_cp2_getandperm_user(BaseBERITestCase):
-    @attr('capabilities')
-    def test_cp2_getperm1(self):
-        '''Test that cgetperm returns correct initial value'''
-        self.assertRegisterEqual(self.MIPS.a0, 0x7fffffff, "cgetperm returns incorrect initial value")
 
     @attr('capabilities')
-    def test_cp2_getperm2(self):
-        '''Test that cgetperm returns correct value after candperm'''
-        self.assertRegisterEqual(self.MIPS.a1, 0x40000001, "cgetperm returns incorrect value after candperm")
+    def test_cp2_getperm_1(self):
+        '''Test that CGetPerm returns correct initial value'''
+        self.assertRegisterAllPermissions(self.MIPS.a0, "CGetPerm returns incorrect initial value")
+
+    @attr('capabilities')
+    @attr('cap_perm_31')
+    def test_cp2_getperm_2(self):
+        '''Test that CGetPerm returns correct value after CAndPerm'''
+        self.assertRegisterEqual(self.MIPS.a1, 0x40000001, "CGetPerm returns incorrect value after CAndPerm")
+
+    @attr('capabilities')
+    @attr('cap_perm_23')
+    def test_cp2_getperm_3(self):
+        '''Test that CGetPerm returns correct value after CAndPerm'''
+        self.assertRegisterEqual(self.MIPS.a2, 0x400001, "CGetPerm returns incorrect value after CAndPerm")
+
+    @attr('capabilities')
+    def test_cp2_getperm_4(self):
+        '''Test that CGetperm returns correct value after CAndperm'''
+        self.assertRegisterEqual(self.MIPS.a3, 0x40001, "CGetperm returns incorrect value after CAndperm")
+

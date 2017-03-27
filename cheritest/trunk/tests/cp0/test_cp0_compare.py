@@ -29,6 +29,7 @@ from beritest_tools import BaseBERITestCase
 from nose.plugins.attrib import attr
 
 @attr('comparereg')
+@attr('countrate')
 class test_cp0_compare(BaseBERITestCase):
     def test_compare_readback(self):
         '''Test that CP0 compare register write succeeded.'''

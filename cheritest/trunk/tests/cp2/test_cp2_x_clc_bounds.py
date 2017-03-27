@@ -34,6 +34,7 @@ from nose.plugins.attrib import attr
 #
 
 class test_cp2_x_clc_bounds(BaseBERITestCase):
+
     @attr('capabilities')
     def test_cp2_x_clc_bounds_1(self):
         '''Test clc did not read beyond the end of the array'''

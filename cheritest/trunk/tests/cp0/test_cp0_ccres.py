@@ -31,7 +31,7 @@ from nose.plugins.attrib import attr
 class test_cp0_ccres(BaseBERITestCase):
 
     @attr('rdhwr')
-    @attr('ccres')
+    @attr('bericcres')
     def test_cp0_ccres_1(self):
         '''Test rdhwr of CCRes'''
         self.assertRegisterEqual(self.MIPS.a0, 1, "CCRes was not equal to 1")

@@ -1,7 +1,7 @@
 /*-
  * Copyright (c) 2012-2013 SRI International
  * Copyright (c) 2012 Robert N. M. Watson
- * Copyright (c) 2015 A. Theodore Markettos
+ * Copyright (c) 2015 Theo Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of

@@ -82,38 +82,50 @@ function String regName(Bit#(5) regNo);
          endcase;
 endfunction
 
+`ifndef BLUESIM
+  `define NOPRINTS 1
+`endif
+
 `ifndef VERIFY2
 function Action trace(Action a);
   action
-    Bool debugP<-$test$plusargs("debug");
-    Bool traceP<-$test$plusargs("trace");
-    if(traceP||debugP)
-      a;
+    `ifndef NOPRINTS
+      Bool debugP<-$test$plusargs("debug");
+      Bool traceP<-$test$plusargs("trace");
+      if(traceP||debugP)
+        a;
+    `endif
   endaction
 endfunction
 
 function Action debug(Action a);
   action
-    Bool debugP<-$test$plusargs("debug");
-    if(debugP)
-      a;
+    `ifndef NOPRINTS
+      Bool debugP<-$test$plusargs("debug");
+      if(debugP)
+        a;
+    `endif
   endaction
 endfunction
 
 function Action cachedump(Action a);
   action 
+    `ifndef NOPRINTS
       Bool cachedumpB <- $test$plusargs("cachedump");
       if (cachedumpB)
         a;
+    `endif
   endaction 
 endfunction 
 
 function Action debug2(String component, Action a);
   action
-    Bool debugP<-$test$plusargs("debug");
-    Bool debugC<-$test$plusargs(component);
-    if (debugP||debugC)
-      a;
+    `ifndef NOPRINTS
+      Bool debugP<-$test$plusargs("debug");
+      Bool debugC<-$test$plusargs(component);
+      if (debugP||debugC)
+        a;
+    `endif
   endaction
 endfunction
 function Action debug_decode(Action a);
@@ -124,29 +136,13 @@ endfunction
 
 function Action debug_dmem(Action a);
   action
-    Bool debug <- $test$plusargs("debug");
-    Bool dmem  <- $test$plusargs("dmem");
-    Bool c1t   <- $test$plusargs("cheri1_trace");
-    if (debug||dmem||c1t)
-      a;
+    debug2("dmem", a);
   endaction
 endfunction
 
 function Action debug_cp0(Action a);
   action
-    Bool debug <- $test$plusargs("debug");
-    Bool cp0   <- $test$plusargs("cp0");
-    Bool c1t   <- $test$plusargs("cheri1_trace");
-    if (debug||cp0||c1t)
-      a;
-  endaction
-endfunction
-
-function Action debug_cheri1_trace(Action a);
-  action
-    Bool c1t   <- $test$plusargs("cheri1_trace");
-    if (c1t)
-      a;
+    debug2("cp0", a);
   endaction
 endfunction
 

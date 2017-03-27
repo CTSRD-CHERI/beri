@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -45,7 +46,7 @@ test:		.ent test
 		# Save $c0 so can restore it later
 		#
 
-		cmove   $c1, $c0
+		cgetdefault $c1
 
 		#
 		# Make $c2 a capability for a user-defined type whose id
@@ -62,10 +63,16 @@ test:		.ent test
 		dli $a1, 0
 
 		#
-		# Seal $c0 with $c2
+		# Seal $c1 with $c2
 		#
 
-		cseal $c0, $c0, $c2
+		cseal $c3, $c1, $c2
+
+		#
+		# ... and copy it to $c0
+		#
+
+		csetdefault $c3
 
 		#
 		# Try a capability operation that doesn't use the sealed $c0
@@ -77,7 +84,7 @@ test:		.ent test
 		# Restore the original $c0
 		#
 
-		cmove   $c0, $c1
+		csetdefault $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

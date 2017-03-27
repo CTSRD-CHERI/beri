@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -93,21 +94,25 @@ test:		.ent test
 
 		#
 		# Prepare $c1 to point at the space between 'sandbox_begin'
-		# and 'sandbox_end'.  Restrict to Non_Ephemeral, Permit_Execute
-                # and Permit_Load permissions.
-		#
-		dli	$t0, 0x0007
-		candperm	$c1, $c1, $t0
-		dla	$a7, sandbox_begin
-		cincbase	$c1, $c1, $a7
-
+		# and 'sandbox_end'.
 		#
 		# Calculate desired length of $c1 into $s0, then set the length.
 		#
+
+		cgetdefault $c1
+		dla	$a7, sandbox_begin
+		csetoffset $c1, $c1, $a7
 		dla	$t0, sandbox_end
 		dsubu	$s0, $t0, $a7
+		csetbounds $c1, $c1, $s0
 
-		csetlen	$c1, $c1, $s0
+		#
+		# Restrict to Non_Ephemeral, Permit_Execute
+                # and Permit_Load permissions.
+		#
+
+		dli	$t0, 0x0007
+		candperm	$c1, $c1, $t0
 
 		#
 		# First trap -- on return, we will be running relative to the
@@ -171,7 +176,7 @@ restored_ra:
 exception_handler:
 		# Capture cause register so we can make sure that an
 		# exception was thrown for the right reason!
-		dmfc0	$s1, $13	# Get cause register
+		mfc0	$s1, $13	# Get cause register
 
 		daddiu	$a0, $a0, 1	# Increment trap counter
 

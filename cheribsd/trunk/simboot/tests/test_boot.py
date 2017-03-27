@@ -1,10 +1,15 @@
-# Copyright (c) 2015 Khilan Gudka
+#-
+# Copyright (c) 2014-2015 Khilan Gudka
 # Copyright (c) 2015 Michael Roe
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
 # Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
 # ("CTSRD"), as part of the DARPA CRASH research programme.
+#
+# This software was developed by the University of Cambridge Computer
+# Laboratory as part of the Rigorous Engineering of Mainstream Systems (REMS)
+# project, funded by EPSRC grant EP/K008528/1.
 #
 # @BERI_LICENSE_HEADER_START@
 #
@@ -51,9 +56,13 @@ import xml.etree.ElementTree as ET
 #   OS:                 os being tested, valid values: FreeBSD, CheriBSD
 #
 # Configurable parameters:
-#   boot_timeout:      hard time limit on boot test
-#   hw_timeout:        hard time limit on hello world test
-#   cheritest_timeout: hard time limit on entire cheritest test
+#   boot_timeout:       hard time limit on boot test
+#   hw_timeout:         hard time limit on hello world test
+#   cheritest_timeout:  hard time limit on entire cheritest test
+#   post_error_timeout: hard time limit on execution after having detected an
+#                       error (allows bounded time for collecting additional
+#                       error context such as register dumps)
+#   error_regex:        regex describing when an error has been detected
 #
 # This script should be run as follows from the cheribsd/trunk/simboot 
 # directory:
@@ -72,12 +81,16 @@ global timeout_exceeded
 boot_succeeded = False
 hw_succeeded = False
 
-boot_timeout = 3*3600 # hard timeout for boot test
+boot_timeout = 8*3600 # hard timeout for boot test
 hw_timeout = 2*3600 # hard timeout for hello world test
-cheritest_timeout = 8*3600 # hard timeout for entire cheritest test
+cheritest_timeout = 24*3600 # hard timeout for entire cheritest test
+post_error_timeout = 5*60 # how long to wait (after an error has been
+                          # detected) before failing the test
+
+error_regex = "error|panic|not found|abnormally|stopped at|register dump"
 
 # allow double time for multi-core or multi-threaded CPU 
-if os.getenv("CPU") == "CHERI2-MT" or os.getenv("CPU") == "CHERI1-MULTI2":
+if os.getenv("CPU") == "CHERI2-MT" or os.getenv("CPU") == "CHERI1-MULTI2" or os.getenv("CPU") == "BERI1-MULTI2":
   boot_timeout = boot_timeout*2
   hw_timeout = hw_timeout*2
   cheritest_timeout = cheritest_timeout*2
@@ -87,8 +100,8 @@ if os.getenv("CPU") == "CHERI2-MT" or os.getenv("CPU") == "CHERI1-MULTI2":
 debug_xml = True
 
 # hard timeouts are achieved by setting an alarm and then raising an exception
-def set_timeout(timeout):
-  print "Setting test timeout of %d seconds" % timeout
+def set_timeout(timeout, post_error = False):
+  print "Setting %s timeout of %d seconds" % ("post-error" if post_error else "test", timeout)
   global timeout_exceeded
   timeout_exceeded = False
   signal.alarm(timeout)
@@ -106,7 +119,11 @@ def write_unbuffered(string):
 def setup_module():
   print "Running setup_module"
   global sim
-  sim = subprocess.Popen(["make","run"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+  if os.getenv("CHERI_TRACE_LOG"):
+    target = "trace"
+  else:
+    target = "run"
+  sim = subprocess.Popen(["make",target], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
   signal.signal(signal.SIGALRM, timeout_handler)
 
 # Teardown function that kills the simulator (if it is still running) after
@@ -124,14 +141,14 @@ def test_boot():
 
   print "Running test_boot"
 
-  if os.getenv("OS") == "CheriBSD" and os.getenv("CPU").startswith("BERI"):
+  if os.getenv("OS") == "CheriBSD" and os.getenv("CPU").upper().startswith("BERI"):
     raise SkipTest("Skipping CheriBSD/BERI boot test")
   
   # scan output of simulation looking for signs that an error has occurred
   # or that everything is fine
-  ok_regex = "Done booting"
-  error_regex = "error|panic|not found|abnormally|stopped at"
+  booted_regex = "Done booting"
   success = False
+  error_detected = False
 
   set_timeout(boot_timeout)
 
@@ -143,11 +160,13 @@ def test_boot():
       break
     # echo to our stdout
     write_unbuffered(line)
-    if search(error_regex, line, IGNORECASE) != None:
-      break
-    elif search(ok_regex, line) != None:
-      success = True
-      break
+    if not error_detected:
+      if search(error_regex, line, IGNORECASE) != None:
+        error_detected = True
+        set_timeout(post_error_timeout, True)
+      elif search(booted_regex, line) != None:
+        success = True
+        break
   
   elapsed_secs = time.time()-start
   write_unbuffered("Boot test finished - took %.2f secs\n" % elapsed_secs)
@@ -162,7 +181,7 @@ def test_helloworld():
 
   print "Running cheri_helloworld"
   
-  if not (os.getenv("OS") == "CheriBSD" and os.getenv("CPU").startswith("CHERI")) or not boot_succeeded:
+  if not (os.getenv("OS") == "CheriBSD" and os.getenv("CPU").upper().startswith("CHERI")) or not boot_succeeded:
     raise SkipTest("Skipping cheri_helloworld test")
   
   if sim.returncode != None:
@@ -176,6 +195,7 @@ def test_helloworld():
   # of its own executable.
   sim.stdin.write('/bin/cheri_helloworld\n')
   success = False
+  error_detected = False
   
   set_timeout(hw_timeout)
   
@@ -190,11 +210,15 @@ def test_helloworld():
     # process output of cheri_helloworld
     # declare success if we see "hello world" output
     # 3 times
-    if search(helloworld_str, line) != None:
-      helloworld_cnt += 1
-    if helloworld_cnt == 3:
-      success = True
-      break
+    if not error_detected:
+      if search(error_regex, line, IGNORECASE) != None:
+        error_detected = True
+        set_timeout(post_error_timeout, True)
+      elif search(helloworld_str, line) != None:
+        helloworld_cnt += 1
+        if helloworld_cnt == 3:
+          success = True
+          break
   
   elapsed_secs = time.time()-start
   write_unbuffered("Hello world test finished - took %.2f secs\n" % elapsed_secs)
@@ -214,7 +238,7 @@ def test_cheritest():
   
   write_unbuffered("Running cheritest -a -f\n")
 
-  if not (os.getenv("OS") == "CheriBSD" and os.getenv("CPU").startswith("CHERI")) \
+  if not (os.getenv("OS") == "CheriBSD" and os.getenv("CPU").upper().startswith("CHERI")) \
      or not boot_succeeded or not hw_succeeded:
     raise SkipTest("Skipping cheritest test")
 
@@ -223,6 +247,7 @@ def test_cheritest():
   # minimise kernel output
   sim.stdin.write("/sbin/sysctl machdep.log_cheri_exceptions=0\n")
   sim.stdin.write("/sbin/sysctl machdep.log_bad_page_faults=0\n");
+  sim.stdin.write("/sbin/sysctl machdep.unaligned_log_pps_limit=0\n");
   sim.stdin.write("/sbin/sysctl kern.log_cheri_unwind=0\n");
 
   # if SLEEP_AFTER_TEST is set, sleep for 1 second after each test

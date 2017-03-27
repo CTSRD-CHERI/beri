@@ -51,19 +51,19 @@ start:
 		dli $t0, 0
 		dmtc1 $t0, $f2
 		cvt.s.l $f2, $f2
-		dmfc1 $a0, $f2
+		mfc1 $a0, $f2
 
 		dli $t0, 1
 		dmtc1 $t0, $f2
 		cvt.s.l $f2, $f2
-		dmfc1 $a1, $f2
+		mfc1 $a1, $f2
 
 		dli $t0, 1
 		dsll $t0, $t0, 32
 		ori $t0, $t0, 1
 		dmtc1 $t0, $f2
 		cvt.s.l $f2, $f2
-		dmfc1 $a2, $f2
+		mfc1 $a2, $f2
 
 		# Dump registers on the simulator (gxemul dumps regs on exit)
 		mtc0 $at, $26

@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -34,10 +35,8 @@
 # Test cseal on a data capability
 #
 
-# In this test, sandbox isn't actually called, but its address is used
-# as an otype.
-sandbox:
-		creturn
+.set BASE_ADDRESS, 0x9800001234567000
+.set LENGTH, 0x1000
 
 		.global test
 test:		.ent test
@@ -46,16 +45,20 @@ test:		.ent test
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
-                # Make $c1 a template capability for the user-defined type
-		# 0x123456.
-		li	$t0, 0x123456
+		# Make $c1 a template capability for the user-defined type
+		# 0x1234.
+		dli	$t0, 0x1234
 		csetoffset $c1, $c0, $t0
 
-                # Make $c2 a data capability for the array at address data
-		dla      $t0, data
-		cincbase $c2, $c0, $t0
-                dli      $t0, 8
-                csetlen  $c2, $c2, $t0
+		# Make $c2 a data capability for the array at address data
+		cgetdefault $c2
+		# Choose address that can be compressed if sealing is compressing
+		# the bounds.
+		dli      $t0, BASE_ADDRESS
+		csetoffset $c2, $c2, $t0
+		# Choose a size that allows compression.
+		dli      $t0, LENGTH
+		csetbounds $c2, $c2, $t0
 		# Permissions Non_Ephemeral, Permit_Load, Permit_Store,
 		# Permit_Store.
 		# NB: Permit_Execute must not be included in the set of
@@ -65,19 +68,19 @@ test:		.ent test
 
 		# Seal data capability $c2 to the offset of $c1, and store
 		# result in $c3.
-                cseal	 $c3, $c2, $c1
+		cseal	 $c3, $c2, $c1
 
-                # $c3.sealed should be 1
+		# $c3.sealed should be 1
 		cgetsealed $a0, $c3
-                # $c3.type should be equal to 0x123456
+		# $c3.type should be equal to 0x1234
 		cgettype $a1, $c3
-                # $c3.base should be equal to data
-                cgetbase $a2, $c3
-                dla      $t0, data
-                dsubu    $a2, $t0
-	        # $c3.len should be equal to $c2.len, i.e. 8	
-                cgetlen  $a3, $c3
-                # $c3.perm should be equal to $c2.perms
+		# $c3.base should be equal to the original base
+		cgetbase $a2, $c3
+		dli      $s2, BASE_ADDRESS
+		# $c3.len should be equal to $c2.len, i.e. 8	
+		cgetlen  $a3, $c3
+		dli      $s3, LENGTH
+		# $c3.perm should be equal to $c2.perms
 		cgetperm $a4, $c3
 
 		ld	$fp, 16($sp)
@@ -86,7 +89,3 @@ test:		.ent test
 		jr	$ra
 		nop			# branch-delay slot
 		.end	test
-
-		.data
-		.align 3
-data:		.dword	0xfedcba9876543210

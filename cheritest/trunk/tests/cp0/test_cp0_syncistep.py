@@ -31,7 +31,7 @@ from nose.plugins.attrib import attr
 class test_cp0_syncistep(BaseBERITestCase):
 
     @attr('rdhwr')
-    @attr('syncistep')
+    @attr('berisyncistep')
     def test_cp0_syncistep_1(self):
         '''Test rdhwr of synci_step'''
         self.assertRegisterEqual(self.MIPS.a0, 8, "SYNCI_step was not equal to 8")

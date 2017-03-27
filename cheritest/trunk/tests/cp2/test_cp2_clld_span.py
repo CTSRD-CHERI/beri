@@ -54,4 +54,4 @@ class test_cp2_clld_span(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_clld_6(self):
 	'''That an clld+csd+cscd spanning fails'''
-	self.assertRegisterEqual(self.MIPS.a3, 0, "Interrupted clld+csd+cscd succeeded")
+	self.assertRegisterEqual(self.MIPS.t0, 0, "Interrupted clld+csd+cscd succeeded")

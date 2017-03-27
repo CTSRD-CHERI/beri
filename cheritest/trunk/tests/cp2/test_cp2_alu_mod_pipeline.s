@@ -48,16 +48,16 @@ test:		.ent test
 		sd	$fp, 16($sp)
 		daddu	$fp, $sp, 32
 
-		# Test cincbase
+		# Test cincoffset
 		dli	$t0, 0
 		daddiu	$t0, $t0, 0x100
-		cincbase	$c2, $c2, $t0
-		cgetbase	$a0, $c2
+		cincoffset	$c2, $c2, $t0
+		cgetoffset	$a0, $c2
 
-		# Test csetlen
+		# Test csetbounds
 		dli	$t1, 0
 		daddiu	$t1, $t1, 0x100
-		csetlen	$c3, $c3, $t1
+		csetbounds	$c3, $c3, $t1
 		cgetlen	$a1, $c3
 
 		# Test candperm

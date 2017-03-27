@@ -26,8 +26,11 @@
 #
 
 from beritest_tools import BaseBERITestCase
+from nose.plugins.attrib import attr
 
 class test_mul_div_loop(BaseBERITestCase):
+
+    @attr('movz')
     def test_a0(self):
         '''Test that result of multiply and divide loop test is correct.'''
         self.assertRegisterEqual(self.MIPS.s7, 0x0000000000058980, "Final Multiply Result is Incorrect")

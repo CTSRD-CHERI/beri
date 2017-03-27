@@ -45,6 +45,17 @@
 		.global start
 		.ent start
 start:
+
+		#
+		# Set CP0.Config.K0, the kseg0 coherency algorithm
+		# We have to do this before we refer to kseg0
+		#
+
+	        mfc0    $t0, $16
+       		ori     $t0, $t0, 7
+      	 	xori    $t0, $t0, 5
+        	mtc0    $t0, $16
+
                 jal     get_corethread_id   # v0 = core ID * num threads + thread ID
                 nop                         # (delay slot)
 
@@ -70,28 +81,62 @@ start:
 
                 # Thread 0 Code
         
-		# Install default exception handlers
+		#
+		# Install BEV0 exception handlers
+		#
+
 		dla	$a0, exception_count_handler
 		jal 	bev0_handler_install
 		nop
 
-		dla	$a0, exception_count_handler
-		jal	bev1_handler_install
+		#
+		# Enable the BEV0 handlers
+		#
+
+		jal	bev_clear
 		nop
 
+zero_bss:
+		dla     $t0, __bss_start
+		dla     $t1, __bss_end
+1:
+		beq     $t0, $t1, 2f # exit loop if finished
+		nop
+		sb      $0, 0($t0)
+		b       1b
+		dadd    $t0, $t0, 1
+2:
+
 all_threads:
-	        # Switch to 64-bit mode (no effect on cheri, but required for gxemul)
 	        mfc0    $at, $12
+	        # Enable 64-bit mode (KX, SX)
+		# (no effect on cheri, but required for gxemul)
 	        or      $at, $at, 0xe0
-	        # Also enable timer interrupts
+	        # Enable timer interrupts (IM7, IE)
 	        or      $at, $at, (1 << 15)
 	        or      $at, $at, 1
-                dli	$t1, 1 << 30
-                or      $at, $at, $t1 	# Enable CP2
+		# Enable CP1 and CP2
+                dli	$t1, 3 << 29
+                or      $at, $at, $t1 
+		# Clear ERL
+		dli	$t1, 0x4
+		nor	$t1, $t1, $t1
+		and	$at, $at, $t1
 	        # Clear pending timer interrupts before we enable them
 	        mtc0    $zero, $11
 	        mtc0    $at, $12
 
+		mfc0	$t0, $16, 1	# Config1
+		andi	$t1, $t0, 0x1	# FP
+		beqz	$t1, no_float
+		nop
+		# Put FPU into 64 bit mode
+		mfc0	$t0, $12
+		dli	$t1, 1 << 26
+		or	$t0, $t0, $t1
+		mtc0	$t0, $12
+		
+no_float:
 		#
 		# Explicitly initialise most registers in order to make the effects
 		# of a test on the register file more clear.  Otherwise,
@@ -129,32 +174,35 @@ all_threads:
 		# Not cleared: $sp, $fp, $ra
 		mthi	$at
 		mtlo	$at
-
+		
 		# Invoke test function test() provided by individual tests.
 		dla   $25, test
+		
+		mfc0 $k0, $16, 1	# config1 register
+		andi $k0, $k0, 0x40	# CP2 available bit
+		beqz $k0, skip_cp2_setup 
+		nop
+		
+		cfromptr	$c12, $c0, $25
 		jalr $25
-		nop			# branch-delay slot
+		cfromptr	$c17, $c0, $31 			# return address
+				
+		# Dump capability registers in the simulator
+		#
+		
+		j continue_finish
+		mtc2 $k0, $0, 6
 
+skip_cp2_setup:
+		jalr $25
+		nop
 		#
 		# Check to see if coprocessor 2 (capability unit) is present,
 		# and dump out its registers if it is.
 		#
 
-		mfc0 $k0, $16, 1	# config1 register
-		andi $k0, $k0, 0x40	# CP2 available bit
-		beqz $k0, skip_cp2_dump 
-		nop
-	
-		#
-		# Dump capability registers in the simulator
-		#
-
-		mtc2 $k0, $0, 6
-		nop
-		nop
-
-skip_cp2_dump:
 		
+continue_finish:		
 		#
 		# On multithreaded/multicore, only core/thread 0 halts 
 		# the simulation.
@@ -209,6 +257,9 @@ dump_core0:
 		#
 
 		mtc0 $at, $23
+		.ent end
+		.global end
+		
 end:
 		b end
 		nop

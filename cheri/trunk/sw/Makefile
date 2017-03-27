@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2013 A. Theodore Markettos
+# Copyright (c) 2013 Theo Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -38,9 +38,8 @@ OBJCOPY = mips-linux-gnu-objcopy
 OBJDUMP = mips64-objdump
 
 clean:
-	$(MAKE) -C hello-minilib clean
-	$(MAKE) -C cheritest clean
+	$(MAKE) -C helloworld clean
 	rm -f initial.hex
 
 %:
-	$(MAKE) -C hello-minilib $@
+	$(MAKE) -C helloworld $@

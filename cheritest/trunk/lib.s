@@ -28,7 +28,7 @@
 
 # Library of assembly functions for:
 # Interrupt handlers
-# memcpy and cmemcpy
+# memcpy and memcpy_c
 # thread handling: ids / thread barrier functions
 #
 
@@ -85,7 +85,7 @@ memcpy_done:
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		sync			# branch-delay slot
 		.end memcpy
 
 ################################################################################
@@ -243,7 +243,7 @@ bev0_handler_install:
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		sync			# branch-delay slot
 		.end bev0_handler_install
 
 # As above but for bev1
@@ -266,7 +266,7 @@ bev1_handler_install:
 		ld	$ra, 24($sp)
 		daddu	$sp, $sp, 32
 		jr	$ra
-		nop			# branch-delay slot
+		sync			# branch-delay slot
 		.end bev1_handler_install
 
 #
@@ -333,6 +333,8 @@ __assert_fail:
 		.endif
 		# Kill the simulator
 		mtc0 $at, $23
+		b end
+		nop
 .end __assert_fail
 
 
@@ -352,30 +354,30 @@ __assert_fail:
 .global smemcpy
 .ent smemcpy 
 smemcpy:
-	CIncBase $c3, $c0, $a0      # Get the destination capability
-	CIncBase $c4, $c0, $a1      # Get the source capability
-	b        cmemcpy            # Jump to the capability version
+	cfromptr $c3, $c0, $a0      # Get the destination capability
+	cfromptr $c4, $c0, $a1      # Get the source capability
+	b        memcpy_c           # Jump to the capability version
 	daddi    $a0, $a2, 0        # Move the length to arg0 (delay slot)
 .end smemcpy
 
 #
 # Capability Memcpy - copies from one capability to another.  
-# __capability void *cmemcpy(__capability void *dst,
-#                            __capability void *src,
-#                            size_t len)
+# __capability void *memcpy_c(__capability void *dst,
+#                             __capability void *src,
+#                             size_t len)
 # dst: $c3
 # src: $c4
 # len: $4
 # Copies len bytes from src to dst.  Returns dst.
 		.text
-		.global cmemcpy 
-		.ent cmemcpy 
-cmemcpy:
-	beq      $4, $zero, cmemcpy_return  # Only bother if len != 0.  Unlikely to
+		.global memcpy_c
+		.ent memcpy_c
+memcpy_c:
+	beq      $4, $zero, memcpy_c_return # Only bother if len != 0.  Unlikely to
 	                               # be taken, so we make it a forward branch
 	                               # to give the predictor a hint.
 	# Note: We use v0 to store the base linear address because memcpy() must
-	# return that value in v0, allowing cmemcpy() to be tail-called from
+	# return that value in v0, allowing memcpy_c() to be tail-called from
 	# memcpy().  This is in the delay slot, so it happens even if len == 0.
 	CGetBase $v0, $c3            # v0 = linear address of dst
 	CGetOffset $at, $c3
@@ -383,8 +385,8 @@ cmemcpy:
 	CGetBase $v1, $c4            # v1 = linear address of src
 	CGetOffset $at, $c4
 	dadd     $v1, $v1, $at
-	andi     $12, $v0, 0x1f      # t4 = dst % 32
-	andi     $13, $v1, 0x1f      # t5 = src % 32
+	andi     $12, $v0, CAP_SIZE/8 - 1      # t4 = dst % 32
+	andi     $13, $v1, CAP_SIZE/8 - 1      # t5 = src % 32
 	daddi    $a1, $zero, 0       # Store 0 in $a1 - we'll use that for the
 	                             # offset later.
 
@@ -396,18 +398,18 @@ cmemcpy:
 	                             # We could do something involving shifts, but
 	                             # this is probably a sufficiently uncommon
 	                             # case not to be worth optimising.
-	andi     $t8, $a0, 0x1f      # t8 = len % 32
+	andi     $t8, $a0, CAP_SIZE/8 - 1      # t8 = len % 32
 
 fast_path:                       # At this point, src and dst are known to have
                                  # the same alignment.  They may not be 32-byte
                                  # aligned, however.  
 	# FIXME: This logic can be simplified by using the power of algebra
 	dsub    $v1, $zero, $12
-	daddi   $v1, $v1, 32
-	andi    $v1, $v1, 0x1f      # v1 = number of bytes we need to copy to
+	daddi   $v1, $v1, CAP_SIZE/8
+	andi    $v1, $v1, CAP_SIZE/8 - 1      # v1 = number of bytes we need to copy to
 	                            # become aligned
 	dsub    $a2, $a0, $v1
-	daddi   $a2, $a2, -32        # (delay slot)
+	daddi   $a2, $a2, -CAP_SIZE/8        # (delay slot)
 	bltz    $a2, slow_memcpy_loop# If we are copying more bytes than the number
 	                             # required for alignment, plus at least one
 	                             # capability more, continue in the fast path
@@ -425,20 +427,24 @@ unaligned_start:
 
 	dsub     $a2, $a0, $a1        # $12 = amount left to copy
 aligned_copy:
-	addi    $at, $zero, 0xFFE0
+	addi    $at, $zero, -CAP_SIZE/8
 	and     $a2, $a2, $at        # a2 = number of 32-byte aligned bytes to copy
 	dadd    $a2, $a2, $a1        # ...plus the number already copied.
 
 copy_caps:
 	clc     $c5, $a1, 0($c4)
-	daddi   $a1, $a1, 32
+	daddi   $a1, $a1, CAP_SIZE/8
 	bne     $a1, $a2, copy_caps
-	csc     $c5, $a1, -32($c3)
+.if (CAP_SIZE != 64)
+	csc     $c5, $a1, -CAP_SIZE/8($c3)
+	# XXX FIXME: Offsets are 128-bit aligned even when CAP_SIZE=64, so this
+	# won't work with 64-bit capabilities.
+.endif
 
 	dsub    $v1, $a0, $a2        # Subtract the number of bytes copied from the
 	                             # number to copy.  This should give the number
 	                             # of unaligned bytes that we still need to copy
-	beqzl   $v1, cmemcpy_return  # If we have an aligned copy (which we probably
+	beqzl   $v1, memcpy_c_return  # If we have an aligned copy (which we probably
 	                             # do) then return
 	nop
 	dadd    $v1, $a1, $v1
@@ -448,9 +454,9 @@ unaligned_end:
 	bne      $v1, $a1, unaligned_end
 	csb      $a2, $a1, -1($c3)
 
-cmemcpy_return:
+memcpy_c_return:
 	jr       $ra                 # Return value remains in c1
-	nop
+	sync
 
 slow_memcpy_loop:                # byte-by-byte copy
 	clb      $a2, $a1, 0($c4)
@@ -458,8 +464,8 @@ slow_memcpy_loop:                # byte-by-byte copy
 	bne      $a0, $a1, slow_memcpy_loop
 	csb      $a2, $a1, -1($c3)
 	jr       $ra                 # Return value remains in c1
-	nop
-.end cmemcpy
+	sync
+.end memcpy_c
 
 #
 # Get the ID of the current thread. Reads CP0 register 15, select 7

@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -33,12 +34,13 @@
 #
 # Test ccall
 #
-
+		.align 12
 # In this test, sandbox isn't actually called, but its address is used
 # as an otype.
 sandbox:
 		creturn
 
+		.align 12
 		.global test
 test:		.ent test
 		daddu 	$sp, $sp, -32
@@ -72,11 +74,11 @@ test:		.ent test
 		dli	 $t0, 0x1234
 		csetoffset $c1, $c0, $t0
 
-                # Make $c2 a data capability for the array at address data
+		# Make $c2 a data capability for the array at address data
 		dla      $t0, data
-		cincbase $c2, $c0, $t0
-                dli      $t0, 8
-                csetlen  $c2, $c2, $t0
+		csetoffset $c2, $c0, $t0
+		dli      $t0, 0x1000
+		csetbounds  $c2, $c2, $t0
 		# Permissions Non_Ephemeral, Permit_Load, Permit_Store,
 		# Permit_Store.
 		# NB: Permit_Execute must not be included in the set of
@@ -86,11 +88,13 @@ test:		.ent test
 
 		# Seal data capability $c2 to the offset of $c1, and store
 		# result in $c3.
-                cseal	 $c3, $c2, $c1
+    cseal	 $c3, $c2, $c1
 
 		# Make $c4 a code capability for sandbox
 		dla	 $t0, sandbox
 		csetoffset $c4, $c0, $t0
+		dli      $t0, 0x1000
+		csetbounds  $c4, $c4, $t0
 		cseal	 $c4, $c4, $c1
 
 		# $a2 will be set to 1 if the normal trap handler is called,
@@ -143,5 +147,5 @@ bev0_ccall_handler_stub:
 		.end bev0_ccall_handler_stub
 
 		.data
-		.align 3
+		.align 12
 data:		.dword	0xfedcba9876543210

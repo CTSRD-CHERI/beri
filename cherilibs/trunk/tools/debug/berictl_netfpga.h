@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2013-2014 Bjoern A. Zeeb
+ * Copyright (c) 2013-2015 Bjoern A. Zeeb
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -30,6 +30,8 @@
 
 #ifdef BERI_NETFPGA
 #define	NETFPGA_DEV_PATH			"/dev/nf10"
+#define	SUME_IFNAM_DEFAULT			"nf0"
+
 #ifdef __linux__
 #ifndef NETFPGA_IOCTL_CMD_WRITE_REG
 #define	NETFPGA_IOCTL_CMD_WRITE_REG		(SIOCDEVPRIVATE+1)
@@ -37,10 +39,18 @@
 #ifndef NETFPGA_IOCTL_CMD_READ_REG
 #define	NETFPGA_IOCTL_CMD_READ_REG		(SIOCDEVPRIVATE+2)
 #endif
+#ifndef SUME_IOCTL_CMD_WRITE_REG
+#define	SUME_IOCTL_CMD_WRITE_REG		(SIOCDEVPRIVATE+1)
+#endif
+#ifndef SUME_IOCTL_CMD_READ_REG
+#define	SUME_IOCTL_CMD_READ_REG			(SIOCDEVPRIVATE+2)
+#endif
 #elif __FreeBSD__
 /* Make something up for now. */
 #define NETFPGA_IOCTL_CMD_WRITE_REG		_IOW('Y', 241, int)
 #define NETFPGA_IOCTL_CMD_READ_REG		_IOW('Y', 242, int)
+#define	SUME_IOCTL_CMD_WRITE_REG		(SIOCGPRIVATE_0)
+#define	SUME_IOCTL_CMD_READ_REG			(SIOCGPRIVATE_1)
 #else
 #error NetFPGA ioctls unsupported
 #endif
@@ -78,6 +88,11 @@
 		rv &= 0xffffffff;				\
 	} while ((rv & NETFPGA_AXI_FIFO_RD_BYTE_VALID) !=	\
 	    NETFPGA_AXI_FIFO_RD_BYTE_VALID)
+
+struct sume_ifreq {
+	uint32_t	addr;
+	uint32_t	val;
+};
 #endif /* BERI_NETFPGA */
 
 #endif /* _BERICTL_NETFPGA_H */

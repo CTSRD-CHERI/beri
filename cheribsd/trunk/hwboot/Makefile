@@ -2,7 +2,7 @@
 # Copyright (c) 2012 Robert N. M. Watson
 # Copyright (c) 2012-2013 Jonathan Woodruff
 # Copyright (c) 2013 Bjoern A. Zeeb
-# Copyright (c) 2015 A. Theodore Markettos
+# Copyright (c) 2015, 2017 A. Theodore Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -35,7 +35,7 @@
 BERICTL=berictl
 CLOUDCTL=cloudctl.sh
 
-ALTERA_JTAG_CABLE=$(shell expr $(FPGA_BOARD) + 1)
+ALTERA_JTAG_CABLE?=$(shell expr $(FPGA_BOARD) + 1)
 ifdef TIMEOUT
 TIMEOUT_FLAGS=-t $(TIMEOUT)
 endif
@@ -44,6 +44,7 @@ endif
 all:	run
 
 run:	consolecloud
+#run:	terminal
 
 # version that just uses berictl without chericloud script
 
@@ -52,19 +53,20 @@ run:	consolecloud
 native:	terminal
 
 loadsof:
-	$(BERICTL) $(BERICTL_FLAGS) -c $(ALTERA_JTAG_CABLE) loadsof $(FPGA_SOF)
+	$(BERICTL) $(BERICTL_FLAGS) -c "$(ALTERA_JTAG_CABLE)" loadsof $(FPGA_SOF)
 	echo "Done berictl loadsof (returned $?)"
 	
 loadbin:	loadsof
-	$(BERICTL) $(BERICTL_FLAGS) -c $(ALTERA_JTAG_CABLE) loadbin $(KERNEL) 0x100000
+	$(BERICTL) $(BERICTL_FLAGS) -c "$(ALTERA_JTAG_CABLE)" loadbin $(KERNEL) 0x100000
 	echo "Done berictl loadbin (returned $?)"
 	
 boot:	loadbin
-	$(BERICTL) $(BERICTL_FLAGS) -c $(ALTERA_JTAG_CABLE) boot
+	$(BERICTL) $(BERICTL_FLAGS) $(BERICTL_BOOT_FLAGS) -c "$(ALTERA_JTAG_CABLE)" boot
 	echo "Done berictl boot (returned $?)"
 
 terminal:	boot
-	$(BERICTL) $(BERICTL_FLAGS) -c $(ALTERA_JTAG_CABLE) console
+#	$(BERICTL) $(BERICTL_FLAGS) -c "$(ALTERA_JTAG_CABLE)" console
+	nios2-terminal -c "$(ALTERA_JTAG_CABLE)" -i 1
 
 
 # use the chericloud script on top of berictl

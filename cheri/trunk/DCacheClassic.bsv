@@ -1,7 +1,7 @@
 /*-
  * Copyright (c) 2013 Jonathan Woodruff
  * Copyright (c) 2013 Alex Horsman
- * Copyright (c) 2013, 2014 Alexandre Joannou
+ * Copyright (c) 2013, 2014, 2015 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -99,6 +99,7 @@ module mkDCacheClassic#(Bit#(16) coreId)(CacheDataIfc);
   MEM#(Key, Bit#(256))              data <- mkMEMfast();
   FIFOF#(CheriMemRequest)    memReq_fifo <- mkFIFOF;
   FIFOF#(CheriMemResponse)  memResp_fifo <- mkFIFOF;
+  Reg#(UInt#(3))             outstanding <- mkReg(0);
   Reg#(UInt#(9))                   count <- mkReg(0);
   Reg#(CheriTransactionID) transactionNum <- mkReg(0);
   `ifdef MULTI
@@ -122,6 +123,10 @@ module mkDCacheClassic#(Bit#(16) coreId)(CacheDataIfc);
       tagShort: ?
     };
   `endif
+
+  rule debugInfo;
+    debug2("dcache", $display("<time %0t, cache %0d, DCache> outstanding=%0d", $time, coreId, outstanding));
+  endrule
 
   rule initialize(cacheState == Init);
     debug2("dcache", $display("<time %0t, cache %0d, DCache> Initializing tag %0d", $time, coreId, count));
@@ -373,6 +378,9 @@ module mkDCacheClassic#(Bit#(16) coreId)(CacheDataIfc);
                 debug2("dcache", $display("Invalidated Cache line: key=%x at time %d", key, $time));
                 debug2("dcache", $display("<time %0t, cache %0d, DCache> Invalidating key 0x%0x ", $time, coreId, key));
               end
+              CacheSync: begin
+                enqResponse = (outstanding == 0);
+              end
             endcase
           end
           if (cop.inst == CacheLoadTag) begin
@@ -399,7 +407,9 @@ module mkDCacheClassic#(Bit#(16) coreId)(CacheDataIfc);
             debug2("dcache", $display("DCache: CacheLoadTag L2 Request"));
           end else begin
             // Only proceed with a non-tag read cache instruction if the instruction committed.
-            if (commit_fifo.first) memReq_fifo.enq(mem_req); 
+            if (commit_fifo.first) begin
+                memReq_fifo.enq(mem_req); 
+            end
           end
           debug2("dcache", $display("<time %0t, cache %0d, DCache> Sending ", $time, coreId, fshow(mem_req)));
         end
@@ -524,6 +534,8 @@ module mkDCacheClassic#(Bit#(16) coreId)(CacheDataIfc);
         return req;
       endmethod
       method ActionValue#(CheriMemRequest) get() if (memReq_fifo.notEmpty);
+        outstanding <= outstanding + 1;
+        debug2("dcache", $display("<time %0t, cache %0d, DCache> sending ", $time, coreId, fshow(memReq_fifo.first())));
         memReq_fifo.deq();
         CheriMemRequest req = memReq_fifo.first();
         req.transactionID = transactionNum;
@@ -536,6 +548,8 @@ module mkDCacheClassic#(Bit#(16) coreId)(CacheDataIfc);
         return memResp_fifo.notFull();
       endmethod
       method Action put(CheriMemResponse memResp);
+        outstanding <= outstanding - 1;
+        debug2("dcache", $display("<time %0t, cache %0d, DCache> receiving ", $time, coreId, fshow(memResp)));
         if (memResp.operation matches tagged Write .unused) begin
         end else memResp_fifo.enq(memResp);
       endmethod

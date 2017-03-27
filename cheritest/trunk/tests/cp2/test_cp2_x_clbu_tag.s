@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -59,21 +60,23 @@ test:		.ent test
 		# Make $c1 a data capability for the array 'data'
 		#
 
+		cgetdefault $c1
 		dla     $t0, data
-		cincbase $c1, $c0, $t0
+		csetoffset $c1, $c1, $t0
 		dli     $t0, 8
-                csetlen $c1, $c1, $t0
+                csetbounds $c1, $c1, $t0
 		dli     $t0, 0x7
 		candperm $c1, $c1, $t0
 
 		#
-		# Write $c1 to memory, overwrite its otype field in memory,
-		# and load it back in again. The write to the otype field
-		# should clear the tag bit.
+		# Overwrote the first dword of the capability, which should
+		# clear its tag bit.
+		#
+
 		dla	$t0, cap1
 		cscr	$c1, $t0($c0)
-		dli	$t1, 0
-		sd	$t1, 8($t0)
+		ld	$t1, 0($t0)
+		sd	$t1, 0($t0)
 		clcr	$c1, $t0($c0)
 
 		#

@@ -29,6 +29,7 @@
 # Test that ctoptr of a capability with the tag bit unset returns 0
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt

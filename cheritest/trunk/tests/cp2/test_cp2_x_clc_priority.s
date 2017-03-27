@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -60,12 +61,15 @@ test:		.ent test
 		# $a2 will be set to 1 if the exception handler is called
 		dli	$a2, 0
 
+		cgetdefault $c1
 		dla	$t0, cap1
-		cincbase $c1, $c0, $t0
+		csetoffset $c1, $c1, $t0
 		dli	$t0, 32
-		csetlen	$c1, $c1, $t0
+		csetbounds $c1, $c1, $t0
 
-		csetlen $c2, $c0, $zero # So we can tell if $c2 has changed
+		cgetdefault $c2
+		cfromptr $c2, $c2, $zero # So we can tell if $c2 has changed
+
 		# There are two possible exceptions that could be raised in
 		# the next instruction: the address isn't 32-byte aligned
 		# (AdEL exception) and it's outside the range of the capability
@@ -73,7 +77,9 @@ test:		.ent test
 		# C2E has priority over AdEL. This priority order is sometimes
 		# needed for security; it isn't security-relevant in this case,
 		# but we keep the same priority order for simplicity.
-		clci	$c2, 33($c1)
+
+		dli $t0, 33
+		clcr	$c2, $t0($c1)
 		cgetlen $a0, $c2
 
 		ld	$fp, 16($sp)

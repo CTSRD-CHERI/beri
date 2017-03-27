@@ -26,6 +26,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -50,14 +51,15 @@ test:		.ent test
                 li $a7, 0
         
 		# Load values into c2
-		dli		$t0, 0x5
+		cgetdefault	$c2
+		dla		$t0, data
 		csetoffset	$c2, $c2, $t0
-		dli		$t0, 0x100
-		cincbase	$c2, $c2, $t0
-		dli		$t0, 0x200
-		csetlen		$c2, $c2, $t0
+		dli		$t0, 8
+		csetbounds	$c2, $c2, $t0
 		dli		$t0, 0xff
 		candperm	$c2, $c2, $t0
+		dli		$t0, 0x5
+		csetoffset	$c2, $c2, $t0
 
 		# Move to c3
 		cmove	$c3, $c2
@@ -71,6 +73,8 @@ dest:
 		cgetperm	$a0, $c3
 		cgetoffset	$a1, $c3
 		cgetbase	$a2, $c3
+		cgetbase	$t0, $c2
+		dsubu		$a2, $a2, $t0
 		cgetlen 	$a3, $c3
 
 		ld	$fp, 16($sp)
@@ -79,3 +83,7 @@ dest:
 		jr	$ra
 		nop			# branch-delay slot
 		.end	test
+
+		.data
+		.align 5
+data:		.dword 0

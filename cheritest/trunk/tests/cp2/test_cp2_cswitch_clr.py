@@ -36,14 +36,14 @@ class test_cp2_cswitch_clr(BaseBERITestCase):
     @attr('capabilities')
     def test_unsealed(self):
         for i in range(0, 28):
-            self.assertRegisterEqual(self.MIPS.cp2[i].u, 0, "u bit incorrect after context switch")
-        self.assertRegisterEqual(self.MIPS.cp2[31].u, 0, "u bit incorrect after context switch")
+            self.assertRegisterEqual(self.MIPS.cp2[i].s, 0, "u bit incorrect after context switch")
+        self.assertRegisterEqual(self.MIPS.cp2[31].s, 0, "u bit incorrect after context switch")
 
     @attr('capabilities')
     def test_perms(self):
         for i in range(0, 28):
-            self.assertRegisterEqual(self.MIPS.cp2[i].perms, 0x7fffffff, "perms incorrect after context switch")
-        self.assertRegisterEqual(self.MIPS.cp2[31].perms, 0x7fffffff, "perms incorrect after context switch")
+            self.assertRegisterAllPermissions(self.MIPS.cp2[i].perms, "perms incorrect after context switch")
+        self.assertRegisterAllPermissions(self.MIPS.cp2[31].perms, "perms incorrect after context switch")
 
     @attr('capabilities')
     def test_base(self):

@@ -33,4 +33,4 @@ class test_cp2_cincoffset_notag(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_cincoffset_notag_1(self):
         '''Test that CIncOffset works on non-capability data with a 1 in the position of the sealed bit'''
-        self.assertRegisterEqual(self.MIPS.a0, 5, "CIncOffset did not work on an invalid capability with a 1 in the sealed bit position")
+        self.assertRegisterEqual(self.MIPS.a1, 5, "CIncOffset did not work on an invalid capability with a 1 in the sealed bit position")

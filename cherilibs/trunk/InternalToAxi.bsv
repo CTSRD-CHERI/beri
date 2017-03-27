@@ -250,13 +250,13 @@ module mkInternalToAxiRead (InternalToAxiRead);
         internalResp.masterID = unpack(truncateLSB(r_id));
         internalResp.transactionID = unpack(truncate(r_id)); // XXX see AXI doc chap. A5.3.5 and A5.3.6
         internalResp.error = r_resp == OKAY ? NoError : SlaveError;
-        internalResp.operation = tagged Read {
-            data: Data{
+        internalResp.data = Data{
                 `ifdef CAP
                 cap: unpack(0),
                 `endif
                 data: r_data
-            },
+            };
+        internalResp.operation = tagged Read {
             last: r_last
         };
         resp.enq(internalResp);
@@ -347,7 +347,7 @@ module mkInternalToAxiWrite (InternalToAxiWrite);
     endrule
 
     rule receive_response (b_valid);
-        CheriMemResponse internalResp;
+        CheriMemResponse internalResp = ?;
         internalResp.masterID = unpack(truncateLSB(b_id));
         internalResp.transactionID = unpack(truncate(b_id)); // XXX see AXI doc chap. A5.3.5 and A5.3.6
         internalResp.error = b_resp == OKAY ? NoError : SlaveError;

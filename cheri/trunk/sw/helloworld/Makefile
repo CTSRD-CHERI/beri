@@ -6,7 +6,7 @@
 # Copyright (c) 2011 Robert M. Norton
 # Copyright (c) 2011 Wojciech A. Koszek
 # Copyright (c) 2012-2013 Alan Mujumdar
-# Copyright (c) 2013 A. Theodore Markettos
+# Copyright (c) 2013 Theo Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of

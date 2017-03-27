@@ -1,7 +1,6 @@
 #
-# Copyright (c) 2012-2015 Jonathan Woodruff
-# Copyright (c) 2014 A. Theodore Markettos
-# Copyright (c) 2014 Alex Horsman
+# Copyright (c) 2012-2013 Jonathan Woodruff
+# Copyright (c) 2014 Theo Markettos
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of
@@ -34,12 +33,20 @@ derive_clock_uncertainty
 
 # Clock constraints
 # ports constrained by CLK_50 from the external pll
-set_input_delay -clock "CLK_50_qsys" -max 0ns [get_ports {GPIO0_D[*] HDMI_TX_PCS*}] -add_delay
-set_input_delay -clock "CLK_50_qsys" -min 0ns [get_ports {GPIO0_D[*] HDMI_TX_PCS*}] -add_delay
-set_input_delay -clock "CLK_50_qsys" -max 0ns [get_ports {UART_CTS UART_RXD HDMI_TX_PCS*}] -add_delay
-set_input_delay -clock "CLK_50_qsys" -min 0ns [get_ports {UART_CTS UART_RXD HDMI_TX_PCS*}] -add_delay
-set_output_delay -clock "CLK_50_qsys" -max 0ns [get_ports {UART_RTS UART_TXD HDMI_TX_PCS* HDMI_TX_RST_N }] -add_delay
-set_output_delay -clock "CLK_50_qsys" -min 0ns [get_ports {UART_RTS UART_TXD HDMI_TX_PCS* HDMI_TX_RST_N }] -add_delay
+set_input_delay -clock "CLK_50_qsys" -max 0ns [get_ports {GPIO0_D[*] }] -add_delay
+set_input_delay -clock "CLK_50_qsys" -min 0ns [get_ports {GPIO0_D[*] }] -add_delay
+set_input_delay -clock "CLK_50_qsys" -max 0ns [get_ports {UART_CTS UART_RXD }] -add_delay
+set_input_delay -clock "CLK_50_qsys" -min 0ns [get_ports {UART_CTS UART_RXD }] -add_delay
+set_output_delay -clock "CLK_50_qsys" -max 0ns [get_ports {UART_RTS UART_TXD }] -add_delay
+set_output_delay -clock "CLK_50_qsys" -min 0ns [get_ports {UART_RTS UART_TXD }] -add_delay
+set_input_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max 0ns [get_ports {OTG_D[*] OTG_DC_IRQ OTG_HC_IRQ}] -add_delay
+set_input_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 0ns [get_ports {OTG_D[*] OTG_DC_IRQ OTG_HC_IRQ}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max 0ns [get_ports {OTG_D[*] OTG_A[*]}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 0ns [get_ports {OTG_D[*] OTG_A[*]}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max 0ns [get_ports {OTG_CS_n OTG_OE_n OTG_RESET_n OTG_WE_n}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 0ns [get_ports {OTG_CS_n OTG_OE_n OTG_RESET_n OTG_WE_n}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max 0ns [get_ports {HDMI_TX_PCS*}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 0ns [get_ports {HDMI_TX_PCS*}] -add_delay
 
 # sd clock and the outputs related to it
 set_input_delay -clock { CLK_50_qsys } -max 0ns [get_ports {SD_CMD SD_DAT[*]}] -add_delay
@@ -54,8 +61,8 @@ set_output_delay -clock "display_pll_ins|altpll_component|auto_generated|pll1|cl
 #set_output_delay -clock "display_pll_ins|altpll_component|auto_generated|pll1|clk[0]" -max 0ns [get_ports {DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkAvalonStream2LCDandHDMI:avalonstream2lcdandhdmi_0|asi_stream_in_endofpacket~QIC_DANGLING_PORT}] -add_delay
 #set_output_delay -clock "display_pll_ins|altpll_component|auto_generated|pll1|clk[0]" -min 0ns [get_ports {DE4_SOC:DE4_SOC_inst|DE4_SOC_peripherals_0:peripherals_0|mkAvalonStream2LCDandHDMI:avalonstream2lcdandhdmi_0|asi_stream_in_endofpacket~QIC_DANGLING_PORT}] -add_delay
 #create_clock -period "27.0 MHZ" [get_ports HDMI_TX_PCLK]
-#set_input_delay -clock "CLK_50" -max 0ns [get_ports HDMI_TX_PCS*] -add_delay
-#set_input_delay -clock "CLK_50" -min 0ns [get_ports HDMI_TX_PCS*] -add_delay
+set_input_delay -clock "CLK_50" -max 0ns [get_ports HDMI_TX_PCS*] -add_delay
+set_input_delay -clock "CLK_50" -min 0ns [get_ports HDMI_TX_PCS*] -add_delay
 #set_output_delay -clock "CLK_50" -max 0ns [get_ports {HDMI_TX_RST_N }] -add_delay
 #set_output_delay -clock "CLK_50" -min 0ns [get_ports {HDMI_TX_RST_N}] -add_delay
 set_output_delay -clock { DE4_SOC_inst|peripherals_0|reconfigpll_0|reconfig_pll_inst|altpll_component|auto_generated|pll1|clk[0] } -max 0ns [get_ports {HDMI_TX_*D[*] HDMI_TX_DE HDMI_TX_HS HDMI_TX_PCLK HDMI_TX_VS}] -add_delay
@@ -106,21 +113,19 @@ set_output_delay -clock { CLK_50_qsys } -max 0ns [get_ports {ETH_MDIO[*] ETH_MDC
 set_output_delay -clock { CLK_50_qsys } -min 0ns [get_ports {ETH_MDIO[*] ETH_MDC[*] ETH_RST_n}] -add_delay
 
 # constrain input and output ports on the 100MHz system clock
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -max -5ns [get_ports {SSRAM_CLK}] -add_delay
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -min 5ns [get_ports {SSRAM_CLK}] -add_delay
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -max -5ns [get_ports {FSM_D[*] FSM_A[*] SSRAM_ADV SSRAM_BWA_n SSRAM_BWB_n SSRAM_CE_n SSRAM_CKE_n SSRAM_OE_n SSRAM_WE_n}] -add_delay
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -min 5ns [get_ports {FSM_D[*] FSM_A[*] SSRAM_ADV SSRAM_BWA_n SSRAM_BWB_n SSRAM_CE_n SSRAM_CKE_n SSRAM_OE_n SSRAM_WE_n}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max -5ns [get_ports {SSRAM_CLK}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 5ns [get_ports {SSRAM_CLK}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max -5ns [get_ports {FSM_D[*] FSM_A[*] SSRAM_ADV SSRAM_BWA_n SSRAM_BWB_n SSRAM_CE_n SSRAM_CKE_n SSRAM_OE_n SSRAM_WE_n}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 5ns [get_ports {FSM_D[*] FSM_A[*] SSRAM_ADV SSRAM_BWA_n SSRAM_BWB_n SSRAM_CE_n SSRAM_CKE_n SSRAM_OE_n SSRAM_WE_n}] -add_delay
 
-set_input_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -max 0ns [get_ports FSM_D[*]] -add_delay
-set_input_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -min 0ns [get_ports FSM_D[*]] -add_delay
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -max 0ns [get_ports {FLASH_ADV_n FLASH_CE_n FLASH_OE_n FLASH_RESET_n FLASH_WE_n}] -add_delay
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -min 0ns [get_ports {FLASH_ADV_n FLASH_CE_n FLASH_OE_n FLASH_RESET_n FLASH_WE_n}] -add_delay
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -max 0ns [get_ports {FLASH_CLK}] -add_delay
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -min 0ns [get_ports {FLASH_CLK}] -add_delay
-set_input_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -max 0ns [get_ports {OTG_D[*] OTG_DC_IRQ OTG_HC_IRQ}] -add_delay
-set_input_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -min 0ns [get_ports {OTG_D[*] OTG_DC_IRQ OTG_HC_IRQ}] -add_delay
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -max 0ns [get_ports {OTG_D[*] OTG_A[*] OTG_CS_n OTG_OE_n OTG_RESET_n OTG_WE_n}] -add_delay
-set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] } -min 0ns [get_ports {OTG_D[*] OTG_A[*] OTG_CS_n OTG_OE_n OTG_RESET_n OTG_WE_n}] -add_delay
+set_input_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max 0ns [get_ports FSM_D[*]] -add_delay
+set_input_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 0ns [get_ports FSM_D[*]] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max 0ns [get_ports {FLASH_ADV_n FLASH_CE_n FLASH_OE_n FLASH_RESET_n FLASH_WE_n}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 0ns [get_ports {FLASH_ADV_n FLASH_CE_n FLASH_OE_n FLASH_RESET_n FLASH_WE_n}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max 0ns [get_ports {FLASH_CLK}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 0ns [get_ports {FLASH_CLK}] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -max 0ns [get_ports { HDMI_TX_RST_N }] -add_delay
+set_output_delay -clock { DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] } -min 0ns [get_ports { HDMI_TX_RST_N }] -add_delay
 
 # specify which clocks are asynchronous with respect to each other
 set_clock_groups -asynchronous \
@@ -134,7 +139,7 @@ set_clock_groups -asynchronous \
 								  DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[1] \
 								  DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[2] \
 								  DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[3] \
-								  DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[4] \
+								  DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[0] \
 								  DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[5] \
 								  DE4_SOC_inst|ddr2|pll0|upll_memphy|auto_generated|pll1|clk[6] \
 								} \

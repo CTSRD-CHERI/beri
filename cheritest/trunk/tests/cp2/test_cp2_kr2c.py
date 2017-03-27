@@ -33,7 +33,8 @@ from nose.plugins.attrib import attr
 #
 
 class test_cp2_kr2c(BaseBERITestCase):
+
     @attr('capabilities')
-    def test_cp2_kr2c1(self):
+    def test_cp2_kr2c_1(self):
         '''Test load doubleword via KR2C'''
         self.assertRegisterEqual(self.MIPS.a0, 0x0123456789abcdef, "Load doubleword via KR2C returned incorrect value")

@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2014 Jonathan Woodruff
+ * Copyright (c) 2017 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -26,11 +27,12 @@
  *
  *****************************************************************************
 
- Philips USB interface logic
+ FF FIFO library
  ===========
  
- This module should run at 100MHz and translates an Avalon memory mapped interface
- to the asynchronous interface of the Philips ISP1761 chip on the Terasic DE4.
+ This is a library of pure Bluespec FIFO components
+ These have some extra interfaces for convenience over the Bluespec versions,
+ but include the standard methods from Bluespec FIFOs.
  
  *****************************************************************************/
 
@@ -39,8 +41,10 @@ import FIFO::*;
 import FIFOF::*;
 import RegFile::*;
 import Vector::*;
-import DReg    :: *;
-import SpecialFIFOs :: *;
+import DReg::*;
+import MEM::*;
+import SpecialFIFOs::*;
+import Assert :: *;
 
 interface FF#(type data, numeric type depth);
   method Action enq(data x);
@@ -48,6 +52,7 @@ interface FF#(type data, numeric type depth);
   method data first();
   method Bool notFull();
   method Bool notEmpty();
+  method Action clear();
   method Bit#(TAdd#(TLog#(depth), 1)) remaining();
 endinterface
 
@@ -65,6 +70,7 @@ endinterface
 // Equal to Bluespec equivelant
 module mkUGFF(FF#(data, depth))
 provisos(Log#(depth,logDepth),Bits#(data, data_width));
+  //staticAssert(valueOf(TExp#(logDepth))==valueOf(depth), "Non Power-of-two FF sizes waste BRAM capacity");
 	RegFile#(Bit#(logDepth),data)    rf <- mkRegFileWCF(minBound, maxBound); // BRAM
   Reg#(Bit#(TAdd#(logDepth,1))) lhead <- mkConfigRegA(0);
   Reg#(Bit#(TAdd#(logDepth,1))) ltail <- mkConfigRegA(0);
@@ -76,6 +82,7 @@ provisos(Log#(depth,logDepth),Bits#(data, data_width));
   Bit#(logDepth) tail = truncate(ltail);
   
   method Action enq(data in);
+    if (full) $display("Panic!  Enqing to a full UGFF!"); 
     rf.upd(head,in);
     lhead <= lhead + 1;
   endmethod
@@ -85,12 +92,53 @@ provisos(Log#(depth,logDepth),Bits#(data, data_width));
   method data first() = rf.sub(tail);
   method Bool notFull() = !full;
   method Bool notEmpty() = !empty;
+  method Action clear() = action ltail <= lhead; endaction;
   method Bit#(TAdd#(TLog#(depth), 1)) remaining() = fromInteger(valueOf(depth)) - level;
 endmodule
 
 module mkFF(FF#(data, depth))
 provisos(Log#(depth,logDepth),Bits#(data, data_width));
   FF#(data, depth) ff <- mkUGFF();
+  return guardFF(ff);
+endmodule
+
+// Using registers and not a BRAM for small fifos.
+module mkUGFFRegs(FF#(data, depth))
+provisos(Log#(depth,logDepth),Bits#(data, data_width));
+  staticAssert(valueOf(TExp#(logDepth))==valueOf(depth), "Only support Power-of-two FF sizes for now");
+  Vector#(depth, Array#(Reg#(data)))   rf  <- replicateM(mkCReg(2,?)); // BRAM
+  Reg#(data)                     firstReg  <- mkConfigRegU;
+  Reg#(Bit#(TAdd#(logDepth,1)))     lhead  <- mkConfigRegA(0);
+  Reg#(Bit#(TAdd#(logDepth,1)))  ltail[2]  <- mkCReg(2,0);
+  
+  Bit#(TAdd#(logDepth,1)) level = lhead - ltail[0];
+  Bool empty = (level==0);
+  Bool full  = (level==fromInteger(valueOf(depth)));
+  Bit#(logDepth) head = truncate(lhead);
+  
+  rule readTail;
+    Bit#(logDepth) tail = truncate(ltail[1]);
+    firstReg <= rf[tail][1];
+  endrule
+  
+  method Action enq(data in);
+    if (full) $display("Panic!  Enqing to a full UGFF!"); 
+    rf[head][0] <= in;
+    lhead <= lhead + 1;
+  endmethod
+  method Action deq();
+    ltail[0] <= ltail[0]+1;
+  endmethod
+  method data first() = firstReg;
+  method Bool notFull() = !full;
+  method Bool notEmpty() = !empty;
+  method Action clear() = action ltail[1] <= lhead; endaction;
+  method Bit#(TAdd#(TLog#(depth), 1)) remaining() = fromInteger(valueOf(depth)) - level;
+endmodule
+
+module mkFFRegs(FF#(data, depth))
+provisos(Log#(depth,logDepth),Bits#(data, data_width));
+  FF#(data, depth) ff <- mkUGFFRegs();
   return guardFF(ff);
 endmodule
 
@@ -216,6 +264,7 @@ provisos(Log#(depth,logDepth),Bits#(data, data_width));
   method data first() if (!empty && readReady) = top;
   method Bool notFull() = !full;
   method Bool notEmpty() = !empty;
+  method Action clear() = action ltail[1] <= lhead; endaction;
   method Bit#(TAdd#(TLog#(depth), 1)) remaining() = fromInteger(valueOf(depth)) - level;
 endmodule
 
@@ -223,33 +272,33 @@ endmodule
 (* always_ready = "enq, deq, first, notFull, notEmpty" *)
 module mkUGFFBypass(FF#(data, depth))
 provisos(Log#(depth,logDepth),Bits#(data, data_width));
-  Reg#(Bit#(TAdd#(logDepth,1))) lhead[2] <- mkCReg(2,0);
-  Reg#(Bit#(TAdd#(logDepth,1)))    ltail <- mkConfigReg(0);
+  Reg#(Bit#(logDepth))              head <- mkConfigReg(0);
+  Reg#(Bit#(logDepth))              tail <- mkConfigReg(0);
+  Reg#(Bit#(TAdd#(logDepth,1))) level[2] <- mkCReg(2,0);
   Reg#(Vector#(depth, data))       rf[2] <- mkCReg(2,?);
   
-  Bit#(TAdd#(logDepth,1)) level = lhead[1] - ltail;
-  Bool full  = (level==fromInteger(valueOf(depth)));
-  Bool empty = (level==0);
-  
-  // This is the level that the Deq and First methods see,
-  // taking into account an Enq earlier in the cycle.
-  Bit#(TAdd#(logDepth,1)) levelDeq = lhead[1] - ltail;
-  Bool emptyDeq = (levelDeq==0);
-  
-  Bit#(logDepth) head = truncate(lhead[0]);
-  Bit#(logDepth) tail = truncate(ltail);
+  Bool full  = (level[0]==fromInteger(valueOf(depth)));
+  Bool empty = (level[1]==0);
   
   method Action enq(data in);
+    if (full) $display("Panic!  Enqing to a full UGFF!"); 
     rf[0][head] <= in;
-    lhead[0] <= lhead[0] + 1;
+    head <= head + 1;
+    level[0] <= level[0] + 1;
   endmethod
   method Action deq();
-    ltail <= ltail+1;
+    tail <= tail+1;
+    level[1] <= level[1] - 1;
   endmethod
   method data first() = rf[1][tail];
   method Bool notFull() = !full;
   method Bool notEmpty() = !empty;
-  method Bit#(TAdd#(TLog#(depth), 1)) remaining() = fromInteger(valueOf(depth)) - level;
+  method Action clear();
+    head <= 0;
+    tail <= 0;
+    level[1] <= 0;
+  endmethod
+  method Bit#(TAdd#(TLog#(depth), 1)) remaining() = fromInteger(valueOf(depth)) - level[0];
 endmodule
 
 module mkFFBypass(FF#(data, depth))
@@ -266,6 +315,7 @@ provisos(Bits#(data, data_width));
   Wire#(Maybe#(data)) dataNow <- mkDWire(tagged Invalid);
   
   method Action enq(data in);
+    if (full[0]) $display("Panic!  Enqing to a full UGFF!"); 
     dataReg <= in;
     dataNow <= tagged Valid in;
     full[0] <= True;
@@ -280,13 +330,181 @@ provisos(Bits#(data, data_width));
   endmethod
   method Bool notFull() = !full[0];
   method Bool notEmpty() = full[1];
-  method Bit#(1) remaining() = (full[1]) ? 1:0;
+  method Action clear() = action full[1] <= False; endaction;
+  method Bit#(1) remaining() = (full[1]) ? 0:1;
 endmodule
 
 module mkFFBypass1(FF#(data, 1))
 provisos(Bits#(data, data_width));
   FF#(data, 1) ff <- mkUGFFBypass1();
   return guardFF(ff);
+endmodule
+
+// 1 element unguarded fifo;
+// This FIFO can behave as an LFIFO without complaining if
+// the external design guarantees to only enq when it also
+// deques, or, of course, when empty.
+module mkUGFF1(FF#(data, 1))
+provisos(Bits#(data, data_width));
+  Reg#(data)          dataReg <- mkConfigRegU;
+  Reg#(Bit#(2))         lhead <- mkConfigRegA(0);
+  Reg#(Bit#(2))         ltail <- mkConfigRegA(0);
+  
+  Bit#(2) level = lhead - ltail;
+  Bool empty = (level==0);
+  Bool full  = (level[0]==1);
+  Bit#(1) head = truncate(lhead);
+  Bit#(1) tail = truncate(ltail);
+  
+  rule checkOverflow;
+    if (level > 1) $display("Panic! Unguarded FF1 overfilled!"); 
+  endrule
+  
+  method Action enq(data in);
+    dataReg <= in;
+    lhead <= lhead + 1;
+  endmethod
+  method Action deq();
+    ltail <= ltail+1;
+  endmethod
+  method data first() = dataReg;
+  method Bool notFull() = !full;
+  method Bool notEmpty() = !empty;
+  method Action clear() = action ltail <= lhead; endaction;
+  method Bit#(1) remaining() = (full) ? 0:1;
+endmodule
+
+// Unguarded "pipeline" fifo.  Basically a register that
+// allows enquing in the cycle that it is deqing.
+module mkUGLFF1(FF#(data, 1))
+provisos(Bits#(data, data_width));
+  Reg#(Bool)          full[2] <- mkCReg(2,False);
+  Reg#(data)          dataReg <- mkConfigRegU;
+  
+  method Action enq(data in);
+    dataReg <= in;
+    full[1] <= True;
+  endmethod
+  method Action deq();
+    full[0] <= False;
+  endmethod
+  method data first() = dataReg;
+  method Bool notFull() = !full[1];
+  method Bool notEmpty() = full[0];
+  method Action clear() = action full[1] <= False; endaction;
+  method Bit#(1) remaining() = (full[1]) ? 0:1;
+endmodule
+
+module mkLFF1(FF#(data, 1))
+provisos(Bits#(data, data_width));
+  FF#(data, 1) ff <- mkUGLFF1();
+  return guardFF(ff);
+endmodule
+
+module mkUGLFF(FF#(data, depth))
+provisos(Log#(depth,logDepth),Bits#(data, data_width));
+  Reg#(Bit#(logDepth))              head <- mkConfigReg(0);
+  Reg#(Bit#(logDepth))              tail <- mkConfigReg(0);
+  Reg#(Bit#(TAdd#(logDepth,1))) level[2] <- mkCReg(2,0);
+  Reg#(Vector#(depth, data))          rf <- mkRegU;
+  
+  Bool full  = (level[1]==fromInteger(valueOf(depth)));
+  Bool empty = (level[0]==0);
+  
+  method Action enq(data in);
+    rf[head] <= in;
+    head <= head + 1;
+    level[1] <= level[1] + 1;
+  endmethod
+  method Action deq();
+    tail <= tail+1;
+    level[0] <= level[0] - 1;
+  endmethod
+  method data first() = rf[tail];
+  method Bool notFull() = !full;
+  method Bool notEmpty() = !empty;
+  method Action clear();
+    head <= 0;
+    tail <= 0;
+    level[1] <= 0;
+  endmethod
+  method Bit#(TAdd#(TLog#(depth), 1)) remaining() = fromInteger(valueOf(depth)) - level[1];
+endmodule
+
+module mkLFF(FF#(data, depth))
+provisos(Bits#(data, data_width));
+  FF#(data, depth) ff <- mkUGLFF();
+  return guardFF(ff);
+endmodule
+
+module mkUGFFDelay#(Bit#(16) delay)(FF#(data, depth))
+provisos(Log#(depth,logDepth),Bits#(data, data_width));
+  RegFile#(Bit#(logDepth),data)    rf <- mkRegFileWCF(minBound, maxBound); // BRAM
+  Reg#(Bit#(TAdd#(logDepth,1))) lhead <- mkConfigRegA(0);
+  Reg#(Bit#(TAdd#(logDepth,1))) ltail <- mkConfigRegA(0);
+  Reg#(Bit#(16))                count <- mkConfigRegA(?);
+  FF#(Bit#(16), depth)         delays <- mkUGFF;
+  
+  Bit#(TAdd#(logDepth,1)) level = lhead - ltail;
+  Bool empty = (level==0);
+  Bool full  = (level==fromInteger(valueOf(depth)));
+  Bit#(logDepth) head = truncate(lhead);
+  Bit#(logDepth) tail = truncate(ltail);
+  
+  rule incCount;
+    count <= count + 1;
+  endrule
+  
+  method Action enq(data in);
+    if (full) $display("Panic!  Enqing to a full UGFF!"); 
+    delays.enq(count);
+    rf.upd(head,in);
+    lhead <= lhead + 1;
+  endmethod
+  method Action deq();
+    delays.deq();
+    ltail <= ltail+1;
+  endmethod
+  method data first() = rf.sub(tail);
+  method Bool notFull() = !full;
+  method Bool notEmpty() = !empty && ((count - delays.first) >= delay);
+  method Action clear() = action ltail <= lhead; endaction;
+  method Bit#(TAdd#(TLog#(depth), 1)) remaining() = fromInteger(valueOf(depth)) - level;
+endmodule
+
+// An unguarded circular FIFO with predictable "overfill" behaviour.
+module mkFFCirc(FF#(data, depth))
+provisos(Log#(depth,logDepth),Bits#(data, data_width));
+  MEM#(Bit#(logDepth),data) mem <- mkMEMNoFlow(); // BRAM
+  Reg#(Bit#(TAdd#(logDepth,1))) lhead <- mkConfigRegA(0);
+  Reg#(Bit#(TAdd#(logDepth,1))) ltail <- mkConfigRegA(0);
+  PulseWire                    doDeqA <- mkPulseWire();
+  PulseWire                    doDeqB <- mkPulseWire();
+  
+  Bit#(TAdd#(logDepth,1)) level = lhead - ltail;
+  Bool empty = (level==0);
+  Bool full  = (level==fromInteger(valueOf(depth)));
+  Bit#(logDepth) head = truncate(lhead);
+  Bit#(logDepth) tail = truncate(ltail);
+  
+  rule deqRule(doDeqA || doDeqB);
+    ltail <= ltail+1;
+    mem.read.put(truncate(ltail+1));
+  endrule
+  
+  method Action enq(data in);
+    mem.write(head,in);
+    lhead <= lhead + 1;
+    if (full) doDeqB.send();
+  endmethod
+  method Action deq();
+    doDeqA.send();
+  endmethod
+  method data first() = mem.read.peek();
+  method Bool notFull() = !full;
+  method Bool notEmpty() = !empty;
+  method Action clear() = action ltail <= lhead; endaction;
+  method Bit#(TAdd#(TLog#(depth), 1)) remaining() = fromInteger(valueOf(depth)) - level;
 endmodule
 
 function FIFOF#(data_t) ff2fifof (FF#(data_t, depth) ff) =
@@ -296,6 +514,7 @@ function FIFOF#(data_t) ff2fifof (FF#(data_t, depth) ff) =
     method    first = ff.first;
     method  notFull = ff.notFull;
     method notEmpty = ff.notEmpty;
+    method    clear = ff.clear;
   endinterface;
   
 function FF#(data, depth) guardFF (FF#(data, depth) ff) =
@@ -309,5 +528,23 @@ function FF#(data, depth) guardFF (FF#(data, depth) ff) =
     method data first() if (ff.notEmpty) = ff.first;
     method Bool notFull() = ff.notFull;
     method Bool notEmpty() = ff.notEmpty;
+    method Action clear() = ff.clear;
     method Bit#(TAdd#(TLog#(depth), 1)) remaining() = ff.remaining();
   endinterface;
+  
+
+module mkUGFFDebug#(String name)(FF#(data, depth))
+  provisos(Log#(depth,logDepth),Bits#(data, data_width));
+  FF#(data, depth) ff <- mkUGFF();
+  
+  method Action enq(data in);
+    if (!ff.notFull) $display("Panic!  Enqing to a full UGFF %s", name); 
+    ff.enq(in);
+  endmethod
+  method Action deq() = ff.deq();
+  method data first() = ff.first();
+  method Bool notFull() = ff.notFull();
+  method Bool notEmpty() = ff.notEmpty();
+  method Action clear() = ff.clear();
+  method Bit#(TAdd#(TLog#(depth), 1)) remaining() = ff.remaining();
+endmodule

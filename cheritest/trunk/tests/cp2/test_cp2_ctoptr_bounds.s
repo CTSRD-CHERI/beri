@@ -25,13 +25,14 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
 .set noat
 
 #
-# Test that cfromptr with an offset that is out of bounds
+# Test ctoptr with an offset that is out of bounds
 #
 
 		.global test
@@ -43,9 +44,9 @@ test:		.ent test
 
 		dli	$a0, -1
 
-		cmove $c1, $c0
+		cgetdefault $c1
 		dli	 $t0, 4
-		csetlen  $c1, $c1, $t0
+		csetbounds  $c1, $c1, $t0
 		dli	 $t0, 8
 		csetoffset $c1, $c1, $t0
 		

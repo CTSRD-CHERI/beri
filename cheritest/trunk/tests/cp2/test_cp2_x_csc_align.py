@@ -34,26 +34,59 @@ from nose.plugins.attrib import attr
 #
 
 class test_cp2_x_csc_align(BaseBERITestCase):
+
     @attr('capabilities')
-    def test_cp2_x_csc_align_1(self):
-        '''Test csc did not write to an unaligned address'''
+    @attr('cap256')
+    def test_cp2_x_csc_align_1_256(self):
+        '''Test CSC did not write to an unaligned address'''
         self.assertRegisterEqual(self.MIPS.a0, 0,
-            "csc wrote to an unaligned address")
+            "CSC wrote to an unaligned address")
 
     @attr('capabilities')
-    def test_cp2_x_csc_align_2(self):
-        '''Test csc did not write to an unaligned address'''
+    @attr('cap128')
+    def test_cp2_x_csc_align_1_128(self):
+        '''Test CSC did not write to an unaligned address'''
+        self.assertRegisterEqual(self.MIPS.a0, 0,
+            "CSC wrote to an unaligned address")
+
+    @attr('capabilities')
+    @attr('cap256')
+    def test_cp2_x_csc_align_2_256(self):
+        '''Test CSC did not write to an unaligned address'''
         self.assertRegisterEqual(self.MIPS.a1, 0,
-            "csc wrote to an unaligned address")
+            "CSC wrote to an unaligned address")
 
     @attr('capabilities')
-    def test_cp2_x_csc_align_3(self):
-        '''Test csc raises an exception when the address is unaligned'''
+    @attr('cap128')
+    def test_cp2_x_csc_align_2_128(self):
+        '''Test CSC did not write to an unaligned address'''
+        self.assertRegisterEqual(self.MIPS.a1, 0,
+            "CSC wrote to an unaligned address")
+
+    @attr('capabilities')
+    @attr('cap256')
+    def test_cp2_x_csc_align_3_256(self):
+        '''Test CSC raises an exception when the address is unaligned'''
         self.assertRegisterEqual(self.MIPS.a2, 1,
             "csc did not raise an exception when the address was unaligned")
 
     @attr('capabilities')
-    def test_cp2_x_csc_align_4(self):
+    @attr('cap128')
+    def test_cp2_x_csc_align_3_128(self):
+        '''Test CSC raises an exception when the address is unaligned'''
+        self.assertRegisterEqual(self.MIPS.a2, 1,
+            "CSC did not raise an exception when the address was unaligned")
+
+    @attr('capabilities')
+    @attr('cap256')
+    def test_cp2_x_csc_align_4_256(self):
+        '''Test CP0 cause register was set correctly when address was unaligned'''
+        self.assertRegisterEqual(self.MIPS.a3, 5*4,
+            "CP0 status was not set to AdES when the address was unaligned")
+
+    @attr('capabilities')
+    @attr('cap128')
+    def test_cp2_x_csc_align_4_128(self):
         '''Test CP0 cause register was set correctly when address was unaligned'''
         self.assertRegisterEqual(self.MIPS.a3, 5*4,
             "CP0 status was not set to AdES when the address was unaligned")

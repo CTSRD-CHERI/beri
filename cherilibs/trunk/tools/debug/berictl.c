@@ -136,7 +136,8 @@ struct subcommand berictl_commands[] = {
 	/* XXX Altera mode should take an instance */
 	SC_DECLARE_ZEROARGS("console",
 #ifdef BERI_NETFPGA
-	    "connect to \"UART\" console (PISM via -s, NetFPGA via -n)",
+	    "connect to \"UART\" console (PISM via -s, NetFPGA via -n, "
+	    "SUME via -S)",
 #else
 	    "connect to BERI PISM UART (via -s) or Altera UART",
 #endif
@@ -231,7 +232,7 @@ struct subcommand berictl_commands[] = {
 	    run_zeroargs),
 	{
 		"streamtrace", "[-b -v <version>] [<trace-batches>]",
-		"receive a stream of trace data (~4070 per batch)",
+		"receive a stream of trace data (>1000 per batch)",
 		"bwv:", 0, 1, generic_usage, run_trace, 0
 	},
 	SC_DECLARE_ZEROARGS("breakontracefilter",
@@ -350,7 +351,7 @@ static int
 run_loadfile(struct subcommand *scp, int argc, char **argv)
 {
 	const char *extension = "";
-	char *extracted_name;
+	char *extracted_name = NULL;
 	char *fullname;
 	int len, ret;
 
@@ -382,7 +383,10 @@ run_loadfile(struct subcommand *scp, int argc, char **argv)
 
 	if (strcmp("loadsof", scp->sc_name) == 0) {
 		assert (argc == 1);
-		return(berictl_loadsof(fullname, cablep, devicep));
+		ret = berictl_loadsof(fullname, cablep, devicep);
+		if (extracted_name != NULL)
+			remove(extracted_name);
+		return ret;
 	}
 
 	/* XXX: validate argv[1] as an address */
@@ -399,6 +403,8 @@ run_loadfile(struct subcommand *scp, int argc, char **argv)
 		    "PROGRAMMER ERROR: %s called with unhandled command %s",
 		    __func__, scp->sc_name);
 
+	if (extracted_name != NULL)
+		remove(extracted_name);
 	free(fullname);
 	return (ret);
 }
@@ -571,7 +577,7 @@ usage(void)
 
 	printf("usage: berictl ");
 #ifdef BERI_NETFPGA
-	printf("[-2dNnq] ");
+	printf("[-2dNnqS] ");
 #else
 	printf("[-2dNq] ");
 #endif
@@ -670,7 +676,7 @@ main(int argc, char *argv[])
 
 	oflags = BERI_DEBUG_CLIENT_OPEN_FLAGS_SOCKET;
 
-	while ((opt = getopt(argc, argv, _GETOPT_PLUS"2c:D:dNns:Pqu:Aj")) != -1) {
+	while ((opt = getopt(argc, argv, _GETOPT_PLUS"2c:D:dNnSs:Pqu:Aj")) != -1) {
 		switch (opt) {
 		case '2':
 			oflags |= BERI_DEBUG_CLIENT_OPEN_FLAGS_BERI2;
@@ -720,6 +726,14 @@ main(int argc, char *argv[])
 			quietflag++;
 			break;
 
+		case 'S':
+#ifdef BERI_NETFPGA
+			oflags |= BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA_SUME;
+#else
+			usage();
+			exit(EXIT_FAILURE);
+#endif
+			break;
 		case 's':
 			socketp = optarg;
 			break;
@@ -740,6 +754,15 @@ main(int argc, char *argv[])
 		usage();
 		exit(EXIT_FAILURE);
 	}
+
+#ifdef BERI_NETFPGA
+	if (((oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA) != 0) &&
+	    ((oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA_SUME) != 0)) {
+		warnx("NetFPGA -n and -S cannot be used at the same time.");
+		usage();
+		exit(EXIT_FAILURE);
+	}
+#endif
 
 	for (scp = berictl_commands; !SC_IS_END(scp); scp++)
 		if (SC_IS_COMMAND(scp) && strcmp(argv[0],
@@ -831,7 +854,9 @@ main(int argc, char *argv[])
 	if (strcmp("cleanup", scp->sc_name) != 0 &&
 	    (strcmp("console", scp->sc_name) != 0 ||
 		((strcmp("console", scp->sc_name) == 0) &&
-		(oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA) != 0)) &&
+		(oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA) != 0) ||
+		((strcmp("console", scp->sc_name) == 0) &&
+		(oflags & BERI_DEBUG_CLIENT_OPEN_FLAGS_NETFPGA_SUME) != 0)) &&
 	    strcmp("help", scp->sc_name) != 0 &&
 	    strcmp("loadsof", scp->sc_name) != 0 &&
 	    strcmp("man", scp->sc_name) != 0 &&

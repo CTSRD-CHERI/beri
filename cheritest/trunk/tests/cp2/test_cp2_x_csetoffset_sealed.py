@@ -32,7 +32,7 @@ class test_cp2_x_csetoffset_sealed(BaseBERITestCase):
 
     @attr('capabilities')
     def test_cp2_x_csetoffset_sealed_1(self):
-	'''Test that CSetOffset on a sealed capability does not change the offsrt'''
+	'''Test that CSetOffset on a sealed capability does not change the offset'''
         self.assertRegisterEqual(self.MIPS.a0, 0, "CSetOffset changed the offset of a sealed capability")
 
     @attr('capabilities')

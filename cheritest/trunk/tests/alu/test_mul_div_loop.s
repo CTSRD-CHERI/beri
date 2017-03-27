@@ -58,7 +58,7 @@ skip_div:
 		slti	$v0, $s1, 10
 		bnez	$v0, loop
 		lw	$s2, 0($sp)
-end:
+
 		jr	$ra
 		nop			# branch-delay slot
 		.end	test

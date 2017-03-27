@@ -3,6 +3,7 @@
  * Copyright (c) 2012 Philip Paeps
  * Copyright (c) 2012-2013 Robert N. M. Watson
  * Copyright (c) 2013 Colin Rothwell
+ * Copyright (c) 2015 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -79,13 +80,11 @@ static struct pism_module	*curmod;
 %token KW_LENGTH
 %token KW_MODULE
 %token KW_OPTION
-%token KW_PATH
 
 %token	<str>	ID
 %token	<str>	MODULE
 %token	<str>	NAME
 %token	<str>	NUMBER
-%token	<str>	PATH
 
 %type	<pd>	device_spec
 %type	<pd>	param_list
@@ -116,7 +115,7 @@ spec:
 		;
 
 module_spec:
-	KW_MODULE PATH {
+	KW_MODULE ID {
 			load_module($2);
 		}
 		;
@@ -236,18 +235,30 @@ param:
 %%
 
 static void
-load_module(const char *path)
+load_module(const char *name)
 {
 	struct pism_module *pm;
 	void *dlhdl;
 
+    char path[200];
+    snprintf(path, sizeof(path), "%s/%s",getenv("PISM_MODULES_PATH"), name);
 	dlhdl = dlopen(path, RTLD_NOW);
 	if (dlhdl == NULL)
-		errx(4, "Unable to load module %s (%s)", path, dlerror());
+    {
+        snprintf(path, sizeof(path), "./%s", name);
+	    dlhdl = dlopen(path, RTLD_NOW);
+        if (dlhdl == NULL)
+        {
+            snprintf(path, sizeof(path), "../../cherilibs/trunk/peripherals/%s", name);
+            dlhdl = dlopen(path, RTLD_NOW);
+            if (dlhdl == NULL)
+                errx(4, "Unable to load module %s (%s)", name, dlerror());
+        }
+    }
 
 	pm = (struct pism_module *)dlsym(dlhdl, "__pism_module_info");
 	if (pm == NULL)
-		errx(5, "Module %s does not define __pism_module_info", path);
+		errx(5, "Module %s does not define __pism_module_info", name);
 
 	if (pism_module_lookup(pm->pm_name)) {
 		printf("Already loaded module with name '%s', skipping.\n", 

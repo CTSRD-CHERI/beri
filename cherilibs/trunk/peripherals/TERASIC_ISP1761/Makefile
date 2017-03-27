@@ -1,6 +1,6 @@
-#
-# Copyright (c) 2012-2013 Simon W. Moore
-# Copyright (c) 2013 Jonathan Woodruff
+#-
+# Copyright (c) 2012, 2013 Simon Moore
+# Copyright (c) 2012 Jonathan Woodruff
 # All rights reserved.
 #
 # This software was developed by SRI International and the University of

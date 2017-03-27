@@ -26,6 +26,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -64,11 +65,11 @@ test:		.ent test
 		dli	$a0, 0
 
 	        # Disable CP2 in status register 
-	        mfc0    $at, $12
+	        mfc0    $t0, $12
                 li	$t1, 1 << 30
                 nor     $t1, $0          # invert to form mask
-                and     $at, $at, $t1
-	        mtc0    $at, $12
+                and     $t0, $t0, $t1
+	        mtc0    $t0, $12
 	        nop
 	        nop
 	        nop
@@ -82,10 +83,10 @@ expected_epc:
 
 return:
                 # Re-enable CP2 in status register 
-	        mfc0    $at, $12
+	        mfc0    $t0, $12
                 li	$t1, 1 << 30
-                or      $at, $at, $t1
-	        mtc0    $at, $12
+                or      $t0, $t0, $t1
+	        mtc0    $t0, $12
 
                 # Save expected epc for later comparison
                 # with a2
@@ -105,7 +106,7 @@ return:
 		.ent exception_handler
 exception_handler:
 		daddiu	$a0, $a0, 1	# Increment trap counter        
-		dmfc0	$a1, $13	# Get cause register
+		mfc0	$a1, $13	# Get cause register
 		dmfc0	$a2, $14        # get EPC
 
 		# Set EPC to continue after exception return

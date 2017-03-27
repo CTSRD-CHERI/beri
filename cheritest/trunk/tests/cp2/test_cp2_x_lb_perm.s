@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -59,17 +60,6 @@ test:		.ent test
 		jal	memcpy
 		nop		# branch delay slot	
 
-		#
-		# Install a bev1 handler as well
-		#
-
-		dli	$a0, 0xffffffffbfc00380
-		dla	$a1, bev0_common_handler_stub
-                dli     $a2, 12 # instruction count
-                dsll    $a2, 2  # convert to byte count
-                jal     memcpy
-                nop             # branch delay slot  
-
 		# $a2 will be set to 1 if the exception handler is called
 		dli	$a2, 0
 
@@ -77,14 +67,15 @@ test:		.ent test
 		# Save c0
 		#
 
-		cmove   $c2, $c0
+		cgetdefault   $c1
 
 		#
 		# Make $c0 a write-only capability
 		#
 
 		dli     $t0, 0xb # Permit_Load not granted
-		candperm $c0, $c0, $t0
+		candperm $c2, $c1, $t0
+		csetdefault $c2
 
 		dla	$t1, data
 		dli     $a0, 0
@@ -94,7 +85,7 @@ test:		.ent test
 		# Restore c0
 		#
 
-		cmove   $c0, $c2
+		csetdefault $c1
 
 		ld	$fp, 16($sp)
 		ld	$ra, 24($sp)

@@ -109,6 +109,17 @@ endfunction
 	return ifc;
   endmodule
 
+function Bit#(n) selectBytes(Bit#(k) selector, Bit#(n) as, Bit#(n) bs) provisos(Mul#(k,8,n));
+  Vector#(k, Bool) selectors = unpack(selector);
+  Vector#(k, Bit#(8)) aBytes = unpack(as);
+  Vector#(k, Bit#(8)) bBytes = unpack(bs);
+  function Bit#(8) selectByte(Tuple3#(Bool, Bit#(8), Bit#(8)) arg);
+    match {.s, .a, .b } = arg;
+    return s ? a : b;
+  endfunction
+  return pack(map(selectByte, zip3(selectors, aBytes, bBytes)));
+endfunction
+
 function Bit#(n) reverseBytes(Bit#(n) x) provisos(Mul#(k,8,n));
   Vector#(k, Bit#(8)) v = unpack(x);
   return pack(reverse(v));

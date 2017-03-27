@@ -36,18 +36,23 @@ class test_cp2_cfromptr(BaseBERITestCase):
 
     @attr('capabilities')
     def test_cp2_cfromptr_perm(self):
-        '''Test that cfromptr of a NULL pointer clears the permissions field'''
-        self.assertRegisterEqual(self.MIPS.a0, 0x7fffffff, "cfromptr did not clear the permissions field")
+        '''Test that cfromptr of a non-NULL pointer copies the permissions field'''
+        self.assertRegisterAllPermissions(self.MIPS.a0, "cfromptr did not copy the permissions field")
+
+    @attr('capabilities')
+    def test_cp2_cfromptr_base(self):
+        '''Test that cfromptr of a non-NULL pointer copies the base field'''
+        self.assertRegisterEqual(self.MIPS.a1, 0, "cfromptr did not copy the base field")
 
     @attr('capabilities')
     def test_cp2_cfromptr_length(self):
-        '''Test that cfromptr of a non-NULL pointer sets the length field'''
-        self.assertRegisterEqual(self.MIPS.a2, 0xfffffffffffffffb, "cfromptr did not set the length field correctly")
+        '''Test that cfromptr of a non-NULL pointer copies the length field'''
+        self.assertRegisterEqual(self.MIPS.a2, 16, "cfromptr did not copy the length field")
 
     @attr('capabilities')
     def test_cp2_cfromptr_offset(self):
         '''Test that cfromptr of a non-NULL pointer sets the offset field'''
-        self.assertRegisterEqual(self.MIPS.a3, 0, "cfromptr did not set the offset field correctly")
+        self.assertRegisterEqual(self.MIPS.a3, 4, "cfromptr did not set the offset field correctly")
 
     @attr('capabilities')
     def test_cp2_cfromptr_tag(self):
@@ -58,9 +63,4 @@ class test_cp2_cfromptr(BaseBERITestCase):
     def test_cp2_cfromptr_unsealed(self):
         '''Test that cfromptr of a non-NULL pointer clears the sealed bit'''
         self.assertRegisterEqual(self.MIPS.a5, 0, "cfromptr did not clear the sealed bit")
-
-    @attr('capabilities')
-    def test_cp2_cfromptr_type(self):
-        '''Test that cfromptr of a non-NULL pointer clears the type field'''
-        self.assertRegisterEqual(self.MIPS.a6, 0, "cfromptr did not clear the type field")
 

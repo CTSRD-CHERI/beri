@@ -3,10 +3,10 @@
  * Copyright (c) 2012-2013 Jonathan Woodruff
  * Copyright (c) 2012-2013 SRI International
  * Copyright (c) 2012 Robert Norton
- * Copyright (c) 2012, 2014 Bjoern A. Zeeb
+ * Copyright (c) 2012, 2014-2015 Bjoern A. Zeeb
  * Copyright (c) 2013 David T. Chisnall
  * Copyright (c) 2013 Colin Rothwell
- * Copyright (c) 2015 A. Theodore Markettos
+ * Copyright (c) 2015 Theo Markettos
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -52,6 +52,12 @@
 #include <sys/un.h>
 #ifdef BERI_NETFPGA
 #include <sys/ioctl.h>
+#include <fcntl.h>
+#include <string.h>
+#ifdef __FreeBSD__
+#include <sys/sockio.h>
+#endif
+#include <net/if.h>
 #endif
 
 #ifdef __linux__
@@ -77,10 +83,10 @@
 #include <unistd.h>
 
 #include "../../include/cheri_debug.h"
-#include "cherictl.h"
 #ifdef BERI_NETFPGA
 #include "berictl_netfpga.h"
 #endif
+#include "cherictl.h"
 #include "mips_decode.h"
 #include "status_bar.h"
 
@@ -224,10 +230,29 @@ berictl_breakpoint(struct beri_debug *bdp, const char *addrp, int waitflag)
 
 #ifdef BERI_NETFPGA
 static int
+_netfpga_sume_write(struct beri_debug *bdp, const char v)
+{
+	struct sume_ifreq sifr;
+	int ret;
+
+        sifr.addr = NETFPGA_AXI_JTAG_UART_BASE_ADDR;
+        sifr.val = v;
+	ret = beri_debug_client_netfpga_sume_ioctl(bdp, &sifr,
+	    SUME_IOCTL_CMD_WRITE_REG, SUME_IFNAM_DEFAULT);
+	if (ret < 0)
+		return (ret);
+	else
+		return (1);
+}
+
+static int
 _netfpga_write(struct beri_debug *bdp, const char v)
 {
 	uint64_t rv;
 	int bd_fd, ret;
+
+	if (beri_debug_is_netfpga_sume(bdp))
+		return (_netfpga_sume_write(bdp, v));
 
 	bd_fd = beri_debug_getfd(bdp);
 
@@ -240,11 +265,37 @@ _netfpga_write(struct beri_debug *bdp, const char v)
 }
 
 static int
+_netfpga_sume_read(struct beri_debug *bdp)
+{
+	struct sume_ifreq sifr;
+	int ret;
+	char ch;
+
+	do {
+		sifr.addr = NETFPGA_AXI_JTAG_UART_BASE_ADDR;
+		sifr.val = 0;
+		ret = beri_debug_client_netfpga_sume_ioctl(bdp, &sifr,
+		    NETFPGA_IOCTL_CMD_READ_REG, SUME_IFNAM_DEFAULT);
+		if (ret == -1)
+			return (ret);
+		if (sifr.val & NETFPGA_AXI_FIFO_RD_BYTE_VALID_CONS) {
+			ch = sifr.val & 0xff;
+			(void)write(STDOUT_FILENO, &ch, sizeof(ch));
+		}
+	} while (sifr.val & NETFPGA_AXI_FIFO_RD_BYTE_VALID_CONS);
+
+	return (ret);
+}
+
+static int
 _netfpga_read(struct beri_debug *bdp)
 {
 	uint64_t rv;
 	int bd_fd, ret;
 	char ch;
+
+	if (beri_debug_is_netfpga_sume(bdp))
+		return (_netfpga_sume_read(bdp));
 
 	bd_fd = beri_debug_getfd(bdp);
 	do {
@@ -308,7 +359,8 @@ berictl_console_eventloop(struct beri_debug *bdp, int fd, pid_t pid)
 	 * This event loop has a historically deadlock-prone structure.
 	 */
 	all_ones = 0;
-	is_netfpga = (bdp != NULL && beri_debug_is_netfpga(bdp));
+	is_netfpga = (bdp != NULL && (beri_debug_is_netfpga(bdp) ||
+	    beri_debug_is_netfpga_sume(bdp)));
 	terminate = 0;
 	console_state = CONSOLE_STATE_PLAIN;
 #ifdef __APPLE__
@@ -473,7 +525,8 @@ berictl_console(struct beri_debug *bdp, const char *filenamep,
 	if ((nios_path = getenv("BERICTL_NIOS2_TERMINAL")) != NULL)
 		argv[0] = nios_path;
 
-	is_netfpga = (bdp != NULL && beri_debug_is_netfpga(bdp));
+	is_netfpga = (bdp != NULL && (beri_debug_is_netfpga(bdp) ||
+	    beri_debug_is_netfpga_sume(bdp)));
 	restarting = 0;
 restart:
 	if (!is_netfpga && filenamep == NULL) {
@@ -1555,43 +1608,44 @@ berictl_stream_trace(struct beri_debug *bdp, int size, int binary, int version)
 				else fprintf(stderr, "\n");
 				totCyc = 0;
 				count = 0;
-			}
-			count++;
-			/*if (te.cycles > lastCyc + 1 && !binary)
-				printf("%d dead cycles \n",
-				    te.cycles - lastCyc - 1);
-      */
-			if (te.cycles - lastCyc > 0)
-				totCyc += te.cycles - lastCyc;
-			lastCyc = te.cycles;
-			if (binary) {
-				if (!te.valid)
-					continue;
-				if (version == 2) {
-					struct beri_debug_trace_entry_disk_v2 e;
-					e.version = te.version;
-					e.exception = te.exception;
-					e.cycles = htobe16((uint16_t)te.cycles);
-					e.inst = te.inst;
-					e.pc = htobe64(te.pc);
-					e.val1 = htobe64(te.val1);
-					e.val2 = htobe64(te.val2);
-					e.asid= te.asid;
-					e.thread = te.reserved;
-					fwrite(&e, sizeof(e), 1, stdout);
-				} else {
-					struct beri_debug_trace_entry_disk e;
-					e.version = te.version;
-					e.exception = te.exception;
-					e.cycles = htobe16((uint16_t)te.cycles);
-					e.inst = te.inst;
-					e.pc = htobe64(te.pc);
-					e.val1 = htobe64(te.val1);
-					e.val2 = htobe64(te.val2);
-					fwrite(&e, sizeof(e), 1, stdout);
-				}
-			} else
-				print_trace_entry(&te);
+			} else {
+        count++;
+        /*if (te.cycles > lastCyc + 1 && !binary)
+          printf("%d dead cycles \n",
+              te.cycles - lastCyc - 1);
+        */
+        if (count!=0 && (te.cycles - lastCyc > 0))
+          totCyc += te.cycles - lastCyc;
+        lastCyc = te.cycles;
+        if (binary) {
+          if (!te.valid)
+            continue;
+          if (version == 2) {
+            struct beri_debug_trace_entry_disk_v2 e;
+            e.version = te.version;
+            e.exception = te.exception;
+            e.cycles = htobe16((uint16_t)te.cycles);
+            e.inst = te.inst;
+            e.pc = htobe64(te.pc);
+            e.val1 = htobe64(te.val1);
+            e.val2 = htobe64(te.val2);
+            e.asid= te.asid;
+            e.thread = te.reserved;
+            fwrite(&e, sizeof(e), 1, stdout);
+          } else {
+            struct beri_debug_trace_entry_disk e;
+            e.version = te.version;
+            e.exception = te.exception;
+            e.cycles = htobe16((uint16_t)te.cycles);
+            e.inst = te.inst;
+            e.pc = htobe64(te.pc);
+            e.val1 = htobe64(te.val1);
+            e.val2 = htobe64(te.val2);
+            fwrite(&e, sizeof(e), 1, stdout);
+          }
+        } else
+          print_trace_entry(&te);
+      }
 		}
 		if (!keepRunning) return BERI_DEBUG_SUCCESS;
 	}

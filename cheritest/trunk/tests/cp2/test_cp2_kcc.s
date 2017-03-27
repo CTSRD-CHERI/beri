@@ -25,6 +25,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -35,11 +36,12 @@
 #
 
 sandbox:
-		dla $t0, data
 		# KCC is $c29
-		cincbase $c29, $c0, $t0
+		cgetdefault $c29
+		dla $t0, data
+		csetoffset $c29, $c29, $t0
 		dli $t0, 8
-		csetlen $c29, $c29, $t0
+		csetbounds $c29, $c29, $t0
 		dli $t0, 0x7f
 		candperm $c29, $c29, $t0
 
@@ -59,16 +61,16 @@ test:		.ent test
 		# Restrict the PCC capability that sandbox will run with.
 		# Non_Ephemeral, Permit_Execute, Permit_Load, Permit_Store,
 		# Permit_Load_Capability, Permit_Store_Capability, 
-		# Permit_Store_Ephemeral_Capability, Access_KCC.
+		# Permit_Store_Ephemeral_Capability, Access_System_Registers.
 
-		dli $t0, 0x107f
+		dli $t0, 0x7c7f
 		candperm $c1, $c0, $t0
 
 		dla     $a0, 0
 
 		dla	$t0, sandbox
 		csetoffset $c1, $c1, $t0
-		cjalr	$c24, $c1
+		cjalr	$c1, $c24
 		nop			# branch delay slot
 
 		ld	$fp, 16($sp)

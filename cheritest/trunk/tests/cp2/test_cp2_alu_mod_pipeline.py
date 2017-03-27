@@ -42,7 +42,7 @@ class test_cp2_alu_mod_pipeline(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_alu_csetlen(self):
 	'''Test that csetlen uses ALU results in pipeline'''
-	self.assertRegisterEqual(self.MIPS.a1, 0x100, "cgetleng returns incorrect value")
+	self.assertRegisterEqual(self.MIPS.a1, 0x100, "cgetlen returns incorrect value")
 
     @attr('capabilities')
     def test_cp2_alu_candperm(self):

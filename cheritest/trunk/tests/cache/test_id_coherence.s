@@ -57,6 +57,10 @@ L1:
 		or	$a4, $a3, $a0
 		sw	$a4, 0($a2)
 		cache	0x19, 0($a2)	# Flush writeback DCache to memory
+		nop # Ensure that DCache flush reaches memory before ICache makes request.
+		nop
+		nop
+		nop
 		cache	0x10, 0($a2)	# Invalidate ICache for address $a2
 		lw	$a5, 0($a2)
 		nop

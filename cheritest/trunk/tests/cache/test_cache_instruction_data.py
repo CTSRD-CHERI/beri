@@ -75,5 +75,6 @@ class test_cache_instruction_data(BaseBERITestCase):
 
     @attr('cache')
     @attr('loadcachetag')
+    @attr('beri1cache')
     def test_index_load_tag_dcache(self):
         self.assertRegisterEqual(self.MIPS.a7, 0x000000004001fe00, "Index load tag dCache unexpected value")

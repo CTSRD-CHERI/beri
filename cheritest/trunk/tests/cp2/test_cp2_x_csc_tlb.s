@@ -31,6 +31,7 @@
 # 'disable capability store' bit is set in the TLB entry for the page.
 #
 
+.include "macros.s"
 .set mips64
 .set noreorder
 .set nobopt
@@ -135,9 +136,10 @@ testcode:
 		# This should raise an exception.
 		#
 
+		cgetdefault $c1
 		dli	$t0, 64
-		cincbase $c1, $c0, $t0
-		csetlen	$c1, $c1, $t0
+		csetoffset $c1, $c1, $t0
+		csetbounds $c1, $c1, $t0
 		cscr	$c1, $a2($c0)
 
 		dli	$a5, 4
@@ -152,7 +154,7 @@ testcode:
 exception_handler:
 
                 dmfc0   $a6, $12                # Read status
-                dmfc0   $a7, $13                # Read cause
+                mfc0    $a7, $13                # Read cause
 
 		#
 		# Check to see if the capability store succeeded

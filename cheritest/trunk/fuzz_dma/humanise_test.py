@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 #-
 # Copyright (c) 2015 Colin Rothwell
 # All rights reserved.
@@ -76,9 +78,13 @@ def main():
     new_file = []
     with open(sys.argv[1]) as test_file:
         for line in test_file:
-            if line.strip().startswith('assert(1 &&'):
+            def first_is(match):
+                return line.strip().startswith(match)
+
+            if first_is('assert(1 &&'):
                 new_file.extend(humanise_asserts(line))
-            elif line.strip().startswith('*((volatile uint8_t *)'):
+            elif (first_is('*((volatile uint8_t *)') or
+                  first_is('add_tlb_mapping')):
                 new_file.append(line.replace(';', ';\n\t'))
             elif line.strip().startswith('dma_instruction *dma_program[]'):
                 new_file.append(humanise_programs(line))

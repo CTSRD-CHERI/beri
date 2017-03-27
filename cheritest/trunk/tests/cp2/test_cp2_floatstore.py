@@ -36,28 +36,21 @@ class test_cp2_floatstore(BaseBERITestCase):
     @attr('capabilities')
     @attr('float')
     def test_cp2_floatstore_1(self):
-        '''Test that store float can be read back'''
+        '''Test that stored float can be read back'''
         self.assertRegisterEqual(self.MIPS.a0, 0x01234567,
-            "floating point load of floating point value returned incorrect result")
+            "Floating point load of floating point value returned incorrect result")
 
     @attr('capabilities')
     @attr('float')
     def test_cp2_floatstore_2(self):
         '''Test FP store followed by integer load'''
         self.assertRegisterEqual(self.MIPS.a1, 0x01234567,
-            "integer load of floating point value returned incorrect result")
+            "Integer load of floating point value returned incorrect result")
 
     @attr('capabilities')
     @attr('float')
     def test_cp2_floatstore_3(self):
-        '''Test FP store followed by capability read'''
-        self.assertRegisterEqual(self.MIPS.a2, 0x01234567,
-            "capability load of floating point value returned incorrect result")
-
-    @attr('capabilities')
-    @attr('float')
-    def test_cp2_floatstore_4(self):
         '''Test that floating point store clears the tag bit'''
-        self.assertRegisterEqual(self.MIPS.a3, 0,
-            "floating point store did not clear the tag bit")
+        self.assertRegisterEqual(self.MIPS.a2, 0,
+            "Floating point store did not clear the tag bit")
 

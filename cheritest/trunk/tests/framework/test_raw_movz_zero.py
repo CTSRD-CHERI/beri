@@ -30,6 +30,7 @@ from nose.plugins.attrib import attr
 
 class test_raw_movz_zero(BaseBERITestCase):
 
+    @attr('movz')
     def test_raw_movz_zero_1(self):
         '''Test that MOVZ does not change the value of $zero'''
         self.assertRegisterEqual(self.MIPS.a0, 0, "MOVZ changed the value of $zero")

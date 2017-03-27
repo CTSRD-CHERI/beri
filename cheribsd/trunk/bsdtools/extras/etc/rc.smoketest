@@ -51,8 +51,12 @@ echo "Running cheri_helloworld"
 /bin/cheri_helloworld
 
 echo
-echo "Running cheritest -a"
-/bin/cheritest -a
+echo "Running cheritest -a -f"
+/bin/cheritest -a -f
+
+echo
+echo "Running cheritest -a -f"
+/bin/cheriabitest -a -f
 
 echo
 echo "Done running tests"

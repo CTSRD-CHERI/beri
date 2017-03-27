@@ -65,6 +65,8 @@ test:		.ent test
 		jal	memcpy
 		nop	# Branch delay slot
 
+		sync # Ensure that instruction writes are propagated.
+		
 		#
 		# Clear $a2 so we can tell if the branch ends up at the right
 		# place.

@@ -47,7 +47,7 @@ class test_cp2_get_mem_pipeline(BaseBERITestCase):
     @attr('capabilities')
     def test_cp2_cgetperm_mem(self):
         '''Test that cgetperm results visible to store instructions'''
-        self.assertRegisterEqual(self.MIPS.t2, 0x7fffffff, "cgetperm returns incorrect value")
+        self.assertRegisterAllPermissions(self.MIPS.t2, "cgetperm returns incorrect value")
 
     @attr('capabilities')
     def test_cp2_cgettype_mem(self):

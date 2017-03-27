@@ -56,6 +56,7 @@ class BaseBERITestCase(unittest.TestCase):
     MIPS_EXCEPTION = None
     ## Trigger a test failure (for testing the test-cases)
     ALWAYS_FAIL = is_envvar_true("DEBUG_ALWAYS_FAIL")
+    EXPECT_EXCEPTION=None
 
     @classmethod
     def setUpClass(self):
@@ -74,8 +75,26 @@ class BaseBERITestCase(unittest.TestCase):
         fh = open(os.path.join(self.LOG_DIR, self.LOG_FN), "rt")
         try:
             self.MIPS = MipsStatus(fh)
+
+            # The test framework has a default exception handler which
+            # increments k0 and returns to the instruction after the
+            # exception. We assert that k0 is zero here to check there
+            # weren't any unexpected exceptions. The EXPECT_EXCEPTION
+            # class variable can be overridden in subclasses (set to
+            # True or False), but actually all tests which expect
+            # exceptions have custom handlers so none of them need to.
+
+            if self.EXPECT_EXCEPTION is not None:
+                expect_exception = self.EXPECT_EXCEPTION
+            else:
+                # raw tests don't have the default exception handler so don't check for exceptions
+                expect_exception =  'raw' in self.__name__
+
+            if self.MIPS.k0 != 0 and not expect_exception:
+                self.MIPS_EXCEPTION=Exception(self.__name__ + " threw exception unexpectedly")
         except MipsException, e:
             self.MIPS_EXCEPTION = e
+
 
     def id(self):
         id = unittest.TestCase.id(self)
@@ -178,6 +197,79 @@ class BaseBERITestCase(unittest.TestCase):
             else:
                 msg = msg + ": "
             self.fail(msg + "0x%016x and 0x%016x == 0x%016x"%(first, mask, second))
+
+    def assertRegisterIsSingleNaN(self, reg_val, msg=None):
+        if ((reg_val & 0x7f800000 != 0x7f800000) or (reg_val & 0x7fffff == 0)):
+            if msg is None:
+                msg = ""
+            else:
+                msg = msg + ": "
+            self.fail(msg + "0x%016x is not a NaN value"%(reg_val))
+
+    def assertRegisterIsSingleQNaN(self, reg_val, msg=None):
+        # This tests for the IEEE 754:2008 QNaN, not the legacy MIPS
+        # IEEE 754:1985 QNaN
+        if (reg_val & 0x7fc00000 != 0x7fc00000):
+            if msg is None:
+                msg = ""
+            else:
+                msg = msg + ": "
+            self.fail(msg + "0x%016x is not a QNaN value"%(reg_val))
+
+    def assertRegisterIsDoubleNaN(self, reg_val, msg=None):
+        if ((reg_val & 0x7ff0000000000000 != 0x7ff0000000000000) or (reg_val & 0xfffffffffffff == 0)):
+            if msg is None:
+                msg = ""
+            else:
+                msg = msg + ": "
+            self.fail(msg + "0x%016x is not a NaN value"%(reg_val))
+
+    def assertRegisterIsDoubleQNaN(self, reg_val, msg=None):
+        if (reg_val & 0x7ff8000000000000 != 0x7ff8000000000000):
+            if msg is None:
+                msg = ""
+            else:
+                msg = msg + ": "
+            self.fail(msg + "0x%016x is not a QNaN value"%(reg_val))
+
+    def assertRegisterAllPermissions(self, reg_val, msg=None):
+        perm_size = int(os.environ.get("PERM_SIZE", "31"))
+        passed = True
+        expected = 0
+        if perm_size == 31:
+            expected = 0x7fffffff
+        if perm_size == 23:
+            expected = 0x7fffff
+        if perm_size == 19:
+            expected = 0x7ffff
+        if perm_size == 15:
+            expected = 0x7fff
+        if self.ALWAYS_FAIL:
+            passed = False
+        if expected != 0 and reg_val != expected:
+            passed = False
+        if not passed:
+            if msg is None:
+                msg = ""
+            else:
+                msg = msg + ": "
+            self.fail(msg + "0x%016x != 0x%016x"%(reg_val, expected))
+
+    def assertNullCap(self, cap, msg = None):
+        self.assertRegisterEqual(cap.s     , 0, msg)
+        self.assertRegisterEqual(cap.ctype , 0, msg)
+        self.assertRegisterEqual(cap.perms , 0, msg)
+        self.assertRegisterEqual(cap.offset, 0, msg)
+        self.assertRegisterEqual(cap.base  , 0, msg)
+        self.assertRegisterEqual(cap.length, 0, msg)
+
+    def assertDefaultCap(self, cap, msg = None):
+        self.assertRegisterEqual(cap.s     , 0, msg)
+        self.assertRegisterEqual(cap.ctype , 0, msg)
+        self.assertRegisterAllPermissions(cap.perms , msg)
+        self.assertRegisterEqual(cap.offset, 0, msg)
+        self.assertRegisterEqual(cap.base  , 0, msg)
+        self.assertRegisterEqual(cap.length, 0xffffffffffffffff, msg)
 
 class BaseICacheBERITestCase(BaseBERITestCase):
     '''Abstract base class for test cases for the BERI Instruction Cache.'''

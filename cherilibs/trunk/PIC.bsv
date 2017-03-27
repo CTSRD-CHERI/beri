@@ -58,6 +58,14 @@ import Library::*;
 import Debug::*;
 import Peripheral::*;
 
+`ifdef CAP
+  `define USECAP 1
+`elsif CAP128
+  `define USECAP 1
+`elsif CAP64
+  `define USECAP 1
+`endif
+
 // Numbering for MIPS interrupts
 typedef enum {
 // Corresponding to IP bits in Cause register
@@ -198,14 +206,14 @@ module mkPIC(PIC#(`NUM_HARD_IRQS, tid)) provisos(Bits#(tid, tsz),Add#(a__,tsz,23
         Vector#(64, Reg#(Bool)) ips = offset[3] == 1 ? takeAt(64,ip) : take(ip);
         writeVReg(ips, unpack(pack(readVReg(ips)) & ~writeData));
       end
+    resp.data = Data{
+                  `ifdef USECAP
+                    cap: unpack(0),
+                  `endif
+                  data: reverseBytes(response)
+              };
     if (req.operation matches tagged Read .rreq)  resp.operation = 
             tagged Read{
-              data: Data{
-                      `ifdef CAP
-                        cap: unpack(0),
-                      `endif
-                      data: reverseBytes(response)
-              }, 
               last: True
             };
     resp_fifo.enq(resp);
