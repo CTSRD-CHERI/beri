@@ -1,9 +1,0 @@
-*.so
-*.hex
-*.sched
-sim
-build.log
-mem.bin
-simdir_*
-bdir_*
-trace_info
